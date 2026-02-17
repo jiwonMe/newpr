@@ -96,12 +96,15 @@ function MediaEmbed({ src }: { src: string }) {
 }
 
 const ANCHOR_RE = /\[\[(group|file):([^\]]+)\]\]/g;
+const BOLD_CJK_RE = /(\*\*[^*]+\*\*)([가-힣ぁ-ヿ一-鿿])/g;
 
 function preprocess(text: string): string {
-	return text.replace(ANCHOR_RE, (_, kind, id) => {
-		const encoded = encodeURIComponent(id);
-		return `![${kind}:${encoded}](newpr)`;
-	});
+	return text
+		.replace(ANCHOR_RE, (_, kind, id) => {
+			const encoded = encodeURIComponent(id);
+			return `![${kind}:${encoded}](newpr)`;
+		})
+		.replace(BOLD_CJK_RE, "$1 $2");
 }
 
 export function Markdown({ children, onAnchorClick, activeId }: MarkdownProps) {
@@ -221,5 +224,5 @@ export function Markdown({ children, onAnchorClick, activeId }: MarkdownProps) {
 		td: ({ children }) => <td className="border-b border-border px-3 py-1.5 text-sm">{children}</td>,
 	};
 
-	return <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeRaw, rehypeKatex]} components={components}>{processed}</ReactMarkdown>;
+	return <ReactMarkdown remarkPlugins={[[remarkMath, { singleDollarTextMath: true }], remarkGfm]} rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: false }], rehypeRaw]} components={components}>{processed}</ReactMarkdown>;
 }
