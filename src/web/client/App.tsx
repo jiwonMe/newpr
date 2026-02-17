@@ -113,9 +113,14 @@ export function App() {
 			onNewAnalysis={handleNewAnalysis}
 			detailPanel={detailPanel}
 			bottomBar={analysis.phase === "done" ? <ChatInput /> : undefined}
+			activeSessionId={diffSessionId}
 		>
 			{analysis.phase === "idle" && (
-				<InputScreen onSubmit={(pr) => analysis.start(pr)} />
+				<InputScreen
+					onSubmit={(pr) => analysis.start(pr)}
+					sessions={sessions}
+					onSessionSelect={handleSessionSelect}
+				/>
 			)}
 			{analysis.phase === "loading" && (
 				<LoadingTimeline
