@@ -80,6 +80,26 @@ export interface PendingComment {
 	body: string;
 }
 
+export interface ChatToolCall {
+	id: string;
+	name: string;
+	arguments: Record<string, unknown>;
+	result?: string;
+}
+
+export type ChatSegment =
+	| { type: "text"; content: string }
+	| { type: "tool_call"; toolCall: ChatToolCall };
+
+export interface ChatMessage {
+	role: "user" | "assistant" | "tool";
+	content: string;
+	toolCalls?: ChatToolCall[];
+	segments?: ChatSegment[];
+	toolCallId?: string;
+	timestamp: string;
+}
+
 export interface NewprOutput {
 	meta: PrMeta;
 	summary: PrSummary;
