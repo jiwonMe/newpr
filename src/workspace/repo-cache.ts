@@ -39,7 +39,10 @@ export async function ensureRepo(
 	if (existsSync(join(repoPath, "HEAD"))) {
 		if (needsFetch(repoPath)) {
 			onProgress?.("Fetching latest changes...");
-			await Bun.$`git -C ${repoPath} fetch --all --prune`.quiet();
+			const fetch = await Bun.$`git -C ${repoPath} fetch --all --prune`.quiet().nothrow();
+			if (fetch.exitCode !== 0) {
+				throw new Error(`git fetch failed (exit ${fetch.exitCode}): ${fetch.stderr.toString().trim()}`);
+			}
 			touchFetchStamp(repoPath);
 		} else {
 			onProgress?.("Repository cache is fresh.");
@@ -52,7 +55,10 @@ export async function ensureRepo(
 
 	const cloneUrl = `https://x-access-token:${token}@github.com/${owner}/${repo}.git`;
 	onProgress?.(`Cloning ${owner}/${repo}...`);
-	await Bun.$`git clone --bare ${cloneUrl} ${repoPath}`.quiet();
+	const clone = await Bun.$`git clone --bare ${cloneUrl} ${repoPath}`.quiet().nothrow();
+	if (clone.exitCode !== 0) {
+		throw new Error(`git clone failed (exit ${clone.exitCode}): ${clone.stderr.toString().trim()}`);
+	}
 	touchFetchStamp(repoPath);
 
 	return repoPath;

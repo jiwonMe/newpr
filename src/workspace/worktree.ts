@@ -35,10 +35,16 @@ export async function createWorktrees(
 	await Bun.$`git -C ${bareRepoPath} fetch origin pull/${prNumber}/head:pr-${prNumber}`.quiet().nothrow();
 
 	onProgress?.(`Checking out base branch (${baseBranch})...`);
-	await Bun.$`git -C ${bareRepoPath} worktree add ${basePath} origin/${baseBranch}`.quiet();
+	const baseResult = await Bun.$`git -C ${bareRepoPath} worktree add ${basePath} origin/${baseBranch}`.quiet().nothrow();
+	if (baseResult.exitCode !== 0) {
+		throw new Error(`worktree add base failed (exit ${baseResult.exitCode}): ${baseResult.stderr.toString().trim()}`);
+	}
 
 	onProgress?.(`Checking out PR head...`);
-	await Bun.$`git -C ${bareRepoPath} worktree add ${headPath} pr-${prNumber}`.quiet();
+	const headResult = await Bun.$`git -C ${bareRepoPath} worktree add ${headPath} pr-${prNumber}`.quiet().nothrow();
+	if (headResult.exitCode !== 0) {
+		throw new Error(`worktree add head failed (exit ${headResult.exitCode}): ${headResult.stderr.toString().trim()}`);
+	}
 
 	return { basePath, headPath };
 }

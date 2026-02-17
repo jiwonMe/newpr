@@ -22,8 +22,8 @@ export interface ProgressEvent {
 export type ProgressCallback = (event: ProgressEvent) => void;
 
 const STAGE_ORDER: ProgressStage[] = [
-	"fetching", "cloning", "checkout", "exploring",
-	"parsing", "analyzing", "grouping", "summarizing", "narrating", "done",
+	"fetching", "parsing", "cloning", "checkout", "exploring",
+	"analyzing", "grouping", "summarizing", "narrating", "done",
 ];
 
 export function stageIndex(stage: ProgressStage): number {
