@@ -5,25 +5,31 @@ import { T } from "./theme.ts";
 export function InputBar({
 	placeholder,
 	onSubmit,
+	onChange,
 	initialValue,
 }: {
 	placeholder: string;
 	onSubmit: (value: string) => void;
+	onChange?: (value: string) => void;
 	initialValue?: string;
 }) {
 	const [value, setValue] = useState(initialValue ?? "");
-	const [focused, setFocused] = useState(true);
+	const [focused] = useState(true);
 
 	useEffect(() => {
-		if (initialValue) setValue(initialValue);
+		if (initialValue !== undefined) setValue(initialValue);
 	}, [initialValue]);
+
+	useEffect(() => {
+		onChange?.(value);
+	}, [value]);
 
 	useInput(
 		(input, key) => {
 			if (key.return) {
 				if (value.trim()) {
 					onSubmit(value.trim());
-					setFocused(false);
+					setValue("");
 				}
 				return;
 			}
@@ -32,6 +38,10 @@ export function InputBar({
 				return;
 			}
 			if (key.ctrl && input === "u") {
+				setValue("");
+				return;
+			}
+			if (key.escape) {
 				setValue("");
 				return;
 			}

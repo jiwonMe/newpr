@@ -21,7 +21,7 @@ export interface PromptContext {
 
 function langDirective(lang?: string): string {
 	if (!lang || lang === "English") return "";
-	return `\nIMPORTANT: Write ALL your output (summaries, descriptions, narratives) in ${lang}.`;
+	return `\nCRITICAL LANGUAGE RULE: ALL text values in your response MUST be written in ${lang}. This includes every summary, description, name, purpose, scope, and impact field. JSON keys stay in English, but ALL string values MUST be in ${lang}. Do NOT use English for any descriptive text.`;
 }
 
 function formatCommitHistory(commits: PrCommit[]): string {
@@ -48,6 +48,7 @@ export function buildFileSummaryPrompt(chunks: DiffChunk[], ctx?: PromptContext)
 		system: `You are an expert code reviewer. Analyze the given diff and provide a 1-line summary for each changed file.
 Use the commit history to understand the intent behind each change — why the change was made, not just what changed.
 Respond ONLY with a JSON array. Each element: {"path": "file/path", "summary": "one line description of what changed"}.
+The "path" value must be the exact file path. The "summary" value is a human-readable description.
 No markdown, no explanation, just the JSON array.${langDirective(ctx?.language)}`,
 		user: `${fileList}${commitCtx}`,
 	};
@@ -66,6 +67,7 @@ Each group should have a descriptive name, a type (one of: feature, refactor, bu
 A file MAY appear in multiple groups if it serves multiple purposes (e.g., index.ts re-exporting for both a feature and a refactor).
 Use the commit history to understand which changes belong together logically.
 Respond ONLY with a JSON array. Each element: {"name": "group name", "type": "feature|refactor|bugfix|chore|docs|test|config", "description": "what this group of changes does", "files": ["path1", "path2"]}.
+The "name" and "description" values are human-readable text. The "type" value must be one of the English keywords listed above. File paths stay as-is.
 Every file must appear in at least one group. No markdown, no explanation, just the JSON array.${langDirective(ctx?.language)}`,
 		user: `Changed files:\n${fileList}${commitCtx}`,
 	};
@@ -88,6 +90,7 @@ export function buildOverallSummaryPrompt(
 		system: `You are an expert code reviewer. Provide an overall summary of this Pull Request.
 Use the commit history to understand the development progression and intent.
 Respond ONLY with a JSON object: {"purpose": "why this PR exists (1-2 sentences)", "scope": "what areas of code are affected", "impact": "what is the impact of these changes", "risk_level": "low|medium|high"}.
+The "purpose", "scope", and "impact" values are human-readable text. The "risk_level" must be one of: low, medium, high (in English).
 No markdown, no explanation, just the JSON object.${langDirective(ctx?.language)}`,
 		user: `PR Title: ${prTitle}\n\nChange Groups:\n${groupList}\n\nFile Summaries:\n${fileList}${commitCtx}`,
 	};
@@ -111,7 +114,7 @@ export function buildNarrativePrompt(
 Write a clear, concise narrative that tells the "story" of this PR — what changes were made and in what logical order.
 Use the commit history to understand the development progression: which changes came first, how the PR evolved, and the intent behind each step.
 Use markdown formatting. Write 2-5 paragraphs. Do NOT use JSON. Write natural prose.
-${lang ? `Write the narrative in ${lang}.` : "If the PR title is in a non-English language, write the narrative in that same language."}
+${lang ? `CRITICAL: Write the ENTIRE narrative in ${lang}. Every sentence must be in ${lang}. Do NOT use English except for code identifiers, file paths, and [[group:...]]/[[file:...]] tokens.` : "If the PR title is in a non-English language, write the narrative in that same language."}
 
 IMPORTANT: When referencing a change group, wrap it as [[group:Group Name]]. When referencing a specific file, wrap it as [[file:path/to/file.ts]].
 Use the EXACT group names and file paths provided. Every group MUST be referenced at least once. Reference key files where relevant.

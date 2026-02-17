@@ -75,11 +75,11 @@ function stripAnsi(text: string): string {
 	return text.replace(ANSI_RE, "");
 }
 
-async function streamStderr(
-	stderr: ReadableStream<Uint8Array>,
-	onOutput: (line: string) => void,
+async function streamLines(
+	stream: ReadableStream<Uint8Array>,
+	onLine: (line: string) => void,
 ): Promise<void> {
-	const reader = stderr.getReader();
+	const reader = stream.getReader();
 	const decoder = new TextDecoder();
 	let buffer = "";
 
@@ -93,12 +93,37 @@ async function streamStderr(
 
 		for (const raw of lines) {
 			const line = stripAnsi(raw).trim();
-			if (line) onOutput(line);
+			if (line) onLine(line);
 		}
 	}
 
 	const tail = stripAnsi(buffer).trim();
-	if (tail) onOutput(tail);
+	if (tail) onLine(tail);
+}
+
+const TOOL_LABELS: Record<string, (input: Record<string, unknown>) => string> = {
+	Read: (i) => `Reading ${truncPath(i.file_path as string ?? i.filePath as string ?? "")}`,
+	Glob: (i) => `Glob ${i.pattern as string ?? ""}`,
+	Grep: (i) => `Grep "${i.pattern as string ?? ""}"`,
+	Bash: (i) => {
+		const cmd = (i.command as string ?? "").slice(0, 60);
+		return `$ ${cmd}`;
+	},
+	ListFiles: (i) => `Listing ${truncPath(i.path as string ?? ".")}`,
+	Search: (i) => `Search "${i.query as string ?? ""}"`,
+};
+
+function truncPath(p: string): string {
+	if (p.length <= 50) return p;
+	const parts = p.split("/");
+	if (parts.length <= 3) return `…${p.slice(-47)}`;
+	return `${parts[0]}/…/${parts.slice(-2).join("/")}`;
+}
+
+function formatToolUse(name: string, input: Record<string, unknown>): string | null {
+	const formatter = TOOL_LABELS[name];
+	if (formatter) return formatter(input);
+	return `${name}`;
 }
 
 export async function runAgent(
@@ -131,7 +156,7 @@ async function runClaude(
 		[
 			agent.path,
 			"-p",
-			"--output-format", "json",
+			"--output-format", "stream-json",
 			"--permission-mode", "bypassPermissions",
 			"--allowedTools", "Read", "Glob", "Grep", "Bash(find:*)", "Bash(wc:*)", "Bash(head:*)",
 			prompt,
@@ -140,36 +165,48 @@ async function runClaude(
 			cwd: workdir,
 			stdin: "ignore",
 			stdout: "pipe",
-			stderr: "pipe",
+			stderr: "ignore",
 		},
 	);
 
-	const stderrPromise = onOutput && proc.stderr
-		? streamStderr(proc.stderr, onOutput)
+	let answer = "";
+	let costUsd: number | undefined;
+
+	const stdoutPromise = proc.stdout
+		? streamLines(proc.stdout, (line) => {
+			try {
+				const event = JSON.parse(line);
+				if (event.type === "assistant" && event.message?.content) {
+					for (const block of event.message.content) {
+						if (block.type === "tool_use" && onOutput) {
+							const label = formatToolUse(
+								block.name ?? "",
+								(block.input as Record<string, unknown>) ?? {},
+							);
+							if (label) onOutput(label);
+						}
+					}
+				} else if (event.type === "result") {
+					answer = event.result ?? "";
+					costUsd = event.cost_usd ?? event.total_cost_usd;
+				}
+			} catch {
+			}
+		})
 		: Promise.resolve();
 
 	const timeoutId = setTimeout(() => proc.kill(), timeout);
-	const output = await new Response(proc.stdout).text();
-	await stderrPromise;
+	await stdoutPromise;
 	clearTimeout(timeoutId);
 
 	const duration = Date.now() - start;
 
-	try {
-		const json = JSON.parse(output);
-		return {
-			answer: json.result ?? output,
-			cost_usd: json.total_cost_usd,
-			duration_ms: duration,
-			tool_used: agent.name,
-		};
-	} catch {
-		return {
-			answer: output.trim(),
-			duration_ms: duration,
-			tool_used: agent.name,
-		};
-	}
+	return {
+		answer,
+		cost_usd: costUsd,
+		duration_ms: duration,
+		tool_used: agent.name,
+	};
 }
 
 async function runOpencode(
@@ -191,7 +228,7 @@ async function runOpencode(
 	);
 
 	const stderrPromise = onOutput && proc.stderr
-		? streamStderr(proc.stderr, onOutput)
+		? streamLines(proc.stderr, onOutput)
 		: Promise.resolve();
 
 	const timeoutId = setTimeout(() => proc.kill(), timeout);
@@ -238,7 +275,7 @@ async function runCodex(
 	);
 
 	const stderrPromise = onOutput && proc.stderr
-		? streamStderr(proc.stderr, onOutput)
+		? streamLines(proc.stderr, onOutput)
 		: Promise.resolve();
 
 	const timeoutId = setTimeout(() => proc.kill(), timeout);

@@ -85,29 +85,32 @@ async function tryExploreCodebase(
 	try {
 		const agent = await requireAgent(preferredAgent);
 
-		onProgress?.({ stage: "cloning", message: `Preparing ${pr.owner}/${pr.repo}...` });
+		onProgress?.({ stage: "cloning", message: `${pr.owner}/${pr.repo}` });
 		const bareRepoPath = await ensureRepo(pr.owner, pr.repo, token, (msg) => {
 			onProgress?.({ stage: "cloning", message: msg });
 		});
+		onProgress?.({ stage: "cloning", message: `${pr.owner}/${pr.repo} ready` });
 
-		onProgress?.({ stage: "checkout", message: "Setting up PR worktrees..." });
+		onProgress?.({ stage: "checkout", message: `${baseBranch} ← PR #${pr.number}` });
 		const worktrees = await createWorktrees(
 			bareRepoPath, baseBranch, pr.number, pr.owner, pr.repo,
 			(msg) => onProgress?.({ stage: "checkout", message: msg }),
 		);
+		onProgress?.({ stage: "checkout", message: `${baseBranch} ← PR #${pr.number} worktrees ready` });
 
-		onProgress?.({ stage: "exploring", message: "Exploring codebase with agent..." });
+		onProgress?.({ stage: "exploring", message: `${agent.name}: analyzing ${changedFiles.length} files...` });
 		const exploration = await exploreCodebase(
 			agent, worktrees.headPath, changedFiles, prTitle, rawDiff,
 			(msg, current, total) => onProgress?.({ stage: "exploring", message: msg, current, total }),
 		);
+		onProgress?.({ stage: "exploring", message: `${agent.name}: exploration complete` });
 
 		await cleanupWorktrees(bareRepoPath, pr.number, pr.owner, pr.repo).catch(() => {});
 
 		return exploration;
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
-		onProgress?.({ stage: "exploring", message: `Skipping codebase exploration: ${msg}` });
+		onProgress?.({ stage: "exploring", message: `Skipped: ${msg}` });
 		return null;
 	}
 }
@@ -126,6 +129,7 @@ export async function analyzePr(options: PipelineOptions): Promise<NewprOutput> 
 		fetchPrData(pr, token),
 		fetchPrDiff(pr, token),
 	]);
+	progress({ stage: "fetching", message: `#${prData.number} "${prData.title}" by ${prData.author} · +${prData.additions} −${prData.deletions}` });
 
 	progress({ stage: "parsing", message: "Parsing diff..." });
 	const parsed = parseDiff(rawDiff);
@@ -133,6 +137,9 @@ export async function analyzePr(options: PipelineOptions): Promise<NewprOutput> 
 	const chunks = allChunks.slice(0, config.max_files);
 	const wasTruncated = allChunks.length > config.max_files;
 	const changedFiles = chunks.map((c) => c.file_path);
+	const totalAdd = chunks.reduce((s, c) => s + c.additions, 0);
+	const totalDel = chunks.reduce((s, c) => s + c.deletions, 0);
+	progress({ stage: "parsing", message: `${chunks.length} files · +${totalAdd} −${totalDel}${wasTruncated ? ` (${allChunks.length - config.max_files} skipped)` : ""}` });
 
 	let exploration: ExplorationResult | null = null;
 	if (!noClone) {
@@ -143,10 +150,11 @@ export async function analyzePr(options: PipelineOptions): Promise<NewprOutput> 
 	}
 
 	const promptCtx: PromptContext = { commits: prData.commits, language: config.language };
+	const enrichedTag = exploration ? " + codebase context" : "";
 
 	progress({
 		stage: "analyzing",
-		message: `Analyzing ${chunks.length} files${wasTruncated ? ` (${allChunks.length - config.max_files} skipped)` : ""}${exploration ? " (with codebase context)" : ""}...`,
+		message: `Analyzing ${chunks.length} files${enrichedTag}...`,
 	});
 
 	const fileBatchSize = 10;
@@ -159,7 +167,7 @@ export async function analyzePr(options: PipelineOptions): Promise<NewprOutput> 
 			.map((c) => c.file_path.split("/").pop() ?? c.file_path);
 		progress({
 			stage: "analyzing",
-			message: `Analyzing: ${batchFiles.join(", ")}`,
+			message: batchFiles.join(", "),
 			current: Math.min((i + 1) * fileBatchSize, chunks.length),
 			total: chunks.length,
 		});
@@ -171,8 +179,9 @@ export async function analyzePr(options: PipelineOptions): Promise<NewprOutput> 
 		allFileSummaries.push(...results.flat());
 		i += config.concurrency - 1;
 	}
+	progress({ stage: "analyzing", message: `${allFileSummaries.length} files summarized${enrichedTag}` });
 
-	progress({ stage: "grouping", message: "Grouping files by semantic purpose..." });
+	progress({ stage: "grouping", message: `Grouping ${chunks.length} files by purpose...` });
 	const fileSummaryInputs: FileSummaryInput[] = chunks.map((chunk) => {
 		const summary = allFileSummaries.find((s) => s.path === chunk.file_path);
 		return {
@@ -187,26 +196,27 @@ export async function analyzePr(options: PipelineOptions): Promise<NewprOutput> 
 		client, groupSystem, groupUser, "grouping", "Grouping files...", progress,
 	);
 	const groups: FileGroup[] = parseGroups(groupResponse.content);
+	progress({ stage: "grouping", message: `${groups.length} groups: ${groups.map((g) => g.name).join(", ")}` });
 
-	const summaryLabel = `Generating overall summary${exploration ? " (enriched)" : ""}...`;
-	progress({ stage: "summarizing", message: summaryLabel });
+	progress({ stage: "summarizing", message: `Generating summary${enrichedTag}...` });
 	const summaryPrompt = exploration
 		? buildEnrichedSummaryPrompt(prData.title, groups, allFileSummaries, exploration, promptCtx)
 		: buildOverallSummaryPrompt(prData.title, groups, allFileSummaries, promptCtx);
 	const summaryResponse = await streamLlmCall(
-		client, summaryPrompt.system, summaryPrompt.user, "summarizing", summaryLabel, progress,
+		client, summaryPrompt.system, summaryPrompt.user, "summarizing", "Generating summary...", progress,
 	);
 	const summary: PrSummary = parseSummary(summaryResponse.content);
+	progress({ stage: "summarizing", message: `${summary.risk_level} risk · ${summary.purpose.slice(0, 60)}` });
 
-	const narrativeLabel = `Writing change narrative${exploration ? " (enriched)" : ""}...`;
-	progress({ stage: "narrating", message: narrativeLabel });
+	progress({ stage: "narrating", message: `Writing narrative${enrichedTag}...` });
 	const narrativePrompt = exploration
 		? buildEnrichedNarrativePrompt(prData.title, summary, groups, exploration, promptCtx)
 		: buildNarrativePrompt(prData.title, summary, groups, promptCtx);
 	const narrativeResponse = await streamLlmCall(
-		client, narrativePrompt.system, narrativePrompt.user, "narrating", narrativeLabel, progress,
+		client, narrativePrompt.system, narrativePrompt.user, "narrating", "Writing narrative...", progress,
 	);
 	const narrative = parseNarrative(narrativeResponse.content);
+	progress({ stage: "narrating", message: `${narrative.split("\n").length} lines` });
 
 	progress({ stage: "done", message: "Analysis complete." });
 
