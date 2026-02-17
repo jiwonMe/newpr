@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Markdown } from "../components/Markdown.tsx";
-import { MessageSquare, RefreshCw, ExternalLink } from "lucide-react";
+import { RefreshCw, ExternalLink, AlertCircle, Loader2 } from "lucide-react";
 import type { PrComment } from "../../../types/github.ts";
 
 interface DiscussionData {
@@ -52,30 +52,32 @@ export function DiscussionPanel({ sessionId }: { sessionId?: string | null }) {
 
 	if (!sessionId) {
 		return (
-			<div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-				<MessageSquare className="h-8 w-8 mb-2 opacity-40" />
-				<p className="text-sm">No session available</p>
+			<div className="flex flex-col items-center justify-center py-20">
+				<p className="text-xs text-muted-foreground/50">No session available</p>
 			</div>
 		);
 	}
 
 	if (loading) {
 		return (
-			<div className="flex items-center justify-center py-16">
-				<div className="animate-spin h-5 w-5 border-2 border-muted-foreground/30 border-t-foreground rounded-full" />
-				<span className="ml-3 text-sm text-muted-foreground">Loading discussion…</span>
+			<div className="flex items-center justify-center py-20 gap-2">
+				<Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground/40" />
+				<span className="text-xs text-muted-foreground/50">Loading discussion</span>
 			</div>
 		);
 	}
 
 	if (error) {
 		return (
-			<div className="flex flex-col items-center justify-center py-16 gap-3">
-				<p className="text-sm text-destructive">{error}</p>
+			<div className="flex flex-col items-center justify-center py-20 gap-3">
+				<div className="flex items-center gap-2 text-destructive">
+					<AlertCircle className="h-3.5 w-3.5" />
+					<p className="text-xs">{error}</p>
+				</div>
 				<button
 					type="button"
 					onClick={fetchDiscussion}
-					className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+					className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground/50 hover:text-foreground transition-colors"
 				>
 					<RefreshCw className="h-3 w-3" />
 					Retry
@@ -90,32 +92,37 @@ export function DiscussionPanel({ sessionId }: { sessionId?: string | null }) {
 	const hasComments = data.comments.length > 0;
 
 	return (
-		<div className="space-y-6">
-			<section>
-				<h2 className="text-sm font-semibold text-muted-foreground mb-3 uppercase tracking-wider">Description</h2>
-				{hasBody ? (
-					<div className="rounded-lg border border-border bg-card p-4">
+		<div className="pt-5 space-y-6">
+			{hasBody && (
+				<div>
+					<div className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider mb-3">
+						Description
+					</div>
+					<div className="text-xs">
 						<Markdown>{data.body}</Markdown>
 					</div>
-				) : (
-					<p className="text-sm text-muted-foreground italic">No description provided.</p>
-				)}
-			</section>
+				</div>
+			)}
 
-			<section>
-				<h2 className="text-sm font-semibold text-muted-foreground mb-3 uppercase tracking-wider">
-					Comments
-					{hasComments && (
-						<span className="ml-2 text-xs font-normal text-muted-foreground/70">
-							({data.comments.length})
-						</span>
-					)}
-				</h2>
-				{hasComments ? (
-					<div className="space-y-3">
-						{data.comments.map((comment) => (
-							<div key={comment.id} className="rounded-lg border border-border bg-card">
-								<div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-muted/30">
+			{!hasBody && !hasComments && (
+				<div className="text-center py-12">
+					<p className="text-xs text-muted-foreground/40">No description or comments</p>
+				</div>
+			)}
+
+			{hasComments && (
+				<div>
+					<div className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider mb-3">
+						Comments
+						<span className="ml-1.5 text-muted-foreground/25">{data.comments.length}</span>
+					</div>
+					<div className="space-y-0">
+						{data.comments.map((comment, i) => (
+							<div
+								key={comment.id}
+								className={`py-4 ${i > 0 ? "border-t border-border/50" : ""}`}
+							>
+								<div className="flex items-center gap-2 mb-2.5">
 									{comment.author_avatar ? (
 										<img
 											src={comment.author_avatar}
@@ -123,31 +130,29 @@ export function DiscussionPanel({ sessionId }: { sessionId?: string | null }) {
 											className="h-5 w-5 rounded-full"
 										/>
 									) : (
-										<div className="h-5 w-5 rounded-full bg-muted-foreground/20" />
+										<div className="h-5 w-5 rounded-full bg-muted" />
 									)}
 									<span className="text-xs font-medium">{comment.author}</span>
-									<span className="text-xs text-muted-foreground">
+									<span className="text-[10px] text-muted-foreground/40">
 										{timeAgo(comment.created_at)}
 									</span>
 									<a
 										href={comment.html_url}
 										target="_blank"
 										rel="noopener noreferrer"
-										className="ml-auto text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+										className="ml-auto text-muted-foreground/20 hover:text-muted-foreground/60 transition-colors"
 									>
 										<ExternalLink className="h-3 w-3" />
 									</a>
 								</div>
-								<div className="px-4 py-3">
+								<div className="pl-7 text-xs">
 									<Markdown>{comment.body}</Markdown>
 								</div>
 							</div>
 						))}
 					</div>
-				) : (
-					<p className="text-sm text-muted-foreground italic">No comments yet.</p>
-				)}
-			</section>
+				</div>
+			)}
 		</div>
 	);
 }

@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { ChevronDown, ChevronRight, Plus, Pencil, Trash2, ArrowRight, FolderTree, Layers, ArrowDownWideNarrow, Folder, FolderOpen } from "lucide-react";
+import { ChevronRight, Plus, Pencil, Trash2, ArrowRight, FolderTree, Layers, ArrowDownWideNarrow } from "lucide-react";
 import type { FileChange, FileGroup, FileStatus } from "../../../types/output.ts";
 
 type ViewMode = "tree" | "group" | "changes";
@@ -88,9 +88,9 @@ function FileRow({
 				tabIndex={0}
 				onClick={() => onFileSelect?.(file.path)}
 				onKeyDown={(e) => { if (e.key === "Enter") onFileSelect?.(file.path); }}
-				style={indent ? { paddingLeft: `${indent * 14 + 2}px` } : undefined}
-				className={`w-full flex items-center gap-1.5 py-1 text-left hover:bg-accent/30 transition-colors min-w-0 pr-1 rounded cursor-pointer ${
-					isSelected ? "bg-accent/40 ring-1 ring-accent" : ""
+				style={indent ? { paddingLeft: `${indent * 14 + 4}px` } : undefined}
+				className={`w-full flex items-center gap-1.5 h-7 text-left transition-colors min-w-0 pr-2 rounded-md cursor-pointer ${
+					isSelected ? "bg-accent text-foreground" : "hover:bg-accent/30"
 				}`}
 			>
 				<button
@@ -98,23 +98,23 @@ function FileRow({
 					onClick={(e) => onToggleExpand(e, file.path)}
 					className="shrink-0 p-0.5 -m-0.5 rounded hover:bg-accent/50 transition-colors"
 				>
-					{open ? <ChevronDown className="h-3 w-3 text-muted-foreground" /> : <ChevronRight className="h-3 w-3 text-muted-foreground" />}
+					<ChevronRight className={`h-3 w-3 text-muted-foreground/40 transition-transform ${open ? "rotate-90" : ""}`} />
 				</button>
-				<Icon className={`h-3 w-3 shrink-0 ${STATUS_COLOR[file.status]}`} />
+				<Icon className={`h-2.5 w-2.5 shrink-0 ${STATUS_COLOR[file.status]}`} />
 				<span className="flex-1 min-w-0 flex items-baseline overflow-hidden" title={file.path}>
-					{dir && <span className="text-[11px] text-muted-foreground/50 font-mono truncate shrink">{dir}</span>}
-					<span className="text-xs font-mono font-medium shrink-0">{name}</span>
+					{dir && <span className="text-[11px] text-muted-foreground/30 font-mono truncate shrink">{dir}</span>}
+					<span className="text-[11px] font-mono shrink-0">{name}</span>
 				</span>
-				<span className="text-[11px] tabular-nums text-green-500 shrink-0 w-8 text-right">+{file.additions}</span>
-				<span className="text-[11px] tabular-nums text-red-500 shrink-0 w-8 text-right">−{file.deletions}</span>
+				<span className="text-[10px] tabular-nums text-green-600 dark:text-green-400 shrink-0 w-7 text-right">+{file.additions}</span>
+				<span className="text-[10px] tabular-nums text-red-600 dark:text-red-400 shrink-0 w-7 text-right">-{file.deletions}</span>
 			</div>
 			{open && (
-				<div className="pb-1.5" style={{ paddingLeft: `${(indent ?? 0) * 14 + 36}px` }}>
-					<p className="text-[11px] text-muted-foreground leading-relaxed break-words">{file.summary}</p>
+				<div className="pb-2 pt-0.5" style={{ paddingLeft: `${(indent ?? 0) * 14 + 36}px` }}>
+					<p className="text-[11px] text-muted-foreground/50 leading-relaxed break-words">{file.summary}</p>
 					{file.groups.length > 0 && (
-						<div className="flex flex-wrap gap-1 mt-1">
+						<div className="flex flex-wrap gap-1 mt-1.5">
 							{file.groups.map((g) => (
-								<span key={g} className="text-[10px] bg-muted px-1.5 py-0.5 rounded-full">{g}</span>
+								<span key={g} className="text-[10px] text-muted-foreground/40 bg-accent/50 px-1.5 py-0.5 rounded">{g}</span>
 							))}
 						</div>
 					)}
@@ -161,7 +161,6 @@ function TreeView({
 		<>
 			{dirs.map((dir) => {
 				const isOpen = folderOpen.has(dir.fullPath);
-				const FolderIcon = isOpen ? FolderOpen : Folder;
 				return (
 					<div key={dir.fullPath}>
 						<div
@@ -169,12 +168,11 @@ function TreeView({
 							tabIndex={0}
 							onClick={() => onToggleFolder(dir.fullPath)}
 							onKeyDown={(e) => { if (e.key === "Enter") onToggleFolder(dir.fullPath); }}
-							style={{ paddingLeft: `${depth * 14 + 2}px` }}
-							className="flex items-center gap-1.5 py-1 cursor-pointer hover:bg-accent/30 rounded transition-colors"
+							style={{ paddingLeft: `${depth * 14 + 4}px` }}
+							className="flex items-center gap-1.5 h-7 cursor-pointer hover:bg-accent/30 rounded-md transition-colors"
 						>
-							{isOpen ? <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" /> : <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />}
-							<FolderIcon className="h-3 w-3 text-muted-foreground/70 shrink-0" />
-							<span className="text-xs font-mono text-muted-foreground">{dir.name}</span>
+							<ChevronRight className={`h-3 w-3 text-muted-foreground/40 shrink-0 transition-transform ${isOpen ? "rotate-90" : ""}`} />
+							<span className="text-[11px] font-mono text-muted-foreground/60">{dir.name}</span>
 						</div>
 						{isOpen && (
 							<TreeView
@@ -251,7 +249,7 @@ function GroupView({
 	}
 
 	return (
-		<div className="space-y-1">
+		<div className="space-y-px">
 			{[...filesByGroup.entries()].map(([groupName, groupFiles]) => {
 				const isOpen = openGroups.has(groupName);
 				const meta = groupMeta.get(groupName);
@@ -266,32 +264,32 @@ function GroupView({
 							tabIndex={0}
 							onClick={() => toggleGroup(groupName)}
 							onKeyDown={(e) => { if (e.key === "Enter") toggleGroup(groupName); }}
-							className="flex items-center gap-1.5 py-1 px-1 cursor-pointer hover:bg-accent/30 rounded transition-colors"
+							className={`flex items-center gap-1.5 h-8 px-2 -mx-1 cursor-pointer rounded-md transition-colors ${
+								isOpen ? "bg-accent/40" : "hover:bg-accent/30"
+							}`}
 						>
-							{isOpen ? <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" /> : <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />}
+							<ChevronRight className={`h-3 w-3 text-muted-foreground/40 shrink-0 transition-transform ${isOpen ? "rotate-90" : ""}`} />
 							<span className="text-xs font-medium flex-1 min-w-0 truncate">{displayName}</span>
-							<span className="text-[11px] text-muted-foreground shrink-0">{groupFiles.length} files</span>
-							<span className="text-[11px] tabular-nums text-green-500 shrink-0 w-8 text-right">+{totalAdd}</span>
-							<span className="text-[11px] tabular-nums text-red-500 shrink-0 w-8 text-right">−{totalDel}</span>
+							<span className="text-[10px] text-muted-foreground/30 tabular-nums shrink-0">{groupFiles.length}</span>
+							<span className="text-[10px] tabular-nums text-green-600 dark:text-green-400 shrink-0 w-7 text-right">+{totalAdd}</span>
+							<span className="text-[10px] tabular-nums text-red-600 dark:text-red-400 shrink-0 w-7 text-right">-{totalDel}</span>
 						</div>
 						{isOpen && (
-							<div>
+							<div className="pl-3">
 								{meta?.description && (
-									<p className="text-[11px] text-muted-foreground pl-6 pb-1 leading-relaxed">{meta.description}</p>
+									<p className="text-[11px] text-muted-foreground/40 pl-5 pb-1.5 pt-0.5 leading-relaxed">{meta.description}</p>
 								)}
-								<div className="pl-3">
-									{groupFiles.map((file) => (
-										<FileRow
-											key={file.path}
-											file={file}
-											selectedPath={selectedPath}
-											onFileSelect={onFileSelect}
-											expanded={expanded}
-											onToggleExpand={onToggleExpand}
-											showFullPath
-										/>
-									))}
-								</div>
+								{groupFiles.map((file) => (
+									<FileRow
+										key={file.path}
+										file={file}
+										selectedPath={selectedPath}
+										onFileSelect={onFileSelect}
+										expanded={expanded}
+										onToggleExpand={onToggleExpand}
+										showFullPath
+									/>
+								))}
 							</div>
 						)}
 					</div>
@@ -322,7 +320,7 @@ function ChangesView({
 	const maxChanges = sorted.length > 0 ? sorted[0]!.additions + sorted[0]!.deletions : 1;
 
 	return (
-		<div className="divide-y divide-border/30">
+		<div className="space-y-px">
 			{sorted.map((file) => {
 				const total = file.additions + file.deletions;
 				const addPct = total > 0 ? (file.additions / total) * 100 : 0;
@@ -338,9 +336,9 @@ function ChangesView({
 							onToggleExpand={onToggleExpand}
 							showFullPath
 						/>
-						<div className="h-1 rounded-full bg-muted overflow-hidden mx-1 -mt-0.5 mb-1" style={{ width: `${barWidth}%` }}>
-							<div className="h-full bg-green-500/60 float-left" style={{ width: `${addPct}%` }} />
-							<div className="h-full bg-red-500/60 float-left" style={{ width: `${100 - addPct}%` }} />
+						<div className="h-px rounded-full bg-muted overflow-hidden ml-8 mr-2 mb-1" style={{ width: `${Math.min(barWidth, 100)}%` }}>
+							<div className="h-full bg-green-500/50 float-left" style={{ width: `${addPct}%` }} />
+							<div className="h-full bg-red-500/50 float-left" style={{ width: `${100 - addPct}%` }} />
 						</div>
 					</div>
 				);
@@ -398,21 +396,28 @@ export function FilesPanel({
 		});
 	}
 
+	const totalAdd = files.reduce((s, f) => s + f.additions, 0);
+	const totalDel = files.reduce((s, f) => s + f.deletions, 0);
+
 	return (
-		<div className="pt-4">
+		<div className="pt-5">
 			<div className="flex items-center justify-between mb-3">
-				<span className="text-xs text-muted-foreground">{files.length} files changed</span>
-				<div className="flex items-center rounded-md bg-muted p-0.5 gap-0.5">
+				<div className="flex items-center gap-2">
+					<span className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider">{files.length} files</span>
+					<span className="text-[10px] tabular-nums text-green-600 dark:text-green-400">+{totalAdd}</span>
+					<span className="text-[10px] tabular-nums text-red-600 dark:text-red-400">-{totalDel}</span>
+				</div>
+				<div className="flex items-center gap-px rounded-md border p-0.5">
 					{VIEW_MODES.map(({ value, icon: ModeIcon, label }) => (
 						<button
 							key={value}
 							type="button"
 							onClick={() => setViewMode(value)}
 							title={label}
-							className={`inline-flex items-center gap-1.5 rounded px-2 py-1 text-xs font-medium transition-colors ${
+							className={`inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] transition-colors ${
 								viewMode === value
-									? "bg-background text-foreground shadow-sm"
-									: "text-muted-foreground hover:text-foreground"
+									? "bg-accent text-foreground font-medium"
+									: "text-muted-foreground/50 hover:text-foreground"
 							}`}
 						>
 							<ModeIcon className="h-3 w-3" />
