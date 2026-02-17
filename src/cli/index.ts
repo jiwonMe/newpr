@@ -9,11 +9,16 @@ import { parsePrInput } from "../github/parse-pr.ts";
 import { analyzePr } from "../analyzer/pipeline.ts";
 import { createStderrProgress, createSilentProgress, createStreamJsonProgress } from "../analyzer/progress.ts";
 import { renderLoading, renderShell } from "../tui/render.tsx";
+import { checkForUpdate, printUpdateNotice } from "./update-check.ts";
 
 const VERSION = "0.1.0";
 
 async function main(): Promise<void> {
 	const args = parseArgs(process.argv);
+
+	const updatePromise = (args.command === "shell" || args.command === "web")
+		? checkForUpdate(VERSION).catch(() => null)
+		: null;
 
 	if (args.command === "help") return;
 
@@ -48,6 +53,8 @@ async function main(): Promise<void> {
 		try {
 			const config = await loadConfig({ model: args.model });
 			const token = await getGithubToken();
+			const updateInfo = await updatePromise;
+			if (updateInfo) printUpdateNotice(updateInfo);
 			const { startWebServer } = await import("../web/server.ts");
 			await startWebServer({ port: args.port ?? 3000, token, config });
 		} catch (error) {
@@ -62,6 +69,8 @@ async function main(): Promise<void> {
 		try {
 			const config = await loadConfig({ model: args.model });
 			const token = await getGithubToken();
+			const updateInfo = await updatePromise;
+			if (updateInfo) printUpdateNotice(updateInfo);
 			renderShell(token, config, args.prInput);
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);

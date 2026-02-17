@@ -203,7 +203,7 @@ async function readStream(
 	return { content: accumulated, model, usage };
 }
 
-export function createLlmClient(options: LlmClientOptions): LlmClient {
+function createOpenRouterClient(options: LlmClientOptions): LlmClient {
 	return {
 		async complete(systemPrompt: string, userPrompt: string): Promise<LlmResponse> {
 			const response = await fetchWithRetry(options, systemPrompt, userPrompt, false);
@@ -228,4 +228,13 @@ export function createLlmClient(options: LlmClientOptions): LlmClient {
 			return readStream(response, onChunk);
 		},
 	};
+}
+
+export function createLlmClient(options: LlmClientOptions): LlmClient {
+	if (options.api_key) {
+		return createOpenRouterClient(options);
+	}
+
+	const { createClaudeCodeClient: create } = require("./claude-code-client.ts");
+	return create(options.timeout);
 }

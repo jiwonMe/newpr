@@ -6,6 +6,13 @@ out
 dist
 *.tgz
 
+# Tailwind CSS build artifact
+src/web/styles/built.css
+
+# Screenshots
+screenshots/
+*.png
+
 # code coverage
 coverage
 *.lcov

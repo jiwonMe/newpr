@@ -1,0 +1,11 @@
+tests/
+screenshots/
+*.png
+*.test.ts
+.gitignore
+.github/
+tsconfig.json
+biome.json
+CLAUDE.md
+bun.lock
+src/web/styles/built.css
