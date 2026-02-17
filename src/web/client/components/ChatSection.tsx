@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext } from "react";
-import { Loader2, Wrench, ChevronDown, ChevronRight, CornerDownLeft } from "lucide-react";
+import { Loader2, ChevronRight, CornerDownLeft } from "lucide-react";
 import type { ChatMessage, ChatToolCall, ChatSegment } from "../../../types/output.ts";
 import { Markdown } from "./Markdown.tsx";
 import { TipTapEditor, getTextWithAnchors, type AnchorItem, type CommandItem } from "./TipTapEditor.tsx";
@@ -202,25 +202,22 @@ function ToolCallDisplay({ tc }: { tc: ChatToolCall }) {
 	const displayResult = truncated && !open ? `${tc.result!.slice(0, 200)}…` : tc.result;
 
 	return (
-		<div className="border rounded-lg overflow-hidden text-[11px]">
+		<div className="text-[11px]">
 			<button
 				type="button"
 				onClick={() => setOpen(!open)}
-				className="w-full flex items-center gap-1.5 px-2.5 py-1.5 bg-muted/50 hover:bg-muted transition-colors text-left"
+				className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-accent/60 text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors text-left"
 			>
-				<Wrench className="h-3 w-3 text-muted-foreground shrink-0" />
-				<span className="font-mono font-medium">{tc.name}</span>
+				<ChevronRight className={`h-2.5 w-2.5 shrink-0 transition-transform ${open ? "rotate-90" : ""}`} />
+				<span className="font-mono">{tc.name}</span>
 				{Object.keys(tc.arguments).length > 0 && (
-					<span className="text-muted-foreground truncate">
-						({Object.entries(tc.arguments).map(([k, v]) => `${k}: ${String(v)}`).join(", ")})
+					<span className="text-muted-foreground/30 truncate max-w-[200px]">
+						{Object.entries(tc.arguments).map(([k, v]) => `${k}: ${String(v)}`).join(", ")}
 					</span>
 				)}
-				<span className="ml-auto shrink-0">
-					{open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-				</span>
 			</button>
 			{open && tc.result && (
-				<pre className="px-2.5 py-2 text-[10px] font-mono text-muted-foreground whitespace-pre-wrap break-all max-h-60 overflow-y-auto bg-muted/20">
+				<pre className="mt-1 ml-1 px-2.5 py-2 text-[10px] font-mono text-muted-foreground/50 whitespace-pre-wrap break-all max-h-48 overflow-y-auto rounded-md bg-accent/30">
 					{displayResult}
 				</pre>
 			)}
@@ -252,26 +249,30 @@ function AssistantMessage({ segments, activeToolName, isStreaming, onAnchorClick
 	const hasContent = segments.some((s) => s.type === "text" && s.content);
 
 	return (
-		<div className="space-y-2 max-w-[95%]">
+		<div className="space-y-2">
 			{segments.map((seg, i) => {
 				if (seg.type === "tool_call") {
 					return <ToolCallDisplay key={seg.toolCall.id} tc={seg.toolCall} />;
 				}
 				return seg.content ? (
-					<div key={`text-${i}`} className="text-xs leading-relaxed prose-compact">
+					<div key={`text-${i}`} className="text-xs leading-relaxed">
 						<Markdown onAnchorClick={onAnchorClick} activeId={activeId}>{seg.content}</Markdown>
 					</div>
 				) : null;
 			})}
 			{activeToolName && (
-				<div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-					<Loader2 className="h-3 w-3 animate-spin" />
+				<div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-accent/40 text-[11px] text-muted-foreground/50">
+					<Loader2 className="h-2.5 w-2.5 animate-spin" />
 					<span className="font-mono">{activeToolName}</span>
 				</div>
 			)}
 			{isStreaming && !hasContent && !activeToolName && segments.length === 0 && (
-				<div className="flex items-center gap-1.5 text-muted-foreground">
-					<Loader2 className="h-3 w-3 animate-spin" />
+				<div className="flex items-center gap-1.5">
+					<span className="flex gap-1">
+						<span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/30 animate-pulse" />
+						<span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/30 animate-pulse [animation-delay:150ms]" />
+						<span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/30 animate-pulse [animation-delay:300ms]" />
+					</span>
 				</div>
 			)}
 		</div>
@@ -286,22 +287,31 @@ export function ChatMessages({ onAnchorClick, activeId }: {
 	const containerRef = useRef<HTMLDivElement>(null);
 	const isNearBottomRef = useRef(true);
 	const mainElRef = useRef<HTMLElement | null>(null);
+	const scrollListenerRef = useRef<(() => void) | null>(null);
 
 	useEffect(() => {
+		if (scrollListenerRef.current) return;
 		const el = containerRef.current?.closest("main") as HTMLElement | null;
-		mainElRef.current = el;
 		if (!el) return;
+		mainElRef.current = el;
 		const onScroll = () => {
 			isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
 		};
+		scrollListenerRef.current = onScroll;
 		el.addEventListener("scroll", onScroll, { passive: true });
-		return () => el.removeEventListener("scroll", onScroll);
-	}, []);
+		return () => {
+			el.removeEventListener("scroll", onScroll);
+			scrollListenerRef.current = null;
+		};
+	});
 
 	useEffect(() => {
-		const el = mainElRef.current;
-		if (el && isNearBottomRef.current) {
-			el.scrollTop = el.scrollHeight;
+		const el = mainElRef.current ?? containerRef.current?.closest("main") as HTMLElement | null;
+		if (el) {
+			mainElRef.current = el;
+			if (isNearBottomRef.current) {
+				el.scrollTop = el.scrollHeight;
+			}
 		}
 	}, [ctx?.state.messages, ctx?.state.streaming]);
 
@@ -311,8 +321,9 @@ export function ChatMessages({ onAnchorClick, activeId }: {
 
 	if (!hasMessages && loaded) {
 		return (
-			<div className="border-t mt-5 text-center py-6">
-				<p className="text-xs text-muted-foreground">Ask anything about this PR</p>
+			<div className="border-t mt-6 pt-6 text-center">
+				<p className="text-[11px] text-muted-foreground/40">Ask anything about this PR</p>
+				<p className="text-[10px] text-muted-foreground/20 mt-1">@ to reference files · / for commands</p>
 			</div>
 		);
 	}
@@ -320,12 +331,13 @@ export function ChatMessages({ onAnchorClick, activeId }: {
 	if (!hasMessages) return null;
 
 	return (
-		<div ref={containerRef} className="border-t mt-5 pt-4 space-y-4">
+		<div ref={containerRef} className="border-t mt-6 pt-5 space-y-5">
+			<div className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider">Chat</div>
 			{messages.map((msg, i) => {
 				if (msg.role === "user") {
 					return (
 						<div key={`user-${i}`} className="flex justify-end">
-							<div className="max-w-[85%] rounded-2xl rounded-br-md bg-foreground text-background px-3.5 py-2 text-xs leading-relaxed">
+							<div className="max-w-[80%] rounded-xl rounded-br-sm bg-foreground text-background px-3.5 py-2 text-[11px] leading-relaxed">
 								{msg.content}
 							</div>
 						</div>
@@ -377,10 +389,10 @@ export function ChatInput() {
 	return (
 		<div className="px-10 pb-3 pt-2 border-t bg-background">
 			<div className="mx-auto max-w-5xl">
-				<div className="relative rounded-xl border bg-muted/30 px-4 py-3 pr-12 focus-within:ring-1 focus-within:ring-ring">
+				<div className="relative rounded-xl border bg-background px-4 py-2.5 pr-12 focus-within:border-foreground/15 focus-within:shadow-sm transition-all">
 					<TipTapEditor
 						editorRef={editorRef}
-						placeholder="Ask about this PR... (@ to reference)"
+						placeholder="Ask about this PR..."
 						disabled={loading}
 						submitOnEnter
 						onSubmit={handleSubmit}
@@ -392,7 +404,7 @@ export function ChatInput() {
 						type="button"
 						onClick={handleSubmit}
 						disabled={loading}
-						className="absolute right-2.5 bottom-2.5 flex h-7 w-7 items-center justify-center rounded-lg bg-foreground text-background transition-opacity disabled:opacity-30 hover:opacity-80"
+						className="absolute right-2.5 bottom-2 flex h-7 w-7 items-center justify-center rounded-lg bg-foreground text-background transition-opacity disabled:opacity-20 hover:opacity-80"
 					>
 						{loading ? (
 							<Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -401,9 +413,12 @@ export function ChatInput() {
 						)}
 					</button>
 				</div>
-				<div className="flex justify-center mt-1.5">
-					<span className="text-[10px] text-muted-foreground/40">
-						Enter to send · Shift+Enter for newline
+				<div className="flex items-center justify-between mt-1.5 px-1">
+					<span className="text-[10px] text-muted-foreground/25">
+						@ to reference · / for commands
+					</span>
+					<span className="text-[10px] text-muted-foreground/25">
+						Enter to send
 					</span>
 				</div>
 			</div>

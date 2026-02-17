@@ -96,7 +96,11 @@ function MediaEmbed({ src }: { src: string }) {
 }
 
 const ANCHOR_RE = /\[\[(group|file):([^\]]+)\]\]/g;
-const BOLD_CJK_RE = /(\*\*[^*]+\*\*)([가-힣ぁ-ヿ一-鿿])/g;
+const BOLD_CJK_RE = /\*\*(.+?)\*\*/g;
+
+function hasCJK(text: string): boolean {
+	return /[가-힣ぁ-ヿ一-鿿]/.test(text);
+}
 
 function preprocess(text: string): string {
 	return text
@@ -104,7 +108,10 @@ function preprocess(text: string): string {
 			const encoded = encodeURIComponent(id);
 			return `![${kind}:${encoded}](newpr)`;
 		})
-		.replace(BOLD_CJK_RE, "$1 $2");
+		.replace(BOLD_CJK_RE, (match, inner) => {
+			if (hasCJK(inner)) return `<strong>${inner}</strong>`;
+			return match;
+		});
 }
 
 export function Markdown({ children, onAnchorClick, activeId }: MarkdownProps) {
@@ -164,46 +171,46 @@ export function Markdown({ children, onAnchorClick, activeId }: MarkdownProps) {
 			const kind = alt.slice(0, colonIdx) as "group" | "file";
 			const id = decodeURIComponent(alt.slice(colonIdx + 1));
 
-			if (!onAnchorClick) {
-				if (kind === "group") {
-					return <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs font-medium">{id}</span>;
-				}
-				return <code className="px-1.5 py-0.5 rounded bg-muted text-xs font-mono text-blue-600 dark:text-blue-400">{id.split("/").pop()}</code>;
-			}
-
-			const isActive = activeId === `${kind}:${id}`;
+		if (!onAnchorClick) {
 			if (kind === "group") {
-				return (
-					<span
-						role="button"
-						tabIndex={0}
-						onClick={(e) => { e.stopPropagation(); onAnchorClick("group", id); }}
-						onKeyDown={(e) => { if (e.key === "Enter") onAnchorClick("group", id); }}
-						className={`inline px-1.5 py-0.5 rounded text-xs font-medium transition-colors cursor-pointer ${
-							isActive
-								? "bg-blue-500/20 text-blue-500 dark:text-blue-300 ring-1 ring-blue-500/40"
-								: "bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20"
-						}`}
-					>
-						{id}
-					</span>
-				);
+				return <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-accent text-[11px] font-medium text-foreground/80">{id}</span>;
 			}
+			return <code className="px-1.5 py-0.5 rounded-md bg-accent text-[11px] font-mono text-foreground/70">{id.split("/").pop()}</code>;
+		}
+
+		const isActive = activeId === `${kind}:${id}`;
+		if (kind === "group") {
 			return (
 				<span
 					role="button"
 					tabIndex={0}
-					onClick={(e) => { e.stopPropagation(); onAnchorClick("file", id); }}
-					onKeyDown={(e) => { if (e.key === "Enter") onAnchorClick("file", id); }}
-					className={`inline px-1.5 py-0.5 rounded text-xs font-mono transition-colors cursor-pointer ${
+					onClick={(e) => { e.stopPropagation(); onAnchorClick("group", id); }}
+					onKeyDown={(e) => { if (e.key === "Enter") onAnchorClick("group", id); }}
+					className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-medium transition-colors cursor-pointer border ${
 						isActive
-							? "bg-muted ring-1 ring-blue-500/40 text-blue-500 dark:text-blue-300"
-							: "bg-muted text-blue-600 dark:text-blue-400 hover:bg-blue-500/10"
+							? "bg-blue-600 text-white border-blue-600 dark:bg-blue-500 dark:border-blue-500"
+							: "bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 hover:border-blue-300 dark:bg-blue-500/10 dark:text-blue-400 dark:border-blue-500/30 dark:hover:bg-blue-500/20 dark:hover:border-blue-500/40"
 					}`}
 				>
-					{id.split("/").pop()}
+					{id}
 				</span>
 			);
+		}
+		return (
+			<span
+				role="button"
+				tabIndex={0}
+				onClick={(e) => { e.stopPropagation(); onAnchorClick("file", id); }}
+				onKeyDown={(e) => { if (e.key === "Enter") onAnchorClick("file", id); }}
+				className={`inline px-1.5 py-0.5 rounded-md text-[11px] font-mono transition-colors cursor-pointer border ${
+					isActive
+						? "bg-blue-600 text-white border-blue-600 dark:bg-blue-500 dark:border-blue-500"
+						: "bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 hover:border-blue-300 dark:bg-blue-500/10 dark:text-blue-400 dark:border-blue-500/30 dark:hover:bg-blue-500/20 dark:hover:border-blue-500/40"
+				}`}
+			>
+				{id.split("/").pop()}
+			</span>
+		);
 		},
 		blockquote: ({ children }) => (
 			<blockquote className="border-l-2 border-muted-foreground/30 pl-4 text-sm text-muted-foreground italic mb-3">{children}</blockquote>
