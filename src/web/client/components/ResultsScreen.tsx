@@ -1,6 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { ArrowLeft, Layers, FolderTree, BookOpen, MessageSquare, GitBranch, User, Files, Bot, Sparkles } from "lucide-react";
-import { Button } from "../../components/ui/button.tsx";
+import { ArrowLeft, Layers, FolderTree, BookOpen, MessageSquare, GitBranch, Sparkles } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../components/ui/tabs.tsx";
 import type { NewprOutput } from "../../../types/output.ts";
 import { GroupsPanel } from "../panels/GroupsPanel.tsx";
@@ -8,7 +7,6 @@ import { FilesPanel } from "../panels/FilesPanel.tsx";
 import { StoryPanel } from "../panels/StoryPanel.tsx";
 import { DiscussionPanel } from "../panels/DiscussionPanel.tsx";
 import { CartoonPanel } from "../panels/CartoonPanel.tsx";
-
 
 const VALID_TABS = ["story", "discussion", "groups", "files", "cartoon"] as const;
 type TabValue = typeof VALID_TABS[number];
@@ -25,11 +23,11 @@ function setTabParam(tab: string) {
 	window.history.replaceState(null, "", url.toString());
 }
 
-const RISK_COLORS: Record<string, string> = {
-	low: "bg-green-500/10 text-green-600 dark:text-green-400",
-	medium: "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400",
-	high: "bg-red-500/10 text-red-600 dark:text-red-400",
-	critical: "bg-red-500/20 text-red-700 dark:text-red-300",
+const RISK_DOT: Record<string, string> = {
+	low: "bg-green-500",
+	medium: "bg-yellow-500",
+	high: "bg-red-500",
+	critical: "bg-red-600",
 };
 
 export function ResultsScreen({
@@ -90,96 +88,95 @@ export function ResultsScreen({
 
 	return (
 		<Tabs value={tab} onValueChange={handleTabChange} className="flex flex-col">
-			<div ref={stickyRef} className="sticky top-0 z-10 bg-background pb-2 -mx-10 px-10">
+			<div ref={stickyRef} className="sticky top-0 z-10 bg-background -mx-10 px-10">
 				<div ref={collapsibleRef} className="overflow-hidden transition-[max-height,opacity] duration-200">
-					<div className="pb-3 pt-1">
-						<div className="flex items-center gap-3 mb-3">
-							<Button variant="ghost" size="icon" className="shrink-0 -ml-2" onClick={onBack}>
-								<ArrowLeft className="h-4 w-4" />
-							</Button>
+					<div className="pb-4 pt-1">
+						<div className="flex items-center gap-2 mb-3">
+							<button
+								type="button"
+								onClick={onBack}
+								className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/40 hover:text-foreground hover:bg-accent/40 transition-colors shrink-0 -ml-1"
+							>
+								<ArrowLeft className="h-3.5 w-3.5" />
+							</button>
 							<a
 								href={meta.pr_url}
 								target="_blank"
 								rel="noopener noreferrer"
-								className="text-muted-foreground font-mono text-sm hover:text-foreground transition-colors"
+								className="text-[11px] text-muted-foreground/50 font-mono hover:text-foreground transition-colors"
 							>
 								{repoSlug}
 							</a>
-							<span className={`text-xs font-medium px-2 py-0.5 rounded-full ${RISK_COLORS[summary.risk_level] ?? RISK_COLORS.medium}`}>
-								{summary.risk_level}
-							</span>
+							<span className={`h-1.5 w-1.5 rounded-full shrink-0 ${RISK_DOT[summary.risk_level] ?? RISK_DOT.medium}`} />
 						</div>
 
-						<h1 className="text-lg font-bold tracking-tight mb-2 line-clamp-2">{meta.pr_title}</h1>
+						<h1 className="text-sm font-semibold tracking-tight mb-3 line-clamp-2">{meta.pr_title}</h1>
 
-						<div className="flex flex-wrap gap-x-4 gap-y-1">
+						<div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-muted-foreground/50">
 							<a
 								href={meta.author_url ?? `https://github.com/${meta.author}`}
 								target="_blank"
 								rel="noopener noreferrer"
-								className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+								className="flex items-center gap-1.5 hover:text-foreground transition-colors"
 							>
-								{meta.author_avatar ? (
-									<img src={meta.author_avatar} alt={meta.author} className="h-3.5 w-3.5 rounded-full" />
-								) : (
-									<User className="h-3 w-3" />
+								{meta.author_avatar && (
+									<img src={meta.author_avatar} alt={meta.author} className="h-4 w-4 rounded-full" />
 								)}
 								<span>{meta.author}</span>
 							</a>
-							<div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-								<GitBranch className="h-3 w-3" />
-								<span className="font-mono">{meta.base_branch}</span>
-								<span className="text-muted-foreground/50">←</span>
+							<span className="text-muted-foreground/15">|</span>
+							<div className="flex items-center gap-1">
+								<GitBranch className="h-3 w-3 text-muted-foreground/30" />
 								<span className="font-mono">{meta.head_branch}</span>
+								<span className="text-muted-foreground/25">→</span>
+								<span className="font-mono">{meta.base_branch}</span>
 							</div>
-							<div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-								<Files className="h-3 w-3" />
-								<span className="text-green-500">+{meta.total_additions}</span>
-								<span className="text-red-500">−{meta.total_deletions}</span>
-								<span className="text-muted-foreground/50">·</span>
-								<span>{meta.total_files_changed} files</span>
-							</div>
-							<div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-								<Bot className="h-3 w-3" />
-								<span>{meta.model_used.split("/").pop()}</span>
+							<span className="text-muted-foreground/15">|</span>
+							<div className="flex items-center gap-1.5">
+								<span className="text-green-600 dark:text-green-400 tabular-nums">+{meta.total_additions}</span>
+								<span className="text-red-600 dark:text-red-400 tabular-nums">-{meta.total_deletions}</span>
+								<span className="text-muted-foreground/25">·</span>
+								<span className="tabular-nums">{meta.total_files_changed} files</span>
 							</div>
 						</div>
 					</div>
 				</div>
 
 				<div ref={compactRef} className="overflow-hidden transition-[max-height,opacity] duration-200" style={{ maxHeight: 0, opacity: 0 }}>
-					<div className="flex items-center gap-3 min-w-0 pb-2">
-						<Button variant="ghost" size="icon" className="shrink-0 -ml-2 h-7 w-7" onClick={onBack}>
+					<div className="flex items-center gap-2.5 min-w-0 pb-2.5">
+						<button
+							type="button"
+							onClick={onBack}
+							className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/40 hover:text-foreground hover:bg-accent/40 transition-colors shrink-0 -ml-1"
+						>
 							<ArrowLeft className="h-3.5 w-3.5" />
-						</Button>
-						<span className="text-sm font-semibold truncate flex-1">{meta.pr_title}</span>
-						<span className="text-xs text-muted-foreground font-mono shrink-0">{repoSlug}</span>
-						<span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full shrink-0 ${RISK_COLORS[summary.risk_level] ?? RISK_COLORS.medium}`}>
-							{summary.risk_level}
-						</span>
+						</button>
+						<span className={`h-1.5 w-1.5 rounded-full shrink-0 ${RISK_DOT[summary.risk_level] ?? RISK_DOT.medium}`} />
+						<span className="text-xs font-medium truncate flex-1">{meta.pr_title}</span>
+						<span className="text-[10px] text-muted-foreground/30 font-mono shrink-0">{repoSlug}</span>
 					</div>
 				</div>
 
-				<TabsList className="w-full justify-start overflow-x-auto">
-					<TabsTrigger value="story" className="gap-1.5">
-						<BookOpen className="h-3.5 w-3.5 shrink-0" />
+				<TabsList className="w-full justify-start">
+					<TabsTrigger value="story">
+						<BookOpen className="h-3 w-3 shrink-0" />
 						Story
 					</TabsTrigger>
-					<TabsTrigger value="discussion" className="gap-1.5">
-						<MessageSquare className="h-3.5 w-3.5 shrink-0" />
+					<TabsTrigger value="discussion">
+						<MessageSquare className="h-3 w-3 shrink-0" />
 						Discussion
 					</TabsTrigger>
-					<TabsTrigger value="groups" className="gap-1.5">
-						<Layers className="h-3.5 w-3.5 shrink-0" />
+					<TabsTrigger value="groups">
+						<Layers className="h-3 w-3 shrink-0" />
 						Groups
 					</TabsTrigger>
-					<TabsTrigger value="files" className="gap-1.5">
-						<FolderTree className="h-3.5 w-3.5 shrink-0" />
+					<TabsTrigger value="files">
+						<FolderTree className="h-3 w-3 shrink-0" />
 						Files
 					</TabsTrigger>
 					{cartoonEnabled && (
-						<TabsTrigger value="cartoon" className="gap-1.5">
-							<Sparkles className="h-3.5 w-3.5 shrink-0" />
+						<TabsTrigger value="cartoon">
+							<Sparkles className="h-3 w-3 shrink-0" />
 							Comic
 						</TabsTrigger>
 					)}

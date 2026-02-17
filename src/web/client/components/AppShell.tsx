@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { Sun, Moon, Monitor, Plus, Clock, Settings, ArrowUp } from "lucide-react";
+import { Sun, Moon, Monitor, Plus, Settings, ArrowUp } from "lucide-react";
 import type { SessionRecord } from "../../../history/types.ts";
 import type { GithubUser } from "../hooks/useGithubUser.ts";
 import { SettingsPanel } from "./SettingsPanel.tsx";
@@ -44,6 +44,7 @@ export function AppShell({
 	onNewAnalysis,
 	detailPanel,
 	bottomBar,
+	activeSessionId,
 	children,
 }: {
 	theme: Theme;
@@ -54,6 +55,7 @@ export function AppShell({
 	onNewAnalysis: () => void;
 	detailPanel?: React.ReactNode;
 	bottomBar?: React.ReactNode;
+	activeSessionId?: string | null;
 	children: React.ReactNode;
 }) {
 	const [settingsOpen, setSettingsOpen] = useState(false);
@@ -105,97 +107,97 @@ export function AppShell({
 	return (
 		<div className="flex h-screen bg-background overflow-hidden">
 			<aside className="flex flex-col shrink-0 border-r bg-background" style={{ width: leftWidth }}>
-				<div className="flex h-14 items-center justify-between px-4 border-b">
+				<div className="flex h-12 items-center justify-between px-4 shrink-0">
 					<button
 						type="button"
 						onClick={onNewAnalysis}
-						className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+						className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
 					>
-						<span className="text-sm font-semibold tracking-tight">newpr</span>
-						<span className="text-[10px] text-muted-foreground">v0.1.0</span>
+						<span className="text-xs font-semibold tracking-tight font-mono">newpr</span>
 					</button>
 					<button
 						type="button"
 						onClick={onNewAnalysis}
-						className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+						className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/50 hover:bg-accent hover:text-foreground transition-colors"
 						title="New analysis"
 					>
-						<Plus className="h-4 w-4" />
+						<Plus className="h-3.5 w-3.5" />
 					</button>
 				</div>
 
-				<div className="flex-1 overflow-y-auto">
-					{sessions.length > 0 && (
-						<div className="px-2 py-3">
-							<div className="px-2 pb-2 text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-								Recent
-							</div>
-							<div className="space-y-0.5">
-								{sessions.map((s) => (
+				<div className="flex-1 overflow-y-auto px-2">
+					{sessions.length > 0 ? (
+						<div className="space-y-px">
+							{sessions.map((s) => {
+								const isActive = activeSessionId === s.id;
+								return (
 									<button
 										key={s.id}
 										type="button"
 										onClick={() => onSessionSelect(s.id)}
-										className="w-full flex items-start gap-2.5 rounded-md px-2 py-2 text-left hover:bg-accent/50 transition-colors group"
+										className={`w-full flex items-start gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors group ${
+											isActive
+												? "bg-accent text-foreground"
+												: "hover:bg-accent/40"
+										}`}
 									>
-										<span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${RISK_DOT[s.risk_level] ?? RISK_DOT.medium}`} />
+										<span className={`mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full ${RISK_DOT[s.risk_level] ?? RISK_DOT.medium}`} />
 										<div className="flex-1 min-w-0">
-											<div className="text-sm truncate group-hover:text-foreground transition-colors">
+											<div className={`text-xs truncate leading-tight ${isActive ? "font-medium" : "text-foreground/80 group-hover:text-foreground"} transition-colors`}>
 												{s.pr_title}
 											</div>
-											<div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-muted-foreground">
-												<span className="truncate">{s.repo.split("/").pop()}</span>
-												<span>#{s.pr_number}</span>
-												<span className="text-muted-foreground/50">·</span>
-												<Clock className="h-2.5 w-2.5" />
+											<div className="flex items-center gap-1 mt-1 text-[10px] text-muted-foreground/50">
+												<span className="font-mono truncate">{s.repo.split("/").pop()}</span>
+												<span className="font-mono">#{s.pr_number}</span>
+												<span className="text-muted-foreground/20 mx-0.5">·</span>
 												<span>{formatTimeAgo(s.analyzed_at)}</span>
 											</div>
 										</div>
 									</button>
-								))}
-							</div>
+								);
+							})}
+						</div>
+					) : (
+						<div className="flex flex-col items-center justify-center h-full text-center px-4 gap-2 opacity-40">
+							<p className="text-[11px] text-muted-foreground">No analyses yet</p>
 						</div>
 					)}
 				</div>
 
-				<div className="border-t px-3 py-3 space-y-2">
+				<div className="shrink-0 border-t px-2 py-2 space-y-1">
 					{githubUser && (
 						<a
 							href={githubUser.html_url}
 							target="_blank"
 							rel="noopener noreferrer"
-							className="flex items-center gap-2.5 rounded-md px-1.5 py-1.5 hover:bg-accent/50 transition-colors"
+							className="flex items-center gap-2 rounded-md px-2.5 py-1.5 hover:bg-accent/40 transition-colors"
 						>
 							<img
 								src={githubUser.avatar_url}
 								alt={githubUser.login}
-								className="h-6 w-6 rounded-full"
+								className="h-5 w-5 rounded-full"
 							/>
-							<div className="flex-1 min-w-0">
-								<div className="text-xs font-medium truncate">{githubUser.name ?? githubUser.login}</div>
-								{githubUser.name && (
-									<div className="text-[10px] text-muted-foreground truncate">@{githubUser.login}</div>
-								)}
-							</div>
+							<span className="text-[11px] font-medium truncate flex-1">{githubUser.name ?? githubUser.login}</span>
 						</a>
 					)}
-					<div className="flex items-center justify-between px-1.5">
+					<div className="flex items-center gap-1 px-1">
 						<button
 							type="button"
 							onClick={() => onThemeChange(next)}
-							className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
+							className="flex items-center gap-1.5 px-1.5 py-1 rounded-md text-[11px] text-muted-foreground/50 hover:text-foreground hover:bg-accent/40 transition-colors"
 							title={`Switch to ${next} mode`}
 						>
-							<Icon className="h-3.5 w-3.5" />
+							<Icon className="h-3 w-3" />
 							<span className="capitalize">{theme}</span>
 						</button>
+						<div className="flex-1" />
 						<button
 							type="button"
 							onClick={() => setSettingsOpen(true)}
-							className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+							className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/40 hover:bg-accent/40 hover:text-foreground transition-colors"
 							title="Settings"
 						>
-							<Settings className="h-3.5 w-3.5" />
+							<Settings className="h-3 w-3" />
 						</button>
 					</div>
 				</div>
