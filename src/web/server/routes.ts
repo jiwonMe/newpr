@@ -1,7 +1,7 @@
 import type { NewprConfig } from "../../types/config.ts";
 import type { NewprOutput, ChatMessage, ChatToolCall, ChatSegment } from "../../types/output.ts";
 import { DEFAULT_CONFIG } from "../../types/config.ts";
-import { listSessions, loadSession, loadSinglePatch, savePatchesSidecar, loadCommentsSidecar, saveCommentsSidecar, loadChatSidecar, saveChatSidecar, loadPatchesSidecar } from "../../history/store.ts";
+import { listSessions, loadSession, loadSinglePatch, savePatchesSidecar, loadCommentsSidecar, saveCommentsSidecar, loadChatSidecar, saveChatSidecar, loadPatchesSidecar, saveCartoonSidecar, loadCartoonSidecar } from "../../history/store.ts";
 import type { DiffComment } from "../../types/output.ts";
 import { fetchPrDiff } from "../../github/fetch-diff.ts";
 import { fetchPrBody, fetchPrComments } from "../../github/fetch-pr.ts";
@@ -909,6 +909,15 @@ $$
 			});
 		},
 
+		"GET /api/sessions/:id/cartoon": async (req: Request) => {
+			const url = new URL(req.url);
+			const segments = url.pathname.split("/");
+			const id = segments[3]!;
+			const cartoon = await loadCartoonSidecar(id);
+			if (!cartoon) return json(null);
+			return json(cartoon);
+		},
+
 		"POST /api/cartoon": async (req: Request) => {
 			if (!options.cartoon) return json({ error: "Cartoon mode not enabled. Start with --cartoon flag." }, 403);
 			if (!config.openrouter_api_key) return json({ error: "OpenRouter API key required for cartoon generation" }, 400);
@@ -926,18 +935,11 @@ $$
 				const result = await generateCartoon(config.openrouter_api_key, data, config.language);
 
 				if (sessionId) {
-					const sessionData = await loadSession(sessionId);
-					if (sessionData) {
-						sessionData.cartoon = {
-							imageBase64: result.imageBase64,
-							mimeType: result.mimeType,
-							generatedAt: new Date().toISOString(),
-						};
-						const { join } = await import("node:path");
-						const { homedir } = await import("node:os");
-						const sessionsDir = join(homedir(), ".newpr", "history", "sessions");
-						await Bun.write(join(sessionsDir, `${sessionId}.json`), JSON.stringify(sessionData, null, 2));
-					}
+					await saveCartoonSidecar(sessionId, {
+						imageBase64: result.imageBase64,
+						mimeType: result.mimeType,
+						generatedAt: new Date().toISOString(),
+					});
 				}
 
 				return json(result);
