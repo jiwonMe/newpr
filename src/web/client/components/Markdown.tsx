@@ -1,7 +1,10 @@
 import { useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
 import rehypeRaw from "rehype-raw";
+import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
 import type { Components } from "react-markdown";
 import type { Highlighter } from "shiki";
 import { ensureHighlighter, getHighlighterSync, langFromClassName } from "../lib/shiki.ts";
@@ -218,5 +221,5 @@ export function Markdown({ children, onAnchorClick, activeId }: MarkdownProps) {
 		td: ({ children }) => <td className="border-b border-border px-3 py-1.5 text-sm">{children}</td>,
 	};
 
-	return <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={components}>{processed}</ReactMarkdown>;
+	return <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeRaw, rehypeKatex]} components={components}>{processed}</ReactMarkdown>;
 }
