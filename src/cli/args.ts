@@ -1,10 +1,14 @@
+import type { AgentToolName } from "../workspace/types.ts";
+
 export interface CliArgs {
-	command: "review" | "auth" | "help" | "version";
+	command: "shell" | "review" | "auth" | "history" | "help" | "version";
 	prInput?: string;
 	repo?: string;
 	model?: string;
-	output: "json" | "pretty";
+	output: "tui" | "json" | "stream-json" | "pretty";
 	verbose: boolean;
+	noClone: boolean;
+	agent?: AgentToolName;
 	subArgs: string[];
 }
 
@@ -13,7 +17,12 @@ function printHelp(): void {
 newpr - AI-powered large PR review tool
 
 Usage:
-  newpr review <pr-url-or-number> [options]
+  newpr                                # launch interactive shell
+  newpr <pr-url>                       # launch shell with PR pre-loaded
+  newpr review <pr-url> --json         # non-interactive JSON output
+  newpr history                        # list past review sessions
+  newpr history show <id>              # show full JSON for a session
+  newpr history clear                  # clear all history
   newpr auth [--key <api-key>]
   newpr auth status
   newpr auth logout
@@ -21,20 +30,21 @@ Usage:
   newpr version
 
 Examples:
-  newpr auth                           # interactive: prompts for key
-  newpr auth --key sk-or-xxx           # non-interactive: set key directly
-  newpr auth status                    # show current auth state
-  newpr auth logout                    # remove stored key
-  newpr review https://github.com/owner/repo/pull/123
-  newpr review owner/repo#123
-  newpr review 123 --repo owner/repo
-  newpr review #123 --repo owner/repo --output pretty
+  newpr                                            # interactive shell
+  newpr https://github.com/owner/repo/pull/123     # shell + auto-analyze
+  newpr review owner/repo#123 --json               # pipe-friendly JSON
+  newpr review 123 --repo owner/repo --no-clone    # diff-only (no git clone)
+  newpr auth --key sk-or-xxx
 
-Options:
+Options (review mode):
   --repo <owner/repo>   Repository (required when using PR number only)
-  --model <model>       Override LLM model (default: anthropic/claude-sonnet-4)
-  --output <format>     Output format: json (default) | pretty
-  --verbose             Show progress on stderr
+  --model <model>       Override LLM model (default: anthropic/claude-sonnet-4.5)
+  --agent <tool>        Preferred agent: claude | opencode | codex (default: auto)
+  --no-clone            Skip git clone, diff-only analysis (faster, less context)
+  --json                Output raw JSON (for piping/scripting)
+  --stream-json         Stream progress as NDJSON, then emit result
+  --output <format>     Output format: tui (default) | json | stream-json | pretty
+  --verbose             Show progress on stderr (non-TUI modes)
   -h, --help            Show this help
   -v, --version         Show version
 
@@ -50,12 +60,27 @@ Environment Variables:
 	console.log(help);
 }
 
-const DEFAULTS = { output: "json" as const, verbose: false, subArgs: [] as string[] };
+const DEFAULTS = { output: "tui" as const, verbose: false, noClone: false, subArgs: [] as string[] };
+
+function looksLikePrInput(s: string): boolean {
+	return (
+		s.startsWith("http://") ||
+		s.startsWith("https://") ||
+		s.includes("#") ||
+		/^\d+$/.test(s) ||
+		/^[^/]+\/[^/]+#\d+$/.test(s)
+	);
+}
+
+function parseAgentName(val: string | undefined): AgentToolName | undefined {
+	if (val === "claude" || val === "opencode" || val === "codex") return val;
+	return undefined;
+}
 
 export function parseArgs(argv: string[]): CliArgs {
 	const args = argv.slice(2);
 
-	if (args.length === 0 || args.includes("-h") || args.includes("--help")) {
+	if (args.includes("-h") || args.includes("--help")) {
 		printHelp();
 		return { command: "help", ...DEFAULTS };
 	}
@@ -64,7 +89,11 @@ export function parseArgs(argv: string[]): CliArgs {
 		return { command: "version", ...DEFAULTS };
 	}
 
-	const command = args[0];
+	if (args.length === 0) {
+		return { command: "shell", ...DEFAULTS };
+	}
+
+	const command = args[0]!;
 
 	if (command === "version") {
 		return { command: "version", ...DEFAULTS };
@@ -76,13 +105,25 @@ export function parseArgs(argv: string[]): CliArgs {
 	if (command === "auth") {
 		return { command: "auth", ...DEFAULTS, subArgs: args.slice(1) };
 	}
-	if (command !== "review") {
-		console.error(`Unknown command: ${command}\n`);
-		printHelp();
-		return { command: "help", ...DEFAULTS };
+	if (command === "history") {
+		return { command: "history", ...DEFAULTS, subArgs: args.slice(1) };
 	}
 
-	const prInput = args[1];
+	if (command === "review") {
+		return parseReviewArgs(args.slice(1));
+	}
+
+	if (looksLikePrInput(command)) {
+		return { command: "shell", prInput: command, ...DEFAULTS };
+	}
+
+	console.error(`Unknown command: ${command}\n`);
+	printHelp();
+	return { command: "help", ...DEFAULTS };
+}
+
+function parseReviewArgs(args: string[]): CliArgs {
+	const prInput = args[0];
 	if (!prInput || prInput.startsWith("-")) {
 		console.error("Error: PR URL or number is required.\n");
 		printHelp();
@@ -91,10 +132,12 @@ export function parseArgs(argv: string[]): CliArgs {
 
 	let repo: string | undefined;
 	let model: string | undefined;
-	let output: "json" | "pretty" = "json";
+	let agent: AgentToolName | undefined;
+	let output: "tui" | "json" | "stream-json" | "pretty" = "tui";
 	let verbose = false;
+	let noClone = false;
 
-	for (let i = 2; i < args.length; i++) {
+	for (let i = 1; i < args.length; i++) {
 		const arg = args[i];
 		switch (arg) {
 			case "--repo":
@@ -103,14 +146,31 @@ export function parseArgs(argv: string[]): CliArgs {
 			case "--model":
 				model = args[++i];
 				break;
-			case "--output":
-				output = args[++i] === "pretty" ? "pretty" : "json";
+			case "--agent":
+				agent = parseAgentName(args[++i]);
 				break;
+			case "--no-clone":
+				noClone = true;
+				break;
+			case "--json":
+				output = "json";
+				break;
+			case "--stream-json":
+				output = "stream-json";
+				break;
+			case "--output": {
+				const val = args[++i];
+				if (val === "json") output = "json";
+				else if (val === "stream-json") output = "stream-json";
+				else if (val === "pretty") output = "pretty";
+				else output = "tui";
+				break;
+			}
 			case "--verbose":
 				verbose = true;
 				break;
 		}
 	}
 
-	return { command: "review", prInput, repo, model, output, verbose, subArgs: [] };
+	return { command: "review", prInput, repo, model, agent, output, verbose, noClone, subArgs: [] };
 }

@@ -11,6 +11,8 @@ export interface StoredConfig {
 	max_files?: number;
 	timeout?: number;
 	concurrency?: number;
+	language?: string;
+	agent?: string;
 }
 
 function ensureDir(): void {

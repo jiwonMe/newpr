@@ -17,10 +17,17 @@
   },
   "private": true,
   "devDependencies": {
+    "@biomejs/biome": "latest",
     "@types/bun": "latest",
-    "@biomejs/biome": "latest"
+    "@types/react": "19.1.0"
   },
   "peerDependencies": {
     "typescript": "^5"
+  },
+  "dependencies": {
+    "ink": "6.6.0",
+    "ink-spinner": "5.0.0",
+    "ink-text-input": "6.0.0",
+    "react": "19.1.0"
   }
 }

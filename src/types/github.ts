@@ -4,6 +4,14 @@ export interface PrIdentifier {
 	number: number;
 }
 
+export interface PrCommit {
+	sha: string;
+	message: string;
+	author: string;
+	date: string;
+	files: string[];
+}
+
 export interface GithubPrData {
 	number: number;
 	title: string;
@@ -14,4 +22,5 @@ export interface GithubPrData {
 	additions: number;
 	deletions: number;
 	changed_files: number;
+	commits: PrCommit[];
 }

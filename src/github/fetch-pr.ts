@@ -1,6 +1,6 @@
-import type { GithubPrData, PrIdentifier } from "../types/github.ts";
+import type { GithubPrData, PrCommit, PrIdentifier } from "../types/github.ts";
 
-export function mapPrResponse(json: Record<string, unknown>): GithubPrData {
+export function mapPrResponse(json: Record<string, unknown>): Omit<GithubPrData, "commits"> {
 	const user = json.user as Record<string, unknown> | undefined;
 	const base = json.base as Record<string, unknown> | undefined;
 	const head = json.head as Record<string, unknown> | undefined;
@@ -18,8 +18,26 @@ export function mapPrResponse(json: Record<string, unknown>): GithubPrData {
 	};
 }
 
-export async function fetchPrData(pr: PrIdentifier, token: string): Promise<GithubPrData> {
-	const url = `https://api.github.com/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}`;
+interface GithubCommitResponse {
+	sha: string;
+	commit: {
+		message: string;
+		author: { name: string; date: string };
+	};
+	files?: Array<{ filename: string }>;
+}
+
+export function mapCommitsResponse(items: GithubCommitResponse[]): PrCommit[] {
+	return items.map((item) => ({
+		sha: item.sha.slice(0, 8),
+		message: item.commit.message,
+		author: item.commit.author.name,
+		date: item.commit.author.date,
+		files: item.files?.map((f) => f.filename) ?? [],
+	}));
+}
+
+async function githubGet(url: string, token: string): Promise<Response> {
 	const response = await fetch(url, {
 		headers: {
 			Authorization: `token ${token}`,
@@ -29,15 +47,42 @@ export async function fetchPrData(pr: PrIdentifier, token: string): Promise<Gith
 	});
 
 	if (response.status === 404) {
-		throw new Error(`PR not found: ${pr.owner}/${pr.repo}#${pr.number}`);
+		throw new Error(`Not found: ${url}`);
 	}
 	if (response.status === 401 || response.status === 403) {
-		throw new Error(`GitHub authentication failed. Check your token permissions.`);
+		throw new Error("GitHub authentication failed. Check your token permissions.");
 	}
 	if (!response.ok) {
 		throw new Error(`GitHub API error: ${response.status} ${response.statusText}`);
 	}
 
+	return response;
+}
+
+export async function fetchPrCommits(pr: PrIdentifier, token: string): Promise<PrCommit[]> {
+	const allCommits: GithubCommitResponse[] = [];
+	let page = 1;
+
+	while (true) {
+		const url = `https://api.github.com/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/commits?per_page=100&page=${page}`;
+		const response = await githubGet(url, token);
+		const items = (await response.json()) as GithubCommitResponse[];
+		if (items.length === 0) break;
+		allCommits.push(...items);
+		if (items.length < 100) break;
+		page++;
+	}
+
+	return mapCommitsResponse(allCommits);
+}
+
+export async function fetchPrData(pr: PrIdentifier, token: string): Promise<GithubPrData> {
+	const url = `https://api.github.com/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}`;
+	const response = await githubGet(url, token);
 	const json = (await response.json()) as Record<string, unknown>;
-	return mapPrResponse(json);
+	const base = mapPrResponse(json);
+
+	const commits = await fetchPrCommits(pr, token);
+
+	return { ...base, commits };
 }

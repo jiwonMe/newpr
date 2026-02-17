@@ -21,6 +21,11 @@ const MOCK_PR_JSON = {
 	changed_files: 2,
 };
 
+const MOCK_COMMITS = [
+	{ sha: "abc12345", commit: { message: "Add variable y", author: { name: "dev", date: "2025-01-01T00:00:00Z" } }, files: [{ filename: "src/a.ts" }] },
+	{ sha: "def67890", commit: { message: "Add utility function b", author: { name: "dev", date: "2025-01-01T01:00:00Z" } }, files: [{ filename: "src/b.ts" }] },
+];
+
 const MOCK_DIFF = `diff --git a/src/a.ts b/src/a.ts
 index abc..def 100644
 --- a/src/a.ts
@@ -58,6 +63,27 @@ const MOCK_NARRATIVE = "This PR adds a new utility function and updates exports.
 
 let fetchCallCount = 0;
 
+function createSSEResponse(content: string): Response {
+	const encoder = new TextEncoder();
+	const lines = [
+		`data: ${JSON.stringify({ choices: [{ delta: { content }, finish_reason: null }], model: "test-model" })}\n\n`,
+		`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }], model: "test-model", usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 } })}\n\n`,
+		"data: [DONE]\n\n",
+	];
+	const stream = new ReadableStream<Uint8Array>({
+		start(controller) {
+			for (const line of lines) {
+				controller.enqueue(encoder.encode(line));
+			}
+			controller.close();
+		},
+	});
+	return new Response(stream, {
+		status: 200,
+		headers: { "Content-Type": "text/event-stream" },
+	});
+}
+
 function setupMockFetch() {
 	fetchCallCount = 0;
 	(globalThis as Record<string, unknown>).fetch = async (
@@ -67,6 +93,10 @@ function setupMockFetch() {
 		fetchCallCount++;
 		const urlStr = url as string;
 		const accept = (init?.headers as Record<string, string>)?.Accept ?? "";
+
+		if (urlStr.includes("/pulls/") && urlStr.includes("/commits")) {
+			return new Response(JSON.stringify(MOCK_COMMITS), { status: 200 });
+		}
 
 		if (urlStr.includes("/pulls/") && accept.includes("diff")) {
 			return new Response(MOCK_DIFF, { status: 200 });
@@ -79,16 +109,21 @@ function setupMockFetch() {
 		if (urlStr.includes("openrouter.ai")) {
 			const body = JSON.parse(init?.body as string);
 			const systemPrompt = body.messages[0].content as string;
+			const isStream = body.stream === true;
 
 			let content: string;
 			if (systemPrompt.includes("1-line summary")) {
 				content = MOCK_FILE_SUMMARIES;
-			} else if (systemPrompt.includes("Group")) {
+			} else if (systemPrompt.includes("Group the following")) {
 				content = MOCK_GROUPS;
 			} else if (systemPrompt.includes("overall summary") || systemPrompt.includes("risk_level")) {
 				content = MOCK_SUMMARY;
 			} else {
 				content = MOCK_NARRATIVE;
+			}
+
+			if (isStream) {
+				return createSSEResponse(content);
 			}
 
 			return new Response(
@@ -111,6 +146,7 @@ const TEST_CONFIG: NewprConfig = {
 	max_files: 100,
 	timeout: 30,
 	concurrency: 5,
+	language: "English",
 };
 
 describe("analyzePr", () => {
@@ -166,7 +202,7 @@ describe("analyzePr", () => {
 			config: TEST_CONFIG,
 		});
 
-		expect(result.files[0]!.group).toBe("Feature Addition");
-		expect(result.files[1]!.group).toBe("Feature Addition");
+		expect(result.files[0]!.groups).toContain("Feature Addition");
+		expect(result.files[1]!.groups).toContain("Feature Addition");
 	});
 });

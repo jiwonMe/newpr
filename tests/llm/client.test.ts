@@ -20,6 +20,32 @@ function restoreFetch() {
 	(globalThis as Record<string, unknown>).fetch = originalFetch;
 }
 
+function createSSEStream(chunks: string[]): ReadableStream<Uint8Array> {
+	const encoder = new TextEncoder();
+	return new ReadableStream({
+		start(controller) {
+			for (const chunk of chunks) {
+				controller.enqueue(encoder.encode(chunk));
+			}
+			controller.close();
+		},
+	});
+}
+
+function sseLines(deltas: string[], model = "test-model"): string[] {
+	const lines: string[] = [];
+	for (const delta of deltas) {
+		lines.push(
+			`data: ${JSON.stringify({ choices: [{ delta: { content: delta }, finish_reason: null }], model })}\n\n`,
+		);
+	}
+	lines.push(
+		`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }], model, usage: { prompt_tokens: 5, completion_tokens: 10, total_tokens: 15 } })}\n\n`,
+	);
+	lines.push("data: [DONE]\n\n");
+	return lines;
+}
+
 describe("createLlmClient", () => {
 	afterEach(restoreFetch);
 
@@ -46,12 +72,28 @@ describe("createLlmClient", () => {
 		expect(result.usage.total_tokens).toBe(30);
 	});
 
-	test("throws on non-429 API errors", async () => {
-		mockFetch(() => new Response("Internal Server Error", { status: 500 }));
+	test("throws on non-retriable API errors (e.g. 400)", async () => {
+		mockFetch(() => new Response("Bad Request", { status: 400 }));
 
 		const client = createLlmClient({ api_key: "sk-test", model: "test/model", timeout: 30 });
-		await expect(client.complete("s", "u")).rejects.toThrow("OpenRouter API error 500");
+		await expect(client.complete("s", "u")).rejects.toThrow("OpenRouter API error 400");
 	});
+
+	test("retries on 500 server errors", async () => {
+		let attempts = 0;
+		mockFetch(() => {
+			attempts++;
+			if (attempts < 3) {
+				return new Response("Internal Server Error", { status: 500 });
+			}
+			return new Response(JSON.stringify(MOCK_RESPONSE));
+		});
+
+		const client = createLlmClient({ api_key: "sk-test", model: "test/model", timeout: 30 });
+		const result = await client.complete("s", "u");
+		expect(result.content).toBe('{"test": true}');
+		expect(attempts).toBe(3);
+	}, 30_000);
 
 	test("throws on empty response", async () => {
 		const emptyResponse = { choices: [{ message: { content: "" } }], model: "m" };
@@ -70,5 +112,121 @@ describe("createLlmClient", () => {
 
 		expect(result.usage.prompt_tokens).toBe(0);
 		expect(result.usage.completion_tokens).toBe(0);
+	});
+});
+
+describe("completeStream", () => {
+	afterEach(restoreFetch);
+
+	test("streams chunks and returns accumulated content", async () => {
+		const sseData = sseLines(["Hello", " ", "world"]);
+		mockFetch(() => new Response(createSSEStream(sseData), {
+			headers: { "Content-Type": "text/event-stream" },
+		}));
+
+		const client = createLlmClient({ api_key: "sk-test", model: "test/model", timeout: 30 });
+		const chunks: string[] = [];
+		const accumulatedSnapshots: string[] = [];
+
+		const result = await client.completeStream("system", "user", (chunk, accumulated) => {
+			chunks.push(chunk);
+			accumulatedSnapshots.push(accumulated);
+		});
+
+		expect(result.content).toBe("Hello world");
+		expect(result.model).toBe("test-model");
+		expect(result.usage.total_tokens).toBe(15);
+		expect(chunks).toEqual(["Hello", " ", "world"]);
+		expect(accumulatedSnapshots).toEqual(["Hello", "Hello ", "Hello world"]);
+	});
+
+	test("sends stream: true in request body", async () => {
+		let capturedBody: Record<string, unknown> = {};
+		const sseData = sseLines(["ok"]);
+
+		mockFetch((_url, init) => {
+			capturedBody = JSON.parse(init.body as string);
+			return new Response(createSSEStream(sseData), {
+				headers: { "Content-Type": "text/event-stream" },
+			});
+		});
+
+		const client = createLlmClient({ api_key: "sk-test", model: "test/model", timeout: 30 });
+		await client.completeStream("s", "u", () => {});
+
+		expect(capturedBody.stream).toBe(true);
+	});
+
+	test("throws on empty streaming response", async () => {
+		const sseData = ["data: [DONE]\n\n"];
+		mockFetch(() => new Response(createSSEStream(sseData), {
+			headers: { "Content-Type": "text/event-stream" },
+		}));
+
+		const client = createLlmClient({ api_key: "sk-test", model: "test/model", timeout: 30 });
+		await expect(client.completeStream("s", "u", () => {})).rejects.toThrow("empty streaming response");
+	});
+
+	test("retries on 429 before streaming starts", async () => {
+		let attempts = 0;
+		const sseData = sseLines(["ok"]);
+
+		mockFetch(() => {
+			attempts++;
+			if (attempts < 2) {
+				return new Response("Rate limited", { status: 429 });
+			}
+			return new Response(createSSEStream(sseData), {
+				headers: { "Content-Type": "text/event-stream" },
+			});
+		});
+
+		const client = createLlmClient({ api_key: "sk-test", model: "test/model", timeout: 30 });
+		const result = await client.completeStream("s", "u", () => {});
+		expect(result.content).toBe("ok");
+		expect(attempts).toBe(2);
+	}, 30_000);
+
+	test("handles chunked SSE data split across reads", async () => {
+		const encoder = new TextEncoder();
+		const line1 = `data: ${JSON.stringify({ choices: [{ delta: { content: "Hi" }, finish_reason: null }], model: "m" })}\n\n`;
+		const line2 = `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }], model: "m", usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } })}\n\ndata: [DONE]\n\n`;
+
+		const splitPoint = Math.floor(line1.length / 2);
+		const part1 = line1.slice(0, splitPoint);
+		const part2 = line1.slice(splitPoint) + line2;
+
+		const stream = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.enqueue(encoder.encode(part1));
+				controller.enqueue(encoder.encode(part2));
+				controller.close();
+			},
+		});
+
+		mockFetch(() => new Response(stream, {
+			headers: { "Content-Type": "text/event-stream" },
+		}));
+
+		const client = createLlmClient({ api_key: "sk-test", model: "test/model", timeout: 30 });
+		const result = await client.completeStream("s", "u", () => {});
+		expect(result.content).toBe("Hi");
+	});
+
+	test("skips malformed SSE chunks gracefully", async () => {
+		const sseData = [
+			`data: ${JSON.stringify({ choices: [{ delta: { content: "A" }, finish_reason: null }], model: "m" })}\n\n`,
+			"data: {invalid json}\n\n",
+			`data: ${JSON.stringify({ choices: [{ delta: { content: "B" }, finish_reason: null }], model: "m" })}\n\n`,
+			`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }], model: "m", usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 } })}\n\ndata: [DONE]\n\n`,
+		];
+
+		mockFetch(() => new Response(createSSEStream(sseData), {
+			headers: { "Content-Type": "text/event-stream" },
+		}));
+
+		const client = createLlmClient({ api_key: "sk-test", model: "test/model", timeout: 30 });
+		const result = await client.completeStream("s", "u", () => {});
+		expect(result.content).toBe("AB");
 	});
 });

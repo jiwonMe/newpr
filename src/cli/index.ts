@@ -1,12 +1,14 @@
 #!/usr/bin/env bun
 import { parseArgs } from "./args.ts";
 import { handleAuth } from "./auth.ts";
+import { handleHistory } from "./history-cmd.ts";
 import { formatPretty } from "./pretty.ts";
 import { loadConfig } from "../config/index.ts";
 import { getGithubToken } from "../github/auth.ts";
 import { parsePrInput } from "../github/parse-pr.ts";
 import { analyzePr } from "../analyzer/pipeline.ts";
-import { createStderrProgress, createSilentProgress } from "../analyzer/progress.ts";
+import { createStderrProgress, createSilentProgress, createStreamJsonProgress } from "../analyzer/progress.ts";
+import { renderLoading, renderShell } from "../tui/render.tsx";
 
 const VERSION = "0.1.0";
 
@@ -31,18 +33,63 @@ async function main(): Promise<void> {
 		return;
 	}
 
+	if (args.command === "history") {
+		try {
+			await handleHistory(args.subArgs);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			process.stderr.write(`Error: ${message}\n`);
+			process.exit(1);
+		}
+		return;
+	}
+
+	if (args.command === "shell") {
+		try {
+			const config = await loadConfig({ model: args.model });
+			const token = await getGithubToken();
+			renderShell(token, config, args.prInput);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			process.stderr.write(`Error: ${message}\n`);
+			process.exit(1);
+		}
+		return;
+	}
+
 	try {
 		const config = await loadConfig({ model: args.model });
 		const token = await getGithubToken();
 		const pr = parsePrInput(args.prInput!, args.repo);
-		const progress = args.verbose ? createStderrProgress() : createSilentProgress();
+		const pipelineOpts = {
+			pr,
+			token,
+			config,
+			noClone: args.noClone,
+			preferredAgent: args.agent ?? config.agent,
+		};
 
-		const result = await analyzePr({ pr, token, config, onProgress: progress });
-
-		if (args.output === "pretty") {
-			console.log(formatPretty(result));
+		if (args.output === "tui") {
+			const loading = await renderLoading();
+			const result = await analyzePr({
+				...pipelineOpts,
+				onProgress: (event) => loading.update(event),
+			});
+			loading.finish(result);
+		} else if (args.output === "stream-json") {
+			const progress = createStreamJsonProgress();
+			const result = await analyzePr({ ...pipelineOpts, onProgress: progress });
+			const resultLine = JSON.stringify({ type: "result", data: result });
+			process.stdout.write(`${resultLine}\n`);
 		} else {
-			console.log(JSON.stringify(result, null, 2));
+			const progress = args.verbose ? createStderrProgress() : createSilentProgress();
+			const result = await analyzePr({ ...pipelineOpts, onProgress: progress });
+
+			if (args.output === "pretty") {
+				console.log(formatPretty(result));
+			} else {
+				console.log(JSON.stringify(result, null, 2));
+			}
 		}
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);

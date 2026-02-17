@@ -45,7 +45,7 @@ export interface FileChange {
 	additions: number;
 	deletions: number;
 	summary: string;
-	group: string;
+	groups: string[];
 }
 
 export interface NewprOutput {
