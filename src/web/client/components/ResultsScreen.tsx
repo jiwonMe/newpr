@@ -9,6 +9,7 @@ import { StoryPanel } from "../panels/StoryPanel.tsx";
 import { DiscussionPanel } from "../panels/DiscussionPanel.tsx";
 import { CartoonPanel } from "../panels/CartoonPanel.tsx";
 
+
 const VALID_TABS = ["story", "discussion", "groups", "files", "cartoon"] as const;
 type TabValue = typeof VALID_TABS[number];
 

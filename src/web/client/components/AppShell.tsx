@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { Sun, Moon, Monitor, Plus, Clock, Settings } from "lucide-react";
+import { Sun, Moon, Monitor, Plus, Clock, Settings, ArrowUp } from "lucide-react";
 import type { SessionRecord } from "../../../history/types.ts";
 import type { GithubUser } from "../hooks/useGithubUser.ts";
 import { SettingsPanel } from "./SettingsPanel.tsx";
@@ -43,6 +43,7 @@ export function AppShell({
 	onSessionSelect,
 	onNewAnalysis,
 	detailPanel,
+	bottomBar,
 	children,
 }: {
 	theme: Theme;
@@ -52,11 +53,14 @@ export function AppShell({
 	onSessionSelect: (sessionId: string) => void;
 	onNewAnalysis: () => void;
 	detailPanel?: React.ReactNode;
+	bottomBar?: React.ReactNode;
 	children: React.ReactNode;
 }) {
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	const [leftWidth, setLeftWidth] = useState(LEFT_DEFAULT);
 	const [rightWidth, setRightWidth] = useState(RIGHT_DEFAULT);
+	const [showScrollTop, setShowScrollTop] = useState(false);
+	const mainRef = useRef<HTMLElement>(null);
 	const prevDetailPanel = useRef(detailPanel);
 
 	useEffect(() => {
@@ -85,6 +89,18 @@ export function AppShell({
 			return Math.min(max, Math.max(RIGHT_MIN, w + delta));
 		});
 	}, [leftWidth]);
+
+	useEffect(() => {
+		const el = mainRef.current;
+		if (!el) return;
+		const onScroll = () => setShowScrollTop(el.scrollTop > 300);
+		el.addEventListener("scroll", onScroll, { passive: true });
+		return () => el.removeEventListener("scroll", onScroll);
+	}, []);
+
+	const scrollToTop = useCallback(() => {
+		mainRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+	}, []);
 
 	return (
 		<div className="flex h-screen bg-background overflow-hidden">
@@ -187,12 +203,23 @@ export function AppShell({
 
 			<ResizeHandle onResize={handleLeftResize} side="right" />
 
-			<div className="flex-1 flex flex-col overflow-hidden" style={{ minWidth: 400 }}>
-				<main className="flex-1 overflow-y-auto">
+			<div className="flex-1 flex flex-col overflow-hidden relative" style={{ minWidth: 400 }}>
+				<main ref={mainRef} className="flex-1 overflow-y-auto">
 					<div className="mx-auto max-w-5xl px-10 py-10">
 						{children}
 					</div>
 				</main>
+				{bottomBar}
+				{showScrollTop && (
+					<button
+						type="button"
+						onClick={scrollToTop}
+						className="absolute bottom-3 right-4 z-20 flex h-8 w-8 items-center justify-center rounded-full border bg-background shadow-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+						style={{ bottom: bottomBar ? 76 : 12 }}
+					>
+						<ArrowUp className="h-3.5 w-3.5" />
+					</button>
+				)}
 			</div>
 
 			{detailPanel && (

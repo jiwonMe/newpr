@@ -1,5 +1,6 @@
 import type { NewprOutput } from "../../../types/output.ts";
 import { Markdown } from "../components/Markdown.tsx";
+import { ChatMessages } from "../components/ChatSection.tsx";
 
 export function StoryPanel({
 	data,
@@ -49,6 +50,8 @@ export function StoryPanel({
 					{narrative}
 				</Markdown>
 			</div>
+
+			<ChatMessages onAnchorClick={onAnchorClick} activeId={activeId} />
 		</div>
 	);
 }

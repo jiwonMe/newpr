@@ -10,6 +10,8 @@ import { LoadingTimeline } from "./components/LoadingTimeline.tsx";
 import { ResultsScreen } from "./components/ResultsScreen.tsx";
 import { ErrorScreen } from "./components/ErrorScreen.tsx";
 import { DetailPane, resolveDetail } from "./components/DetailPane.tsx";
+import { useChatState, ChatProvider, ChatInput } from "./components/ChatSection.tsx";
+import type { AnchorItem } from "./components/TipTapEditor.tsx";
 
 function getUrlParam(key: string): string | null {
 	return new URLSearchParams(window.location.search).get(key);
@@ -86,7 +88,22 @@ export function App() {
 		<DetailPane target={detailTarget} sessionId={diffSessionId} prUrl={prUrl} onClose={() => setActiveId(null)} />
 	) : null;
 
+	const chatState = useChatState(analysis.phase === "done" ? diffSessionId : null);
+
+	const anchorItems = useMemo<AnchorItem[]>(() => {
+		if (!analysis.result) return [];
+		const items: AnchorItem[] = [];
+		for (const g of analysis.result.groups) {
+			items.push({ kind: "group", id: g.name, label: g.name });
+		}
+		for (const f of analysis.result.files) {
+			items.push({ kind: "file", id: f.path, label: f.path });
+		}
+		return items;
+	}, [analysis.result]);
+
 	return (
+		<ChatProvider state={chatState} anchorItems={anchorItems}>
 		<AppShell
 			theme={themeCtx.theme}
 			onThemeChange={themeCtx.setTheme}
@@ -95,6 +112,7 @@ export function App() {
 			onSessionSelect={handleSessionSelect}
 			onNewAnalysis={handleNewAnalysis}
 			detailPanel={detailPanel}
+			bottomBar={analysis.phase === "done" ? <ChatInput /> : undefined}
 		>
 			{analysis.phase === "idle" && (
 				<InputScreen onSubmit={(pr) => analysis.start(pr)} />
@@ -112,7 +130,7 @@ export function App() {
 					activeId={activeId}
 					onAnchorClick={handleAnchorClick}
 					cartoonEnabled={features.cartoon}
-					sessionId={analysis.sessionId}
+					sessionId={diffSessionId}
 				/>
 			)}
 			{analysis.phase === "error" && (
@@ -123,5 +141,6 @@ export function App() {
 				/>
 			)}
 		</AppShell>
+		</ChatProvider>
 	);
 }
