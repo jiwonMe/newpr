@@ -1,5 +1,7 @@
 import type { NewprConfig } from "../../types/config.ts";
+import { DEFAULT_CONFIG } from "../../types/config.ts";
 import { listSessions, loadSession } from "../../history/store.ts";
+import { writeStoredConfig, type StoredConfig } from "../../config/store.ts";
 import { startAnalysis, getSession, cancelAnalysis, subscribe } from "./session-manager.ts";
 
 function json(data: unknown, status = 200): Response {
@@ -108,6 +110,68 @@ export function createRoutes(token: string, config: NewprConfig) {
 			const data = await loadSession(id);
 			if (!data) return json({ error: "Session not found" }, 404);
 			return json(data);
+		},
+
+		"GET /api/config": async () => {
+			return json({
+				model: config.model,
+				agent: config.agent ?? null,
+				language: config.language,
+				max_files: config.max_files,
+				timeout: config.timeout,
+				concurrency: config.concurrency,
+				has_api_key: !!config.openrouter_api_key,
+				has_github_token: !!token,
+				defaults: {
+					model: DEFAULT_CONFIG.model,
+					language: DEFAULT_CONFIG.language,
+					max_files: DEFAULT_CONFIG.max_files,
+					timeout: DEFAULT_CONFIG.timeout,
+					concurrency: DEFAULT_CONFIG.concurrency,
+				},
+			});
+		},
+
+		"PUT /api/config": async (req: Request) => {
+			const body = await req.json() as Partial<StoredConfig>;
+			const update: StoredConfig = {};
+
+			if (body.openrouter_api_key !== undefined) update.openrouter_api_key = body.openrouter_api_key;
+			if (body.model !== undefined) {
+				update.model = body.model;
+				config.model = body.model;
+			}
+			if (body.agent !== undefined) {
+				const val = body.agent as string;
+				if (val === "claude" || val === "opencode" || val === "codex") {
+					update.agent = val;
+					config.agent = val;
+				} else if (val === "" || val === "auto") {
+					update.agent = undefined;
+					config.agent = undefined;
+				}
+			}
+			if (body.language !== undefined) {
+				update.language = body.language;
+				config.language = body.language === "auto"
+					? (await import("../../config/index.ts")).detectLanguage()
+					: body.language;
+			}
+			if (body.max_files !== undefined) {
+				update.max_files = body.max_files;
+				config.max_files = body.max_files;
+			}
+			if (body.timeout !== undefined) {
+				update.timeout = body.timeout;
+				config.timeout = body.timeout;
+			}
+			if (body.concurrency !== undefined) {
+				update.concurrency = body.concurrency;
+				config.concurrency = body.concurrency;
+			}
+
+			await writeStoredConfig(update);
+			return json({ ok: true });
 		},
 	};
 }

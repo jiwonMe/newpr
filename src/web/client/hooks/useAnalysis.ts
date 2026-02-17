@@ -11,6 +11,7 @@ interface AnalysisState {
 	result: NewprOutput | null;
 	error: string | null;
 	startedAt: number | null;
+	lastPrInput: string | null;
 }
 
 export function useAnalysis() {
@@ -21,6 +22,7 @@ export function useAnalysis() {
 		result: null,
 		error: null,
 		startedAt: null,
+		lastPrInput: null,
 	});
 	const eventSourceRef = useRef<EventSource | null>(null);
 
@@ -32,6 +34,7 @@ export function useAnalysis() {
 			result: null,
 			error: null,
 			startedAt: Date.now(),
+			lastPrInput: prInput,
 		});
 
 		try {
@@ -97,6 +100,36 @@ export function useAnalysis() {
 		}
 	}, []);
 
+	const loadStoredSession = useCallback(async (sessionId: string) => {
+		setState((s) => ({
+			...s,
+			phase: "loading",
+			events: [],
+			result: null,
+			error: null,
+			startedAt: Date.now(),
+			lastPrInput: null,
+		}));
+
+		try {
+			const res = await fetch(`/api/sessions/${sessionId}`);
+			if (!res.ok) throw new Error("Session not found");
+			const data = await res.json() as NewprOutput;
+			setState((s) => ({
+				...s,
+				phase: "done",
+				result: data,
+				sessionId,
+			}));
+		} catch (err) {
+			setState((s) => ({
+				...s,
+				phase: "error",
+				error: err instanceof Error ? err.message : String(err),
+			}));
+		}
+	}, []);
+
 	const reset = useCallback(() => {
 		eventSourceRef.current?.close();
 		eventSourceRef.current = null;
@@ -107,8 +140,9 @@ export function useAnalysis() {
 			result: null,
 			error: null,
 			startedAt: null,
+			lastPrInput: null,
 		});
 	}, []);
 
-	return { ...state, start, reset };
+	return { ...state, start, loadStoredSession, reset };
 }
