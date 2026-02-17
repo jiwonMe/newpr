@@ -265,28 +265,52 @@ async function runCodex(
 ): Promise<AgentResult> {
 	const start = Date.now();
 	const proc = Bun.spawn(
-		[agent.path, "exec", prompt],
+		[
+			agent.path, "exec",
+			"--json",
+			"--dangerously-bypass-approvals-and-sandbox",
+			"-C", workdir,
+			prompt,
+		],
 		{
 			cwd: workdir,
 			stdin: "ignore",
 			stdout: "pipe",
-			stderr: "pipe",
+			stderr: "ignore",
 		},
 	);
 
-	const stderrPromise = onOutput && proc.stderr
-		? streamLines(proc.stderr, onOutput)
+	let answer = "";
+
+	const stdoutPromise = proc.stdout
+		? streamLines(proc.stdout, (line) => {
+			try {
+				const event = JSON.parse(line);
+				if (event.type === "item.completed" && event.item) {
+					if (event.item.type === "tool_call" && onOutput) {
+						const name = event.item.name ?? event.item.tool ?? "";
+						const args = event.item.arguments ?? event.item.input ?? {};
+						const parsed = typeof args === "string" ? JSON.parse(args) : args;
+						const label = formatToolUse(name, parsed as Record<string, unknown>);
+						if (label) onOutput(label);
+					}
+					if (event.item.type === "agent_message" && event.item.text) {
+						answer = event.item.text;
+					}
+				}
+			} catch {
+			}
+		})
 		: Promise.resolve();
 
 	const timeoutId = setTimeout(() => proc.kill(), timeout);
-	const output = await new Response(proc.stdout).text();
-	await stderrPromise;
+	await stdoutPromise;
 	clearTimeout(timeoutId);
 
 	const duration = Date.now() - start;
 
 	return {
-		answer: output.trim(),
+		answer,
 		duration_ms: duration,
 		tool_used: agent.name,
 	};

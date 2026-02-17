@@ -35,7 +35,7 @@ export async function createWorktrees(
 	await Bun.$`git -C ${bareRepoPath} fetch origin pull/${prNumber}/head:pr-${prNumber}`.quiet().nothrow();
 
 	onProgress?.(`Checking out base branch (${baseBranch})...`);
-	const baseResult = await Bun.$`git -C ${bareRepoPath} worktree add ${basePath} origin/${baseBranch}`.quiet().nothrow();
+	const baseResult = await Bun.$`git -C ${bareRepoPath} worktree add ${basePath} ${baseBranch}`.quiet().nothrow();
 	if (baseResult.exitCode !== 0) {
 		throw new Error(`worktree add base failed (exit ${baseResult.exitCode}): ${baseResult.stderr.toString().trim()}`);
 	}
