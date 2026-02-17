@@ -10,6 +10,7 @@ export interface CliArgs {
 	noClone: boolean;
 	agent?: AgentToolName;
 	port?: number;
+	cartoon?: boolean;
 	subArgs: string[];
 }
 
@@ -101,8 +102,12 @@ export function parseArgs(argv: string[]): CliArgs {
 		const portIdx = args.indexOf("--port");
 		if (portIdx !== -1 && args[portIdx + 1]) {
 			port = Number.parseInt(args[portIdx + 1]!, 10) || 3000;
+		} else {
+			const eqArg = args.find((a) => a.startsWith("--port="));
+			if (eqArg) port = Number.parseInt(eqArg.split("=")[1]!, 10) || 3000;
 		}
-		return { command: "web", port, ...DEFAULTS };
+		const cartoon = args.includes("--cartoon");
+		return { command: "web", port, cartoon, ...DEFAULTS };
 	}
 
 	if (args.length === 0) {

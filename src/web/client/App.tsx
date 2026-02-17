@@ -3,6 +3,7 @@ import { useAnalysis } from "./hooks/useAnalysis.ts";
 import { useTheme } from "./hooks/useTheme.ts";
 import { useSessions } from "./hooks/useSessions.ts";
 import { useGithubUser } from "./hooks/useGithubUser.ts";
+import { useFeatures } from "./hooks/useFeatures.ts";
 import { AppShell } from "./components/AppShell.tsx";
 import { InputScreen } from "./components/InputScreen.tsx";
 import { LoadingTimeline } from "./components/LoadingTimeline.tsx";
@@ -31,6 +32,7 @@ export function App() {
 	const themeCtx = useTheme();
 	const { sessions, refresh: refreshSessions } = useSessions();
 	const githubUser = useGithubUser();
+	const features = useFeatures();
 	const initialLoadDone = useRef(false);
 	const [activeId, setActiveId] = useState<string | null>(null);
 
@@ -107,6 +109,8 @@ export function App() {
 					onBack={handleNewAnalysis}
 					activeId={activeId}
 					onAnchorClick={handleAnchorClick}
+					cartoonEnabled={features.cartoon}
+					sessionId={analysis.sessionId}
 				/>
 			)}
 			{analysis.phase === "error" && (

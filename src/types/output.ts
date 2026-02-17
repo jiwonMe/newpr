@@ -50,10 +50,17 @@ export interface FileChange {
 	groups: string[];
 }
 
+export interface CartoonImage {
+	imageBase64: string;
+	mimeType: string;
+	generatedAt: string;
+}
+
 export interface NewprOutput {
 	meta: PrMeta;
 	summary: PrSummary;
 	groups: FileGroup[];
 	files: FileChange[];
 	narrative: string;
+	cartoon?: CartoonImage;
 }

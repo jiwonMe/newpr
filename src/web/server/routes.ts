@@ -1,8 +1,10 @@
 import type { NewprConfig } from "../../types/config.ts";
+import type { NewprOutput } from "../../types/output.ts";
 import { DEFAULT_CONFIG } from "../../types/config.ts";
 import { listSessions, loadSession } from "../../history/store.ts";
 import { writeStoredConfig, type StoredConfig } from "../../config/store.ts";
 import { startAnalysis, getSession, cancelAnalysis, subscribe } from "./session-manager.ts";
+import { generateCartoon } from "../../llm/cartoon.ts";
 
 function json(data: unknown, status = 200): Response {
 	return new Response(JSON.stringify(data), {
@@ -11,7 +13,11 @@ function json(data: unknown, status = 200): Response {
 	});
 }
 
-export function createRoutes(token: string, config: NewprConfig) {
+interface RouteOptions {
+	cartoon?: boolean;
+}
+
+export function createRoutes(token: string, config: NewprConfig, options: RouteOptions = {}) {
 	return {
 		"POST /api/analysis": async (req: Request) => {
 			const body = await req.json() as { pr: string };
@@ -197,6 +203,48 @@ export function createRoutes(token: string, config: NewprConfig) {
 
 			await writeStoredConfig(update);
 			return json({ ok: true });
+		},
+
+		"GET /api/features": () => {
+			return json({ cartoon: !!options.cartoon });
+		},
+
+		"POST /api/cartoon": async (req: Request) => {
+			if (!options.cartoon) return json({ error: "Cartoon mode not enabled. Start with --cartoon flag." }, 403);
+			if (!config.openrouter_api_key) return json({ error: "OpenRouter API key required for cartoon generation" }, 400);
+
+			try {
+				const body = await req.json() as { data?: NewprOutput; sessionId?: string };
+				let data = body.data;
+				const sessionId = body.sessionId;
+
+				if (!data && sessionId) {
+					data = await loadSession(sessionId) as NewprOutput | null ?? undefined;
+				}
+				if (!data) return json({ error: "Missing analysis data" }, 400);
+
+				const result = await generateCartoon(config.openrouter_api_key, data, config.language);
+
+				if (sessionId) {
+					const sessionData = await loadSession(sessionId);
+					if (sessionData) {
+						sessionData.cartoon = {
+							imageBase64: result.imageBase64,
+							mimeType: result.mimeType,
+							generatedAt: new Date().toISOString(),
+						};
+						const { join } = await import("node:path");
+						const { homedir } = await import("node:os");
+						const sessionsDir = join(homedir(), ".newpr", "history", "sessions");
+						await Bun.write(join(sessionsDir, `${sessionId}.json`), JSON.stringify(sessionData, null, 2));
+					}
+				}
+
+				return json(result);
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				return json({ error: msg }, 500);
+			}
 		},
 	};
 }

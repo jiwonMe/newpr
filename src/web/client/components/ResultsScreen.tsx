@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from "react";
-import { ArrowLeft, FileText, Layers, FolderTree, BookOpen, LayoutList, GitBranch, User, Files, Bot } from "lucide-react";
+import { useState, useCallback, useEffect, useRef } from "react";
+import { ArrowLeft, FileText, Layers, FolderTree, BookOpen, LayoutList, GitBranch, User, Files, Bot, Sparkles } from "lucide-react";
 import { Button } from "../../components/ui/button.tsx";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../components/ui/tabs.tsx";
 import type { NewprOutput } from "../../../types/output.ts";
@@ -8,8 +8,9 @@ import { GroupsPanel } from "../panels/GroupsPanel.tsx";
 import { FilesPanel } from "../panels/FilesPanel.tsx";
 import { NarrativePanel } from "../panels/NarrativePanel.tsx";
 import { StoryPanel } from "../panels/StoryPanel.tsx";
+import { CartoonPanel } from "../panels/CartoonPanel.tsx";
 
-const VALID_TABS = ["story", "summary", "groups", "files", "narrative"] as const;
+const VALID_TABS = ["story", "summary", "groups", "files", "narrative", "cartoon"] as const;
 type TabValue = typeof VALID_TABS[number];
 
 function getInitialTab(): TabValue {
@@ -36,43 +37,63 @@ export function ResultsScreen({
 	onBack,
 	activeId,
 	onAnchorClick,
+	cartoonEnabled,
+	sessionId,
 }: {
 	data: NewprOutput;
 	onBack: () => void;
 	activeId: string | null;
 	onAnchorClick: (kind: "group" | "file", id: string) => void;
+	cartoonEnabled?: boolean;
+	sessionId?: string | null;
 }) {
 	const { meta, summary } = data;
 	const [tab, setTab] = useState<TabValue>(getInitialTab);
-	const [scrolled, setScrolled] = useState(false);
-	const sentinelRef = useRef<HTMLDivElement>(null);
+
+	const stickyRef = useRef<HTMLDivElement>(null);
+	const collapsibleRef = useRef<HTMLDivElement>(null);
+	const compactRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
-		const sentinel = sentinelRef.current;
-		if (!sentinel) return;
-		const observer = new IntersectionObserver(
-			([entry]) => setScrolled(!entry!.isIntersecting),
-			{ threshold: 0 },
-		);
-		observer.observe(sentinel);
-		return () => observer.disconnect();
+		const sticky = stickyRef.current;
+		const collapsible = collapsibleRef.current;
+		const compact = compactRef.current;
+		if (!sticky || !collapsible || !compact) return;
+
+		const scrollParent = sticky.closest("main") ?? sticky.closest("[class*=overflow-y-auto]");
+		if (!scrollParent) return;
+
+		let wasScrolled = false;
+
+		const onScroll = () => {
+			const scrolled = scrollParent.scrollTop > 0;
+			if (scrolled === wasScrolled) return;
+			wasScrolled = scrolled;
+
+			collapsible.style.maxHeight = scrolled ? "0px" : "none";
+			collapsible.style.opacity = scrolled ? "0" : "1";
+			compact.style.maxHeight = scrolled ? "40px" : "0px";
+			compact.style.opacity = scrolled ? "1" : "0";
+			sticky.classList.toggle("border-b", scrolled);
+		};
+
+		scrollParent.addEventListener("scroll", onScroll, { passive: true });
+		return () => scrollParent.removeEventListener("scroll", onScroll);
 	}, []);
 
-	function handleTabChange(value: string) {
+	const handleTabChange = useCallback((value: string) => {
 		setTab(value as TabValue);
 		setTabParam(value);
-	}
+	}, []);
 
 	const repoSlug = meta.pr_url.replace(/^https?:\/\/github\.com\//, "").replace(/\/pull\//, "#");
 
 	return (
-		<div className="flex flex-col">
-			<div ref={sentinelRef} />
-
-			<div className={`sticky top-0 z-10 bg-background transition-all ${scrolled ? "pb-3 pt-1 border-b" : "pb-6 pt-0"}`}>
-				{!scrolled && (
-					<>
-						<div className="flex items-center gap-3 mb-4">
+		<Tabs value={tab} onValueChange={handleTabChange} className="flex flex-col">
+			<div ref={stickyRef} className="sticky top-0 z-10 bg-background pb-2 -mx-10 px-10">
+				<div ref={collapsibleRef} className="overflow-hidden transition-[max-height,opacity] duration-200">
+					<div className="pb-3 pt-1">
+						<div className="flex items-center gap-3 mb-3">
 							<Button variant="ghost" size="icon" className="shrink-0 -ml-2" onClick={onBack}>
 								<ArrowLeft className="h-4 w-4" />
 							</Button>
@@ -89,45 +110,45 @@ export function ResultsScreen({
 							</span>
 						</div>
 
-						<h1 className="text-2xl font-bold tracking-tight mb-5" style={{ textWrap: "balance" }}>{meta.pr_title}</h1>
+						<h1 className="text-lg font-bold tracking-tight mb-2 line-clamp-2">{meta.pr_title}</h1>
 
-						<div className="flex flex-wrap gap-x-5 gap-y-2 mb-6">
+						<div className="flex flex-wrap gap-x-4 gap-y-1">
 							<a
 								href={meta.author_url ?? `https://github.com/${meta.author}`}
 								target="_blank"
 								rel="noopener noreferrer"
-								className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+								className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
 							>
 								{meta.author_avatar ? (
-									<img src={meta.author_avatar} alt={meta.author} className="h-4 w-4 rounded-full" />
+									<img src={meta.author_avatar} alt={meta.author} className="h-3.5 w-3.5 rounded-full" />
 								) : (
-									<User className="h-3.5 w-3.5" />
+									<User className="h-3 w-3" />
 								)}
 								<span>{meta.author}</span>
 							</a>
-							<div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-								<GitBranch className="h-3.5 w-3.5" />
-								<span className="font-mono text-xs">{meta.base_branch}</span>
+							<div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+								<GitBranch className="h-3 w-3" />
+								<span className="font-mono">{meta.base_branch}</span>
 								<span className="text-muted-foreground/50">←</span>
-								<span className="font-mono text-xs">{meta.head_branch}</span>
+								<span className="font-mono">{meta.head_branch}</span>
 							</div>
-							<div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-								<Files className="h-3.5 w-3.5" />
+							<div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+								<Files className="h-3 w-3" />
 								<span className="text-green-500">+{meta.total_additions}</span>
 								<span className="text-red-500">−{meta.total_deletions}</span>
 								<span className="text-muted-foreground/50">·</span>
 								<span>{meta.total_files_changed} files</span>
 							</div>
-							<div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-								<Bot className="h-3.5 w-3.5" />
+							<div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+								<Bot className="h-3 w-3" />
 								<span>{meta.model_used.split("/").pop()}</span>
 							</div>
 						</div>
-					</>
-				)}
+					</div>
+				</div>
 
-				{scrolled && (
-					<div className="flex items-center gap-3 min-w-0">
+				<div ref={compactRef} className="overflow-hidden transition-[max-height,opacity] duration-200" style={{ maxHeight: 0, opacity: 0 }}>
+					<div className="flex items-center gap-3 min-w-0 pb-2">
 						<Button variant="ghost" size="icon" className="shrink-0 -ml-2 h-7 w-7" onClick={onBack}>
 							<ArrowLeft className="h-3.5 w-3.5" />
 						</Button>
@@ -137,49 +158,58 @@ export function ResultsScreen({
 							{summary.risk_level}
 						</span>
 					</div>
-				)}
+				</div>
 
-				<Tabs value={tab} onValueChange={handleTabChange} className="w-full">
-					<TabsList className="w-full justify-start overflow-x-auto">
-						<TabsTrigger value="story" className="gap-1.5">
-							<BookOpen className="h-3.5 w-3.5 shrink-0" />
-							Story
+				<TabsList className="w-full justify-start overflow-x-auto">
+					<TabsTrigger value="story" className="gap-1.5">
+						<BookOpen className="h-3.5 w-3.5 shrink-0" />
+						Story
+					</TabsTrigger>
+					<TabsTrigger value="summary" className="gap-1.5">
+						<LayoutList className="h-3.5 w-3.5 shrink-0" />
+						Summary
+					</TabsTrigger>
+					<TabsTrigger value="groups" className="gap-1.5">
+						<Layers className="h-3.5 w-3.5 shrink-0" />
+						Groups
+					</TabsTrigger>
+					<TabsTrigger value="files" className="gap-1.5">
+						<FolderTree className="h-3.5 w-3.5 shrink-0" />
+						Files
+					</TabsTrigger>
+					<TabsTrigger value="narrative" className="gap-1.5">
+						<FileText className="h-3.5 w-3.5 shrink-0" />
+						Narrative
+					</TabsTrigger>
+					{cartoonEnabled && (
+						<TabsTrigger value="cartoon" className="gap-1.5">
+							<Sparkles className="h-3.5 w-3.5 shrink-0" />
+							Comic
 						</TabsTrigger>
-						<TabsTrigger value="summary" className="gap-1.5">
-							<LayoutList className="h-3.5 w-3.5 shrink-0" />
-							Summary
-						</TabsTrigger>
-						<TabsTrigger value="groups" className="gap-1.5">
-							<Layers className="h-3.5 w-3.5 shrink-0" />
-							Groups
-						</TabsTrigger>
-						<TabsTrigger value="files" className="gap-1.5">
-							<FolderTree className="h-3.5 w-3.5 shrink-0" />
-							Files
-						</TabsTrigger>
-						<TabsTrigger value="narrative" className="gap-1.5">
-							<FileText className="h-3.5 w-3.5 shrink-0" />
-							Narrative
-						</TabsTrigger>
-					</TabsList>
-
-					<TabsContent value="story">
-						<StoryPanel data={data} activeId={activeId} onAnchorClick={onAnchorClick} />
-					</TabsContent>
-					<TabsContent value="summary">
-						<SummaryPanel summary={data.summary} />
-					</TabsContent>
-					<TabsContent value="groups">
-						<GroupsPanel groups={data.groups} />
-					</TabsContent>
-					<TabsContent value="files">
-						<FilesPanel files={data.files} />
-					</TabsContent>
-					<TabsContent value="narrative">
-						<NarrativePanel narrative={data.narrative} />
-					</TabsContent>
-				</Tabs>
+					)}
+				</TabsList>
 			</div>
-		</div>
+
+			<TabsContent value="story">
+				<StoryPanel data={data} activeId={activeId} onAnchorClick={onAnchorClick} />
+			</TabsContent>
+			<TabsContent value="summary">
+				<SummaryPanel summary={data.summary} />
+			</TabsContent>
+			<TabsContent value="groups">
+				<GroupsPanel groups={data.groups} />
+			</TabsContent>
+			<TabsContent value="files">
+				<FilesPanel files={data.files} />
+			</TabsContent>
+			<TabsContent value="narrative">
+				<NarrativePanel narrative={data.narrative} />
+			</TabsContent>
+			{cartoonEnabled && (
+				<TabsContent value="cartoon">
+					<CartoonPanel data={data} sessionId={sessionId} />
+				</TabsContent>
+			)}
+		</Tabs>
 	);
 }

@@ -11,7 +11,7 @@ import { createStderrProgress, createSilentProgress, createStreamJsonProgress } 
 import { renderLoading, renderShell } from "../tui/render.tsx";
 import { checkForUpdate, printUpdateNotice } from "./update-check.ts";
 
-const VERSION = "0.1.1";
+const VERSION = "0.1.3";
 
 async function main(): Promise<void> {
 	const args = parseArgs(process.argv);
@@ -56,7 +56,7 @@ async function main(): Promise<void> {
 			const updateInfo = await updatePromise;
 			if (updateInfo) printUpdateNotice(updateInfo);
 			const { startWebServer } = await import("../web/server.ts");
-			await startWebServer({ port: args.port ?? 3000, token, config });
+			await startWebServer({ port: args.port ?? 3000, token, config, cartoon: args.cartoon });
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			process.stderr.write(`Error: ${message}\n`);

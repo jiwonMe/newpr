@@ -7,6 +7,7 @@ interface WebServerOptions {
 	port: number;
 	token: string;
 	config: NewprConfig;
+	cartoon?: boolean;
 }
 
 function getCssPaths() {
@@ -31,8 +32,8 @@ async function buildCss(bin: string, input: string, output: string): Promise<voi
 }
 
 export async function startWebServer(options: WebServerOptions): Promise<void> {
-	const { port, token, config } = options;
-	const routes = createRoutes(token, config);
+	const { port, token, config, cartoon } = options;
+	const routes = createRoutes(token, config, { cartoon });
 	const css = getCssPaths();
 
 	await buildCss(css.bin, css.input, css.output);
@@ -81,6 +82,12 @@ export async function startWebServer(options: WebServerOptions): Promise<void> {
 			}
 			if (path.match(/^\/api\/sessions\/[^/]+$/) && req.method === "GET") {
 				return routes["GET /api/sessions/:id"](req);
+			}
+			if (path === "/api/features" && req.method === "GET") {
+				return routes["GET /api/features"]();
+			}
+			if (path === "/api/cartoon" && req.method === "POST") {
+				return routes["POST /api/cartoon"](req);
 			}
 
 			return new Response("Not Found", { status: 404 });
