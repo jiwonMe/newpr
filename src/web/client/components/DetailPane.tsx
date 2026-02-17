@@ -51,8 +51,6 @@ export function resolveDetail(
 	return { kind: "file", file, files: [file] };
 }
 
-type FileTab = "summary" | "diff";
-
 function usePatchFetcher(sessionId: string | null | undefined, filePath: string | undefined) {
 	const [patch, setPatch] = useState<string | null>(null);
 	const [loading, setLoading] = useState(false);
@@ -98,14 +96,13 @@ function FileDetail({
 	onClose?: () => void;
 }) {
 	const Icon = STATUS_ICON[file.status];
-	const [tab, setTab] = useState<FileTab>("summary");
 	const { patch, loading, error, fetchPatch } = usePatchFetcher(sessionId, file.path);
 
 	useEffect(() => {
-		if (tab === "diff" && !patch && !loading && !error) {
+		if (sessionId && !patch && !loading && !error) {
 			fetchPatch();
 		}
-	}, [tab, patch, loading, error, fetchPatch]);
+	}, [sessionId, patch, loading, error, fetchPatch]);
 
 	return (
 		<div className="p-4 space-y-4">
@@ -131,77 +128,31 @@ function FileDetail({
 				)}
 			</div>
 
-			{sessionId && (
-				<div className="flex gap-1 bg-muted rounded-md p-0.5">
+			{loading && (
+				<div className="flex items-center justify-center py-8">
+					<Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+					<span className="text-xs text-muted-foreground ml-2">Loading diff...</span>
+				</div>
+			)}
+			{error && (
+				<div className="text-center py-6 space-y-2">
+					<p className="text-xs text-red-500">{error}</p>
 					<button
 						type="button"
-						onClick={() => setTab("summary")}
-						className={`flex-1 text-xs font-medium px-3 py-1 rounded transition-colors ${
-							tab === "summary"
-								? "bg-background text-foreground shadow-sm"
-								: "text-muted-foreground hover:text-foreground"
-						}`}
+						onClick={fetchPatch}
+						className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
 					>
-						Summary
-					</button>
-					<button
-						type="button"
-						onClick={() => setTab("diff")}
-						className={`flex-1 text-xs font-medium px-3 py-1 rounded transition-colors ${
-							tab === "diff"
-								? "bg-background text-foreground shadow-sm"
-								: "text-muted-foreground hover:text-foreground"
-						}`}
-					>
-						Diff
+						Retry
 					</button>
 				</div>
 			)}
-
-			{tab === "summary" && (
-				<>
-					<p className="text-sm text-muted-foreground leading-relaxed break-words">{file.summary}</p>
-					{file.groups.length > 0 && (
-						<div className="border-t pt-3">
-							<div className="text-xs text-muted-foreground mb-2">Groups</div>
-							<div className="flex flex-wrap gap-1.5">
-								{file.groups.map((g) => (
-									<span key={g} className="text-xs bg-muted px-2 py-0.5 rounded-full">{g}</span>
-								))}
-							</div>
-						</div>
-					)}
-				</>
-			)}
-
-			{tab === "diff" && (
-				<>
-					{loading && (
-						<div className="flex items-center justify-center py-8">
-							<Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-							<span className="text-xs text-muted-foreground ml-2">Loading diff...</span>
-						</div>
-					)}
-					{error && (
-						<div className="text-center py-6 space-y-2">
-							<p className="text-xs text-red-500">{error}</p>
-							<button
-								type="button"
-								onClick={fetchPatch}
-								className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
-							>
-								Retry
-							</button>
-						</div>
-					)}
-					{patch && (
-						<DiffViewer
-							patch={patch}
-							filePath={file.path}
-							githubUrl={prUrl ? `${prUrl}/files` : undefined}
-						/>
-					)}
-				</>
+			{patch && (
+				<DiffViewer
+					patch={patch}
+					filePath={file.path}
+					sessionId={sessionId}
+					githubUrl={prUrl ? `${prUrl}/files` : undefined}
+				/>
 			)}
 		</div>
 	);

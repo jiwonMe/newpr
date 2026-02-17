@@ -1,5 +1,8 @@
-import { useState, useEffect, useMemo, type ReactNode } from "react";
-import { createHighlighter, type Highlighter, type ThemedToken } from "shiki";
+import { useState, useEffect, useMemo, useRef, useCallback, type ReactNode } from "react";
+import { type Highlighter, type ThemedToken } from "shiki";
+import { MessageSquare, Trash2, ExternalLink, CornerDownLeft, Pencil, Check, X } from "lucide-react";
+import { ensureHighlighter, getHighlighterSync, detectShikiLang, type ShikiLang } from "../lib/shiki.ts";
+import type { DiffComment } from "../../../types/output.ts";
 
 interface DiffLine {
 	type: "header" | "hunk" | "added" | "removed" | "context" | "binary";
@@ -11,54 +14,6 @@ interface DiffLine {
 const HUNK_RE = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
 const RENDER_CAP = 2000;
 const TOTAL_CAP = 3000;
-
-const SHIKI_LANGS = [
-	"typescript", "tsx", "javascript", "jsx",
-	"python", "go", "rust", "css", "json",
-	"yaml", "html", "bash", "java", "c",
-	"cpp", "ruby", "php", "swift", "kotlin",
-	"sql", "markdown", "toml", "xml",
-] as const;
-
-let hlInstance: Highlighter | null = null;
-let hlLoading: Promise<Highlighter> | null = null;
-
-function ensureHighlighter(): Promise<Highlighter> {
-	if (hlInstance) return Promise.resolve(hlInstance);
-	if (!hlLoading) {
-		hlLoading = createHighlighter({
-			themes: ["github-light", "github-dark"],
-			langs: [...SHIKI_LANGS],
-		}).then((hl) => { hlInstance = hl; return hl; });
-	}
-	return hlLoading;
-}
-
-ensureHighlighter().catch(() => {});
-
-const EXT_TO_LANG: Record<string, string> = {
-	ts: "typescript", tsx: "tsx", mts: "typescript", cts: "typescript",
-	js: "javascript", jsx: "jsx", mjs: "javascript", cjs: "javascript",
-	py: "python", pyi: "python",
-	go: "go", rs: "rust",
-	css: "css", scss: "css", less: "css",
-	json: "json", jsonc: "json",
-	yaml: "yaml", yml: "yaml",
-	html: "html", htm: "html", svg: "xml", xml: "xml",
-	sh: "bash", bash: "bash", zsh: "bash",
-	java: "java", kt: "kotlin", kts: "kotlin",
-	c: "c", h: "c", cpp: "cpp", cc: "cpp", cxx: "cpp", hpp: "cpp",
-	rb: "ruby", php: "php", swift: "swift",
-	sql: "sql", md: "markdown", mdx: "markdown",
-	toml: "toml",
-};
-
-type ShikiLang = (typeof SHIKI_LANGS)[number];
-
-function detectShikiLang(filePath: string): ShikiLang | null {
-	const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
-	return (EXT_TO_LANG[ext] as ShikiLang | undefined) ?? null;
-}
 
 function parseLines(patch: string): DiffLine[] {
 	const raw = patch.split("\n");
@@ -120,7 +75,7 @@ function parseLines(patch: string): DiffLine[] {
 }
 
 function useHighlighter(): Highlighter | null {
-	const [hl, setHl] = useState<Highlighter | null>(hlInstance);
+	const [hl, setHl] = useState<Highlighter | null>(getHighlighterSync());
 	useEffect(() => {
 		if (!hl) ensureHighlighter().then(setHl).catch(() => {});
 	}, [hl]);
@@ -204,7 +159,278 @@ const PREFIX_STYLE: Record<string, string> = {
 	context: "text-transparent select-none",
 };
 
-export function DiffViewer({ patch, filePath, githubUrl }: { patch: string; filePath: string; githubUrl?: string }) {
+let cachedUser: { login: string; avatar_url: string } | null = null;
+async function getCurrentUser(): Promise<{ login: string; avatar_url: string } | null> {
+	if (cachedUser) return cachedUser;
+	try {
+		const res = await fetch("/api/me");
+		const data = await res.json() as Record<string, unknown>;
+		if (data.login) {
+			cachedUser = { login: data.login as string, avatar_url: data.avatar_url as string };
+		}
+	} catch {}
+	return cachedUser;
+}
+
+function formatTimeAgo(iso: string): string {
+	const diff = Date.now() - new Date(iso).getTime();
+	const minutes = Math.floor(diff / 60000);
+	if (minutes < 1) return "just now";
+	if (minutes < 60) return `${minutes}m ago`;
+	const hours = Math.floor(minutes / 60);
+	if (hours < 24) return `${hours}h ago`;
+	const days = Math.floor(hours / 24);
+	return `${days}d ago`;
+}
+
+function commentKey(side: "old" | "new", line: number): string {
+	return `${side}:${line}`;
+}
+
+function lineKey(line: DiffLine): { side: "old" | "new"; num: number } | null {
+	if (line.type === "added" && line.newNum != null) return { side: "new", num: line.newNum };
+	if (line.type === "removed" && line.oldNum != null) return { side: "old", num: line.oldNum };
+	if (line.type === "context" && line.newNum != null) return { side: "new", num: line.newNum };
+	return null;
+}
+
+function CommentCard({
+	comment,
+	currentLogin,
+	onEdit,
+	onDelete,
+}: {
+	comment: DiffComment;
+	currentLogin: string | null;
+	onEdit: (id: string, body: string) => Promise<void>;
+	onDelete: (id: string) => void;
+}) {
+	const [deleting, setDeleting] = useState(false);
+	const [editing, setEditing] = useState(false);
+	const [editBody, setEditBody] = useState(comment.body);
+	const [saving, setSaving] = useState(false);
+	const editRef = useRef<HTMLTextAreaElement>(null);
+	const isOwn = currentLogin === comment.author;
+
+	useEffect(() => {
+		if (editing) editRef.current?.focus();
+	}, [editing]);
+
+	const handleSave = useCallback(async () => {
+		const trimmed = editBody.trim();
+		if (!trimmed || saving || trimmed === comment.body) { setEditing(false); return; }
+		setSaving(true);
+		try {
+			await onEdit(comment.id, trimmed);
+			setEditing(false);
+		} finally {
+			setSaving(false);
+		}
+	}, [editBody, saving, comment.id, comment.body, onEdit]);
+
+	return (
+		<div className="group/comment px-3 py-2.5">
+			<div className="flex items-center gap-1.5 mb-1">
+				{comment.authorAvatar ? (
+					<img src={comment.authorAvatar} alt="" className="h-4 w-4 rounded-full shrink-0" />
+				) : (
+					<div className="h-4 w-4 rounded-full bg-muted-foreground/20 shrink-0" />
+				)}
+				<span className="text-[11px] font-medium text-foreground/90">{comment.author}</span>
+				<span className="text-[10px] text-muted-foreground/60">{formatTimeAgo(comment.createdAt)}</span>
+				{comment.startLine != null && comment.startLine !== comment.line && (
+					<span className="text-[10px] text-muted-foreground/40 font-mono">L{comment.startLine}-{comment.line}</span>
+				)}
+				{comment.githubUrl && (
+					<a href={comment.githubUrl} target="_blank" rel="noopener noreferrer" className="text-muted-foreground/40 hover:text-foreground/60 transition-colors">
+						<ExternalLink className="h-2.5 w-2.5" />
+					</a>
+				)}
+				{isOwn && !editing && (
+					<div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover/comment:opacity-100 transition-opacity">
+						<button
+							type="button"
+							onClick={() => { setEditBody(comment.body); setEditing(true); }}
+							className="p-0.5 -m-0.5 rounded text-muted-foreground/40 hover:text-foreground/70"
+						>
+							<Pencil className="h-3 w-3" />
+						</button>
+						<button
+							type="button"
+							disabled={deleting}
+							onClick={() => { setDeleting(true); onDelete(comment.id); }}
+							className="p-0.5 -m-0.5 rounded text-muted-foreground/40 hover:text-red-500"
+						>
+							<Trash2 className="h-3 w-3" />
+						</button>
+					</div>
+				)}
+			</div>
+			{editing ? (
+				<div className="pl-[22px]">
+					<textarea
+						ref={editRef}
+						value={editBody}
+						onChange={(e) => setEditBody(e.target.value)}
+						onKeyDown={(e) => {
+							if (e.key === "Escape") { e.preventDefault(); setEditing(false); }
+							if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); handleSave(); }
+						}}
+						rows={2}
+						className="w-full bg-transparent text-[12px] leading-[1.6] border rounded-md px-2 py-1.5 resize-none focus:outline-none focus:border-foreground/20 min-h-[36px]"
+					/>
+					<div className="flex items-center justify-end gap-1.5 mt-1">
+						<button
+							type="button"
+							onClick={() => setEditing(false)}
+							className="p-1 rounded-md text-muted-foreground/50 hover:text-foreground/70 transition-colors"
+						>
+							<X className="h-3.5 w-3.5" />
+						</button>
+						<button
+							type="button"
+							onClick={handleSave}
+							disabled={!editBody.trim() || saving}
+							className={`p-1 rounded-md transition-colors ${editBody.trim() && !saving ? "text-foreground/80 hover:text-foreground" : "text-muted-foreground/30 cursor-not-allowed"}`}
+						>
+							<Check className="h-3.5 w-3.5" />
+						</button>
+					</div>
+				</div>
+			) : (
+				<p className="text-[12px] text-foreground/80 whitespace-pre-wrap break-words leading-[1.6] pl-[22px]">{comment.body}</p>
+			)}
+		</div>
+	);
+}
+
+function CommentForm({
+	currentUser,
+	onSubmit,
+	onCancel,
+}: {
+	currentUser: { login: string; avatar_url: string } | null;
+	onSubmit: (body: string) => Promise<void>;
+	onCancel: () => void;
+}) {
+	const [body, setBody] = useState("");
+	const [submitting, setSubmitting] = useState(false);
+	const [focused, setFocused] = useState(false);
+	const ref = useRef<HTMLTextAreaElement>(null);
+
+	useEffect(() => {
+		ref.current?.focus();
+	}, []);
+
+	const handleSubmit = useCallback(async () => {
+		const trimmed = body.trim();
+		if (!trimmed || submitting) return;
+		setSubmitting(true);
+		try {
+			await onSubmit(trimmed);
+		} finally {
+			setSubmitting(false);
+		}
+	}, [body, submitting, onSubmit]);
+
+	const hasContent = body.trim().length > 0;
+	const modKey = typeof navigator !== "undefined" && navigator.platform.includes("Mac") ? "\u2318" : "Ctrl";
+
+	return (
+		<div className="px-3 py-2.5">
+			<div className={`rounded-lg border transition-colors ${focused ? "border-foreground/20 shadow-sm" : "border-border/60"}`}>
+				<div className="flex items-start gap-2 p-2">
+					{currentUser?.avatar_url ? (
+						<img src={currentUser.avatar_url} alt="" className="h-5 w-5 rounded-full shrink-0 mt-0.5" />
+					) : (
+						<div className="h-5 w-5 rounded-full bg-muted-foreground/20 shrink-0 mt-0.5" />
+					)}
+					<textarea
+						ref={ref}
+						value={body}
+						onChange={(e) => setBody(e.target.value)}
+						onFocus={() => setFocused(true)}
+						onBlur={() => setFocused(false)}
+						onKeyDown={(e) => {
+							if (e.key === "Escape") { e.preventDefault(); onCancel(); }
+							if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); handleSubmit(); }
+						}}
+						placeholder="Write a comment..."
+						rows={2}
+						className="flex-1 bg-transparent text-[12px] leading-[1.6] resize-none focus:outline-none placeholder:text-muted-foreground/40 min-h-[44px]"
+					/>
+				</div>
+				<div className="flex items-center justify-end gap-2 px-2 pb-2">
+					<button
+						type="button"
+						onClick={onCancel}
+						className="text-[11px] text-muted-foreground/60 hover:text-foreground/80 px-2 py-1 rounded-md transition-colors"
+					>
+						Cancel
+					</button>
+					<button
+						type="button"
+						onClick={handleSubmit}
+						disabled={!hasContent || submitting}
+						className={`
+							text-[11px] font-medium px-3 py-1 rounded-md transition-all
+							${hasContent && !submitting
+								? "bg-foreground text-background hover:bg-foreground/90"
+								: "bg-muted text-muted-foreground/40 cursor-not-allowed"}
+						`}
+					>
+						{submitting ? "Posting..." : "Comment"}
+					</button>
+					<kbd className="hidden sm:flex items-center gap-0.5 text-[10px] text-muted-foreground/40 select-none">
+						{modKey}<CornerDownLeft className="h-2.5 w-2.5" />
+					</kbd>
+				</div>
+			</div>
+		</div>
+	);
+}
+
+function InlineComments({
+	comments,
+	currentUser,
+	onEdit,
+	onDelete,
+	formTarget,
+	onSubmit,
+	onCancel,
+}: {
+	comments: DiffComment[];
+	currentUser: { login: string; avatar_url: string } | null;
+	onEdit: (id: string, body: string) => Promise<void>;
+	onDelete: (id: string) => void;
+	formTarget: boolean;
+	onSubmit: (body: string) => Promise<void>;
+	onCancel: () => void;
+}) {
+	const hasComments = comments.length > 0;
+	if (!hasComments && !formTarget) return null;
+
+	return (
+		<div className="border-y border-border/30 bg-card/80 font-sans divide-y divide-border/20">
+			{comments.map((c) => (
+				<CommentCard key={c.id} comment={c} currentLogin={currentUser?.login ?? null} onEdit={onEdit} onDelete={onDelete} />
+			))}
+			{formTarget && <CommentForm currentUser={currentUser} onSubmit={onSubmit} onCancel={onCancel} />}
+		</div>
+	);
+}
+
+export function DiffViewer({
+	patch,
+	filePath,
+	sessionId,
+	githubUrl,
+}: {
+	patch: string;
+	filePath: string;
+	sessionId?: string | null;
+	githubUrl?: string;
+}) {
 	const [showAll, setShowAll] = useState(false);
 	const hl = useHighlighter();
 	const dark = useDarkMode();
@@ -215,14 +441,147 @@ export function DiffViewer({ patch, filePath, githubUrl }: { patch: string; file
 	const lines = isCapped ? allLines.slice(0, RENDER_CAP) : allLines;
 	const fileName = filePath.split("/").pop() ?? filePath;
 
+	const scrollRef = useRef<HTMLDivElement>(null);
+	const [visibleWidth, setVisibleWidth] = useState(0);
+	const [comments, setComments] = useState<DiffComment[]>([]);
+	const [currentUser, setCurrentUser] = useState<{ login: string; avatar_url: string } | null>(null);
+	const [formRange, setFormRange] = useState<{ side: "old" | "new"; startLine: number; endLine: number } | null>(null);
+	const dragRef = useRef<{ side: "old" | "new"; num: number } | null>(null);
+	const dragRangeRef = useRef<{ side: "old" | "new"; start: number; end: number } | null>(null);
+	const [dragRange, setDragRange] = useState<{ side: "old" | "new"; start: number; end: number } | null>(null);
+
+	useEffect(() => {
+		const el = scrollRef.current;
+		if (!el) return;
+		setVisibleWidth(el.clientWidth);
+		const observer = new ResizeObserver(() => setVisibleWidth(el.clientWidth));
+		observer.observe(el);
+		return () => observer.disconnect();
+	}, []);
+
+	useEffect(() => {
+		if (!sessionId) return;
+		fetch(`/api/sessions/${sessionId}/comments?path=${encodeURIComponent(filePath)}`)
+			.then((r) => r.ok ? r.json() : [])
+			.then((data) => setComments(data as DiffComment[]))
+			.catch(() => {});
+	}, [sessionId, filePath]);
+
+	useEffect(() => {
+		getCurrentUser().then((u) => {
+			if (u) setCurrentUser(u);
+		});
+	}, []);
+
+	const { commentsByKey, commentedLines } = useMemo(() => {
+		const map = new Map<string, DiffComment[]>();
+		const lineSet = new Set<string>();
+		for (const c of comments) {
+			const key = commentKey(c.side, c.line);
+			const arr = map.get(key);
+			if (arr) arr.push(c);
+			else map.set(key, [c]);
+			const start = c.startLine ?? c.line;
+			for (let n = start; n <= c.line; n++) lineSet.add(commentKey(c.side, n));
+		}
+		return { commentsByKey: map, commentedLines: lineSet };
+	}, [comments]);
+
+	const handleAddComment = useCallback(async (body: string) => {
+		if (!sessionId || !formRange) return;
+		const payload: Record<string, unknown> = {
+			filePath,
+			line: formRange.endLine,
+			side: formRange.side,
+			body,
+		};
+		if (formRange.startLine !== formRange.endLine) {
+			payload.startLine = formRange.startLine;
+		}
+		const res = await fetch(`/api/sessions/${sessionId}/comments`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(payload),
+		});
+		if (res.ok) {
+			const comment = await res.json() as DiffComment;
+			setComments((prev) => [...prev, comment]);
+			setFormRange(null);
+		}
+	}, [sessionId, filePath, formRange]);
+
+	const handleEditComment = useCallback(async (commentId: string, body: string) => {
+		if (!sessionId) return;
+		const res = await fetch(`/api/sessions/${sessionId}/comments/${commentId}`, {
+			method: "PATCH",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ body }),
+		});
+		if (res.ok) {
+			const updated = await res.json() as DiffComment;
+			setComments((prev) => prev.map((c) => c.id === commentId ? updated : c));
+		}
+	}, [sessionId]);
+
+	const handleDeleteComment = useCallback(async (commentId: string) => {
+		if (!sessionId) return;
+		const res = await fetch(`/api/sessions/${sessionId}/comments/${commentId}`, { method: "DELETE" });
+		if (res.ok) {
+			setComments((prev) => prev.filter((c) => c.id !== commentId));
+		}
+	}, [sessionId]);
+
+	const handleMouseDown = useCallback((side: "old" | "new", num: number, e: React.MouseEvent) => {
+		e.preventDefault();
+		dragRef.current = { side, num };
+		const r = { side, start: num, end: num };
+		dragRangeRef.current = r;
+		setDragRange(r);
+	}, []);
+
+	const handleMouseEnter = useCallback((side: "old" | "new", num: number) => {
+		const dr = dragRef.current;
+		if (!dr || dr.side !== side) return;
+		const start = Math.min(dr.num, num);
+		const end = Math.max(dr.num, num);
+		const r = { side, start, end };
+		dragRangeRef.current = r;
+		setDragRange(r);
+	}, []);
+
+	useEffect(() => {
+		const handleUp = () => {
+			const dr = dragRef.current;
+			const range = dragRangeRef.current;
+			dragRef.current = null;
+			dragRangeRef.current = null;
+			setDragRange(null);
+			if (!dr || !range) return;
+			setFormRange((prev) => {
+				if (prev && prev.side === range.side && prev.startLine === range.start && prev.endLine === range.end) return null;
+				return { side: range.side, startLine: range.start, endLine: range.end };
+			});
+		};
+		document.addEventListener("mouseup", handleUp);
+		return () => document.removeEventListener("mouseup", handleUp);
+	}, []);
+
+	const commentCount = comments.length;
+
 	return (
 		<div className="rounded-lg border overflow-hidden">
-			<div className="sticky top-0 z-10 bg-muted px-3 py-1.5 border-b">
-				<span className="text-xs font-mono font-medium truncate" title={filePath}>
+			<div className="sticky top-0 z-10 bg-muted px-3 py-1.5 border-b flex items-center gap-2">
+				<span className="text-xs font-mono font-medium truncate flex-1" title={filePath}>
 					{fileName}
 				</span>
+				{commentCount > 0 && (
+					<span className="flex items-center gap-1 text-[10px] text-muted-foreground shrink-0">
+						<MessageSquare className="h-3 w-3" />
+						{commentCount}
+					</span>
+				)}
 			</div>
-			<div className="overflow-x-auto">
+			<div ref={scrollRef} className="overflow-x-auto">
 				<div className="min-w-max font-mono text-xs leading-5 select-text">
 					{lines.map((line, i) => {
 						if (line.type === "binary") {
@@ -254,17 +613,56 @@ export function DiffViewer({ patch, filePath, githubUrl }: { patch: string; file
 						const prefixStyle = PREFIX_STYLE[line.type] ?? PREFIX_STYLE.context;
 						const tokens = tokenMap?.get(i);
 						const content = tokens ? renderHighlighted(tokens) : line.content;
+						const lk = lineKey(line);
+						const key = lk ? commentKey(lk.side, lk.num) : null;
+						const lineComments = key ? commentsByKey.get(key) ?? [] : [];
+						const canComment = sessionId && lk != null;
+
+						const inDrag = canComment && dragRange != null && dragRange.side === lk.side && lk.num >= dragRange.start && lk.num <= dragRange.end;
+						const inFormRange = canComment && formRange != null && formRange.side === lk.side && lk.num >= formRange.startLine && lk.num <= formRange.endLine;
+						const isFormAnchor = canComment && formRange != null && formRange.side === lk.side && formRange.endLine === lk.num;
+						const hasComment = key != null && commentedLines.has(key);
+						const hasInline = lineComments.length > 0 || isFormAnchor;
+
+						const selectShadow = inDrag
+							? "inset 0 0 0 9999px oklch(0.623 0.214 259.815 / 0.20)"
+							: inFormRange
+								? "inset 0 0 0 9999px oklch(0.623 0.214 259.815 / 0.15)"
+								: hasComment
+									? "inset 0 0 0 9999px oklch(0.623 0.214 259.815 / 0.08)"
+									: undefined;
 
 						return (
-							<div key={i} className={`flex ${ROW_STYLE[line.type]}`}>
-								<span className={`inline-block w-10 shrink-0 text-right pr-1 select-none ${gutterStyle}`}>
-									{line.oldNum ?? ""}
-								</span>
-								<span className={`inline-block w-10 shrink-0 text-right pr-1 select-none border-r border-border/50 ${gutterStyle}`}>
-									{line.newNum ?? ""}
-								</span>
-								<span className={`inline-block w-4 shrink-0 text-center ${prefixStyle}`}>{prefix}</span>
-								<span className="pr-3 whitespace-pre">{content}</span>
+							<div key={i}>
+								<div
+									className={`flex ${ROW_STYLE[line.type]} ${canComment ? "cursor-pointer select-none hover:brightness-[1.15] dark:hover:brightness-[1.3]" : ""}`}
+									style={selectShadow ? { boxShadow: selectShadow } : undefined}
+									onMouseDown={canComment ? (e) => handleMouseDown(lk.side, lk.num, e) : undefined}
+									onMouseEnter={canComment ? () => handleMouseEnter(lk.side, lk.num) : undefined}
+								>
+									{hasComment && <span className="inline-block w-[3px] shrink-0 bg-blue-500/60" />}
+									<span className={`inline-block ${hasComment ? "w-[37px]" : "w-10"} shrink-0 text-right pr-1 select-none ${gutterStyle}`}>
+										{line.oldNum ?? ""}
+									</span>
+									<span className={`inline-block w-10 shrink-0 text-right pr-1 select-none border-r border-border/50 ${gutterStyle}`}>
+										{line.newNum ?? ""}
+									</span>
+									<span className={`inline-block w-4 shrink-0 text-center ${prefixStyle}`}>{prefix}</span>
+									<span className="pr-3 whitespace-pre">{content}</span>
+								</div>
+								{hasInline && (
+									<div className="sticky left-0" style={visibleWidth ? { width: visibleWidth } : undefined}>
+									<InlineComments
+										comments={lineComments}
+										currentUser={currentUser}
+										onEdit={handleEditComment}
+										onDelete={handleDeleteComment}
+										formTarget={!!isFormAnchor}
+										onSubmit={handleAddComment}
+										onCancel={() => setFormRange(null)}
+									/>
+									</div>
+								)}
 							</div>
 						);
 					})}

@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { Sun, Moon, Monitor, Plus, Clock, Settings } from "lucide-react";
 import type { SessionRecord } from "../../../history/types.ts";
 import type { GithubUser } from "../hooks/useGithubUser.ts";
@@ -13,9 +13,9 @@ const THEME_ICON = { light: Sun, dark: Moon, system: Monitor };
 const LEFT_MIN = 180;
 const LEFT_MAX = 400;
 const LEFT_DEFAULT = 256;
-const RIGHT_MIN = 240;
-const RIGHT_MAX = 520;
-const RIGHT_DEFAULT = 320;
+const RIGHT_MIN = 400;
+const RIGHT_MAX = 1200;
+const RIGHT_DEFAULT = 560;
 
 const RISK_DOT: Record<string, string> = {
 	low: "bg-green-500",
@@ -57,6 +57,18 @@ export function AppShell({
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	const [leftWidth, setLeftWidth] = useState(LEFT_DEFAULT);
 	const [rightWidth, setRightWidth] = useState(RIGHT_DEFAULT);
+	const prevDetailPanel = useRef(detailPanel);
+
+	useEffect(() => {
+		const wasNull = prevDetailPanel.current == null;
+		prevDetailPanel.current = detailPanel;
+		if (wasNull && detailPanel != null) {
+			const available = window.innerWidth - leftWidth - 2;
+			const half = Math.floor(available * 0.55);
+			setRightWidth(Math.min(RIGHT_MAX, Math.max(RIGHT_MIN, half)));
+		}
+	}, [detailPanel, leftWidth]);
+
 	const Icon = THEME_ICON[theme];
 	const next = THEME_CYCLE[(THEME_CYCLE.indexOf(theme) + 1) % THEME_CYCLE.length]!;
 
@@ -64,9 +76,15 @@ export function AppShell({
 		setLeftWidth((w) => Math.min(LEFT_MAX, Math.max(LEFT_MIN, w + delta)));
 	}, []);
 
+	const CENTER_MIN = 400;
+
 	const handleRightResize = useCallback((delta: number) => {
-		setRightWidth((w) => Math.min(RIGHT_MAX, Math.max(RIGHT_MIN, w + delta)));
-	}, []);
+		setRightWidth((w) => {
+			const available = window.innerWidth - leftWidth - 2;
+			const max = Math.min(RIGHT_MAX, available - CENTER_MIN);
+			return Math.min(max, Math.max(RIGHT_MIN, w + delta));
+		});
+	}, [leftWidth]);
 
 	return (
 		<div className="flex h-screen bg-background overflow-hidden">
@@ -169,9 +187,9 @@ export function AppShell({
 
 			<ResizeHandle onResize={handleLeftResize} side="right" />
 
-			<div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+			<div className="flex-1 flex flex-col overflow-hidden" style={{ minWidth: 400 }}>
 				<main className="flex-1 overflow-y-auto">
-					<div className="mx-auto max-w-4xl px-10 py-10">
+					<div className="mx-auto max-w-5xl px-10 py-10">
 						{children}
 					</div>
 				</main>

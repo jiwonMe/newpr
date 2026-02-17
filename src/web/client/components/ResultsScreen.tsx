@@ -1,14 +1,15 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { ArrowLeft, Layers, FolderTree, BookOpen, GitBranch, User, Files, Bot, Sparkles } from "lucide-react";
+import { ArrowLeft, Layers, FolderTree, BookOpen, MessageSquare, GitBranch, User, Files, Bot, Sparkles } from "lucide-react";
 import { Button } from "../../components/ui/button.tsx";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../components/ui/tabs.tsx";
 import type { NewprOutput } from "../../../types/output.ts";
 import { GroupsPanel } from "../panels/GroupsPanel.tsx";
 import { FilesPanel } from "../panels/FilesPanel.tsx";
 import { StoryPanel } from "../panels/StoryPanel.tsx";
+import { DiscussionPanel } from "../panels/DiscussionPanel.tsx";
 import { CartoonPanel } from "../panels/CartoonPanel.tsx";
 
-const VALID_TABS = ["story", "groups", "files", "cartoon"] as const;
+const VALID_TABS = ["story", "discussion", "groups", "files", "cartoon"] as const;
 type TabValue = typeof VALID_TABS[number];
 
 function getInitialTab(): TabValue {
@@ -163,7 +164,11 @@ export function ResultsScreen({
 						<BookOpen className="h-3.5 w-3.5 shrink-0" />
 						Story
 					</TabsTrigger>
-				<TabsTrigger value="groups" className="gap-1.5">
+					<TabsTrigger value="discussion" className="gap-1.5">
+						<MessageSquare className="h-3.5 w-3.5 shrink-0" />
+						Discussion
+					</TabsTrigger>
+					<TabsTrigger value="groups" className="gap-1.5">
 						<Layers className="h-3.5 w-3.5 shrink-0" />
 						Groups
 					</TabsTrigger>
@@ -171,7 +176,7 @@ export function ResultsScreen({
 						<FolderTree className="h-3.5 w-3.5 shrink-0" />
 						Files
 					</TabsTrigger>
-				{cartoonEnabled && (
+					{cartoonEnabled && (
 						<TabsTrigger value="cartoon" className="gap-1.5">
 							<Sparkles className="h-3.5 w-3.5 shrink-0" />
 							Comic
@@ -183,14 +188,18 @@ export function ResultsScreen({
 			<TabsContent value="story">
 				<StoryPanel data={data} activeId={activeId} onAnchorClick={onAnchorClick} />
 			</TabsContent>
+			<TabsContent value="discussion">
+				<DiscussionPanel sessionId={sessionId} />
+			</TabsContent>
 			<TabsContent value="groups">
 				<GroupsPanel groups={data.groups} />
 			</TabsContent>
 			<TabsContent value="files">
 				<FilesPanel
 					files={data.files}
+					groups={data.groups}
 					selectedPath={activeId?.startsWith("file:") ? activeId.slice(5) : null}
-					onFileSelect={(path) => onAnchorClick("file", path)}
+					onFileSelect={(path: string) => onAnchorClick("file", path)}
 				/>
 			</TabsContent>
 			{cartoonEnabled && (

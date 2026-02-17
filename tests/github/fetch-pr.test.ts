@@ -6,6 +6,7 @@ describe("mapPrResponse", () => {
 		const json = {
 			number: 42,
 			title: "Add feature X",
+			body: "This PR adds feature X",
 			html_url: "https://github.com/owner/repo/pull/42",
 			user: { login: "developer" },
 			base: { ref: "main" },
@@ -20,6 +21,7 @@ describe("mapPrResponse", () => {
 		expect(result).toEqual({
 			number: 42,
 			title: "Add feature X",
+			body: "This PR adds feature X",
 			url: "https://github.com/owner/repo/pull/42",
 			base_branch: "main",
 			head_branch: "feature/x",
@@ -40,6 +42,7 @@ describe("mapPrResponse", () => {
 		const result = mapPrResponse(json);
 
 		expect(result.author).toBe("unknown");
+		expect(result.body).toBe("");
 		expect(result.base_branch).toBe("unknown");
 		expect(result.head_branch).toBe("unknown");
 		expect(result.additions).toBe(0);

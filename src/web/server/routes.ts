@@ -1,13 +1,16 @@
 import type { NewprConfig } from "../../types/config.ts";
 import type { NewprOutput } from "../../types/output.ts";
 import { DEFAULT_CONFIG } from "../../types/config.ts";
-import { listSessions, loadSession, loadSinglePatch, savePatchesSidecar } from "../../history/store.ts";
+import { listSessions, loadSession, loadSinglePatch, savePatchesSidecar, loadCommentsSidecar, saveCommentsSidecar } from "../../history/store.ts";
+import type { DiffComment } from "../../types/output.ts";
 import { fetchPrDiff } from "../../github/fetch-diff.ts";
+import { fetchPrBody, fetchPrComments } from "../../github/fetch-pr.ts";
 import { parseDiff } from "../../diff/parser.ts";
 import { parsePrInput } from "../../github/parse-pr.ts";
 import { writeStoredConfig, type StoredConfig } from "../../config/store.ts";
 import { startAnalysis, getSession, cancelAnalysis, subscribe } from "./session-manager.ts";
 import { generateCartoon } from "../../llm/cartoon.ts";
+import { randomBytes } from "node:crypto";
 
 function json(data: unknown, status = 200): Response {
 	return new Response(JSON.stringify(data), {
@@ -21,6 +24,47 @@ interface RouteOptions {
 }
 
 export function createRoutes(token: string, config: NewprConfig, options: RouteOptions = {}) {
+	const ghHeaders = {
+		Authorization: `token ${token}`,
+		Accept: "application/vnd.github.v3+json",
+		"User-Agent": "newpr-cli",
+		"Content-Type": "application/json",
+	};
+
+	async function resolvePrUrl(sessionId: string): Promise<string | null> {
+		const stored = await loadSession(sessionId);
+		if (stored) return stored.meta.pr_url;
+		const live = getSession(sessionId);
+		if (live?.result?.meta?.pr_url) return live.result.meta.pr_url;
+		if (live?.historyId) {
+			const hist = await loadSession(live.historyId);
+			if (hist) return hist.meta.pr_url;
+		}
+		return null;
+	}
+
+	async function fetchHeadSha(pr: { owner: string; repo: string; number: number }): Promise<string | null> {
+		try {
+			const res = await fetch(`https://api.github.com/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}`, { headers: ghHeaders });
+			if (!res.ok) return null;
+			const data = await res.json() as { head?: { sha?: string } };
+			return data.head?.sha ?? null;
+		} catch {
+			return null;
+		}
+	}
+
+	async function fetchCurrentUser(): Promise<{ login: string; avatar_url?: string }> {
+		try {
+			const res = await fetch("https://api.github.com/user", { headers: ghHeaders });
+			if (res.ok) {
+				const user = await res.json() as Record<string, unknown>;
+				return { login: user.login as string, avatar_url: user.avatar_url as string | undefined };
+			}
+		} catch {}
+		return { login: "anonymous" };
+	}
+
 	return {
 		"POST /api/analysis": async (req: Request) => {
 			const body = await req.json() as { pr: string };
@@ -180,6 +224,77 @@ export function createRoutes(token: string, config: NewprConfig, options: RouteO
 			}
 		},
 
+		"GET /api/sessions/:id/discussion": async (req: Request) => {
+			const url = new URL(req.url);
+			const segments = url.pathname.split("/");
+			const id = segments[segments.length - 2]!;
+
+			let prUrl: string | null = null;
+			let body: string | null = null;
+
+			const storedSession = await loadSession(id);
+			if (storedSession) {
+				prUrl = storedSession.meta.pr_url;
+				body = storedSession.meta.pr_body ?? null;
+			} else {
+				const liveSession = getSession(id);
+				if (liveSession?.result?.meta?.pr_url) {
+					prUrl = liveSession.result.meta.pr_url;
+					body = liveSession.result.meta.pr_body ?? null;
+				} else if (liveSession?.historyId) {
+					const histSession = await loadSession(liveSession.historyId);
+					if (histSession) {
+						prUrl = histSession.meta.pr_url;
+						body = histSession.meta.pr_body ?? null;
+					}
+				}
+			}
+
+			if (!prUrl) return json({ error: "Session not found" }, 404);
+
+			try {
+				const pr = parsePrInput(prUrl);
+				if (body === null) {
+					body = await fetchPrBody(pr, token);
+				}
+				const comments = await fetchPrComments(pr, token);
+				return json({ body, comments });
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				return json({ error: `Failed to fetch discussion: ${msg}` }, 500);
+			}
+		},
+
+		"GET /api/proxy": async (req: Request) => {
+			const url = new URL(req.url);
+			const target = url.searchParams.get("url");
+			if (!target) return json({ error: "Missing 'url' query parameter" }, 400);
+
+			const allowed = target.startsWith("https://github.com/") || target.startsWith("https://user-images.githubusercontent.com/");
+			if (!allowed) return json({ error: "URL not allowed" }, 403);
+
+			try {
+				const res = await fetch(target, {
+					headers: {
+						"User-Agent": "newpr-cli",
+						Authorization: `token ${token}`,
+					},
+					redirect: "follow",
+				});
+				if (!res.ok) return new Response(null, { status: res.status });
+
+				const contentType = res.headers.get("content-type") ?? "application/octet-stream";
+				return new Response(res.body, {
+					headers: {
+						"Content-Type": contentType,
+						"Cache-Control": "public, max-age=86400, immutable",
+					},
+				});
+			} catch {
+				return new Response(null, { status: 502 });
+			}
+		},
+
 		"GET /api/me": async () => {
 			try {
 				const res = await fetch("https://api.github.com/user", {
@@ -266,6 +381,155 @@ export function createRoutes(token: string, config: NewprConfig, options: RouteO
 
 		"GET /api/features": () => {
 			return json({ cartoon: !!options.cartoon });
+		},
+
+		"GET /api/sessions/:id/comments": async (req: Request) => {
+			const url = new URL(req.url);
+			const segments = url.pathname.split("/");
+			const id = segments[3]!;
+			const filePath = url.searchParams.get("path");
+
+			const comments = await loadCommentsSidecar(id) ?? [];
+			const filtered = filePath ? comments.filter((c) => c.filePath === filePath) : comments;
+			return json(filtered);
+		},
+
+		"POST /api/sessions/:id/comments": async (req: Request) => {
+			const url = new URL(req.url);
+			const segments = url.pathname.split("/");
+			const sessionId = segments[3]!;
+
+			const body = await req.json() as { filePath?: string; line?: number; startLine?: number; side?: string; body?: string };
+			if (!body.filePath || body.line == null || !body.side || !body.body?.trim()) {
+				return json({ error: "Missing required fields" }, 400);
+			}
+
+			const user = await fetchCurrentUser();
+			const prUrl = await resolvePrUrl(sessionId);
+
+			let githubCommentId: number | undefined;
+			let githubCommentUrl: string | undefined;
+			if (prUrl) {
+				try {
+					const pr = parsePrInput(prUrl);
+					const sha = await fetchHeadSha(pr);
+					if (sha) {
+						const ghSide = body.side === "old" ? "LEFT" : "RIGHT";
+						const ghBody: Record<string, unknown> = {
+							commit_id: sha,
+							path: body.filePath,
+							line: body.line,
+							side: ghSide,
+							body: body.body.trim(),
+						};
+						if (body.startLine != null && body.startLine !== body.line) {
+							ghBody.start_line = body.startLine;
+							ghBody.start_side = ghSide;
+						}
+						const res = await fetch(
+							`https://api.github.com/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/comments`,
+							{
+								method: "POST",
+								headers: ghHeaders,
+								body: JSON.stringify(ghBody),
+							},
+						);
+						if (res.ok) {
+							const data = await res.json() as { id?: number; html_url?: string };
+							githubCommentId = data.id;
+							githubCommentUrl = data.html_url;
+						}
+					}
+				} catch {}
+			}
+
+			const hasRange = body.startLine != null && body.startLine !== body.line;
+			const comment: DiffComment = {
+				id: randomBytes(8).toString("hex"),
+				sessionId,
+				filePath: body.filePath,
+				line: body.line,
+				...(hasRange ? { startLine: body.startLine } : {}),
+				side: body.side as "old" | "new",
+				body: body.body.trim(),
+				author: user.login,
+				authorAvatar: user.avatar_url,
+				createdAt: new Date().toISOString(),
+				githubUrl: githubCommentUrl,
+				githubCommentId,
+			};
+
+			const existing = await loadCommentsSidecar(sessionId) ?? [];
+			existing.push(comment);
+			await saveCommentsSidecar(sessionId, existing);
+
+			return json(comment, 201);
+		},
+
+		"PATCH /api/sessions/:id/comments/:commentId": async (req: Request) => {
+			const url = new URL(req.url);
+			const segments = url.pathname.split("/");
+			const sessionId = segments[3]!;
+			const commentId = segments[5]!;
+
+			const body = await req.json() as { body?: string };
+			if (!body.body?.trim()) return json({ error: "Missing body" }, 400);
+
+			const existing = await loadCommentsSidecar(sessionId) ?? [];
+			const comment = existing.find((c) => c.id === commentId);
+			if (!comment) return json({ error: "Comment not found" }, 404);
+
+			comment.body = body.body.trim();
+
+			if (comment.githubCommentId) {
+				const prUrl = await resolvePrUrl(sessionId);
+				if (prUrl) {
+					try {
+						const pr = parsePrInput(prUrl);
+						await fetch(
+							`https://api.github.com/repos/${pr.owner}/${pr.repo}/pulls/comments/${comment.githubCommentId}`,
+							{
+								method: "PATCH",
+								headers: ghHeaders,
+								body: JSON.stringify({ body: comment.body }),
+							},
+						);
+					} catch {}
+				}
+			}
+
+			await saveCommentsSidecar(sessionId, existing);
+			return json(comment);
+		},
+
+		"DELETE /api/sessions/:id/comments/:commentId": async (req: Request) => {
+			const url = new URL(req.url);
+			const segments = url.pathname.split("/");
+			const sessionId = segments[3]!;
+			const commentId = segments[5]!;
+
+			const existing = await loadCommentsSidecar(sessionId) ?? [];
+			const idx = existing.findIndex((c) => c.id === commentId);
+			if (idx === -1) return json({ error: "Comment not found" }, 404);
+
+			const removed = existing[idx]!;
+			if (removed.githubCommentId) {
+				const prUrl = await resolvePrUrl(sessionId);
+				if (prUrl) {
+					try {
+						const pr = parsePrInput(prUrl);
+						await fetch(
+							`https://api.github.com/repos/${pr.owner}/${pr.repo}/pulls/comments/${removed.githubCommentId}`,
+							{ method: "DELETE", headers: ghHeaders },
+						);
+					} catch {}
+				}
+			}
+
+			existing.splice(idx, 1);
+			await saveCommentsSidecar(sessionId, existing);
+
+			return json({ ok: true });
 		},
 
 		"POST /api/cartoon": async (req: Request) => {

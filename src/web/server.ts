@@ -83,8 +83,26 @@ export async function startWebServer(options: WebServerOptions): Promise<void> {
 			if (path.match(/^\/api\/sessions\/[^/]+\/diff$/) && req.method === "GET") {
 				return routes["GET /api/sessions/:id/diff"](req);
 			}
+			if (path.match(/^\/api\/sessions\/[^/]+\/discussion$/) && req.method === "GET") {
+				return routes["GET /api/sessions/:id/discussion"](req);
+			}
+			if (path.match(/^\/api\/sessions\/[^/]+\/comments\/[^/]+$/) && req.method === "DELETE") {
+				return routes["DELETE /api/sessions/:id/comments/:commentId"](req);
+			}
+			if (path.match(/^\/api\/sessions\/[^/]+\/comments\/[^/]+$/) && req.method === "PATCH") {
+				return routes["PATCH /api/sessions/:id/comments/:commentId"](req);
+			}
+			if (path.match(/^\/api\/sessions\/[^/]+\/comments$/) && req.method === "GET") {
+				return routes["GET /api/sessions/:id/comments"](req);
+			}
+			if (path.match(/^\/api\/sessions\/[^/]+\/comments$/) && req.method === "POST") {
+				return routes["POST /api/sessions/:id/comments"](req);
+			}
 			if (path.match(/^\/api\/sessions\/[^/]+$/) && req.method === "GET") {
 				return routes["GET /api/sessions/:id"](req);
+			}
+			if (path === "/api/proxy" && req.method === "GET") {
+				return routes["GET /api/proxy"](req);
 			}
 			if (path === "/api/features" && req.method === "GET") {
 				return routes["GET /api/features"]();

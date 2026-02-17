@@ -14,6 +14,7 @@ export type RiskLevel = "low" | "medium" | "high";
 export interface PrMeta {
 	pr_number: number;
 	pr_title: string;
+	pr_body?: string;
 	pr_url: string;
 	base_branch: string;
 	head_branch: string;
@@ -54,6 +55,29 @@ export interface CartoonImage {
 	imageBase64: string;
 	mimeType: string;
 	generatedAt: string;
+}
+
+export interface DiffComment {
+	id: string;
+	sessionId: string;
+	filePath: string;
+	line: number;
+	startLine?: number;
+	side: "old" | "new";
+	body: string;
+	author: string;
+	authorAvatar?: string;
+	createdAt: string;
+	githubUrl?: string;
+	githubCommentId?: number;
+}
+
+export interface PendingComment {
+	tempId: string;
+	filePath: string;
+	line: number;
+	side: "old" | "new";
+	body: string;
 }
 
 export interface NewprOutput {

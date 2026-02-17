@@ -1,5 +1,37 @@
 @import "tailwindcss";
 
+@font-face {
+	font-family: "Tab0 Mono K";
+	src: url("https://font.tab0.ai/tab0-mono-k/web/latest/Tab0MonoK-Regular.woff2") format("woff2");
+	font-weight: 400;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: "Tab0 Mono K";
+	src: url("https://font.tab0.ai/tab0-mono-k/web/latest/Tab0MonoK-Bold.woff2") format("woff2");
+	font-weight: 700;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: "Tab0 Mono K";
+	src: url("https://font.tab0.ai/tab0-mono-k/web/latest/Tab0MonoK-Italic.woff2") format("woff2");
+	font-weight: 400;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: "Tab0 Mono K";
+	src: url("https://font.tab0.ai/tab0-mono-k/web/latest/Tab0MonoK-BoldItalic.woff2") format("woff2");
+	font-weight: 700;
+	font-style: italic;
+	font-display: swap;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -30,7 +62,7 @@
 @theme {
 	--radius: 0.5rem;
 	--font-sans: "Pretendard", "Inter", ui-sans-serif, system-ui, sans-serif;
-	--font-mono: "JetBrains Mono", ui-monospace, monospace;
+	--font-mono: "Tab0 Mono K", "JetBrains Mono", ui-monospace, monospace;
 }
 
 :root {

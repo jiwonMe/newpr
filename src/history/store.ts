@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { mkdirSync, rmSync, existsSync } from "node:fs";
 import { randomBytes } from "node:crypto";
-import type { NewprOutput } from "../types/output.ts";
+import type { NewprOutput, DiffComment } from "../types/output.ts";
 import type { SessionRecord } from "./types.ts";
 
 const HISTORY_DIR = join(homedir(), ".newpr", "history");
@@ -122,6 +122,30 @@ export async function loadSinglePatch(
 	const patches = await loadPatchesSidecar(id);
 	if (!patches) return null;
 	return patches[filePath] ?? null;
+}
+
+export async function saveCommentsSidecar(
+	id: string,
+	comments: DiffComment[],
+): Promise<void> {
+	ensureDirs();
+	await Bun.write(
+		join(SESSIONS_DIR, `${id}.comments.json`),
+		JSON.stringify(comments, null, 2),
+	);
+}
+
+export async function loadCommentsSidecar(
+	id: string,
+): Promise<DiffComment[] | null> {
+	try {
+		const filePath = join(SESSIONS_DIR, `${id}.comments.json`);
+		const file = Bun.file(filePath);
+		if (!(await file.exists())) return null;
+		return JSON.parse(await file.text()) as DiffComment[];
+	} catch {
+		return null;
+	}
 }
 
 export function getHistoryPath(): string {
