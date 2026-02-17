@@ -59,8 +59,11 @@ export function createRoutes(token: string, config: NewprConfig) {
 
 					const unsubscribe = subscribe(id, (event) => {
 						try {
-							if ("type" in event && (event.type === "done" || event.type === "error")) {
-								send(event.type, JSON.stringify({ data: event.data }));
+							if ("type" in event && event.type === "done") {
+								send("done", JSON.stringify({}));
+								controller.close();
+							} else if ("type" in event && event.type === "error") {
+								send("analysis_error", JSON.stringify({ message: event.data ?? "Unknown error" }));
 								controller.close();
 							} else {
 								send("progress", JSON.stringify(event));
@@ -71,7 +74,7 @@ export function createRoutes(token: string, config: NewprConfig) {
 					});
 
 					if (!unsubscribe) {
-						send("error", JSON.stringify({ data: "Session not found" }));
+						send("analysis_error", JSON.stringify({ message: "Session not found" }));
 						controller.close();
 					}
 
@@ -110,6 +113,28 @@ export function createRoutes(token: string, config: NewprConfig) {
 			const data = await loadSession(id);
 			if (!data) return json({ error: "Session not found" }, 404);
 			return json(data);
+		},
+
+		"GET /api/me": async () => {
+			try {
+				const res = await fetch("https://api.github.com/user", {
+					headers: {
+						Authorization: `token ${token}`,
+						Accept: "application/vnd.github.v3+json",
+						"User-Agent": "newpr-cli",
+					},
+				});
+				if (!res.ok) return json({ login: null });
+				const user = await res.json() as Record<string, unknown>;
+				return json({
+					login: user.login as string,
+					avatar_url: user.avatar_url as string,
+					html_url: user.html_url as string,
+					name: (user.name as string) ?? null,
+				});
+			} catch {
+				return json({ login: null });
+			}
 		},
 
 		"GET /api/config": async () => {

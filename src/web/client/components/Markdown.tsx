@@ -1,0 +1,109 @@
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import type { Components } from "react-markdown";
+
+interface MarkdownProps {
+	children: string;
+	onAnchorClick?: (kind: "group" | "file", id: string) => void;
+	activeId?: string | null;
+}
+
+const ANCHOR_RE = /\[\[(group|file):([^\]]+)\]\]/g;
+
+function preprocess(text: string): string {
+	return text.replace(ANCHOR_RE, (_, kind, id) => {
+		const encoded = encodeURIComponent(id);
+		return `![${kind}:${encoded}](newpr)`;
+	});
+}
+
+export function Markdown({ children, onAnchorClick, activeId }: MarkdownProps) {
+	const processed = preprocess(children);
+
+	const components: Components = {
+		h1: ({ children }) => <h1 className="text-xl font-bold mt-6 mb-3 break-words">{children}</h1>,
+		h2: ({ children }) => <h2 className="text-lg font-semibold mt-6 mb-2 break-words">{children}</h2>,
+		h3: ({ children }) => <h3 className="text-base font-medium mt-4 mb-1 break-words">{children}</h3>,
+		h4: ({ children }) => <h4 className="text-sm font-medium mt-3 mb-1 break-words">{children}</h4>,
+		p: ({ children }) => <p className="text-sm leading-relaxed text-foreground/90 break-words mb-3">{children}</p>,
+		ul: ({ children }) => <ul className="space-y-1 mb-3">{children}</ul>,
+		ol: ({ children }) => <ol className="list-decimal pl-5 space-y-1 mb-3 text-sm text-foreground/90">{children}</ol>,
+		li: ({ children }) => <li className="text-sm text-muted-foreground ml-4 break-words leading-relaxed">{children}</li>,
+		strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
+		em: ({ children }) => <em className="italic">{children}</em>,
+		code: ({ children, className }) => {
+			if (className?.includes("language-")) {
+				return (
+					<pre className="bg-muted rounded-lg p-4 overflow-x-auto mb-3">
+						<code className="text-xs font-mono">{children}</code>
+					</pre>
+				);
+			}
+			return <code className="px-1.5 py-0.5 rounded bg-muted text-xs font-mono">{children}</code>;
+		},
+		pre: ({ children }) => <>{children}</>,
+		a: ({ href, children }) => (
+			<a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">{children}</a>
+		),
+		img: ({ alt }) => {
+			if (!alt?.includes(":")) return null;
+			const colonIdx = alt.indexOf(":");
+			const kind = alt.slice(0, colonIdx) as "group" | "file";
+			const id = decodeURIComponent(alt.slice(colonIdx + 1));
+
+			if (!onAnchorClick) {
+				if (kind === "group") {
+					return <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs font-medium">{id}</span>;
+				}
+				return <code className="px-1.5 py-0.5 rounded bg-muted text-xs font-mono text-blue-600 dark:text-blue-400">{id.split("/").pop()}</code>;
+			}
+
+			const isActive = activeId === `${kind}:${id}`;
+			if (kind === "group") {
+				return (
+					<span
+						role="button"
+						tabIndex={0}
+						onClick={(e) => { e.stopPropagation(); onAnchorClick("group", id); }}
+						onKeyDown={(e) => { if (e.key === "Enter") onAnchorClick("group", id); }}
+						className={`inline px-1.5 py-0.5 rounded text-xs font-medium transition-colors cursor-pointer ${
+							isActive
+								? "bg-blue-500/20 text-blue-500 dark:text-blue-300 ring-1 ring-blue-500/40"
+								: "bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20"
+						}`}
+					>
+						{id}
+					</span>
+				);
+			}
+			return (
+				<span
+					role="button"
+					tabIndex={0}
+					onClick={(e) => { e.stopPropagation(); onAnchorClick("file", id); }}
+					onKeyDown={(e) => { if (e.key === "Enter") onAnchorClick("file", id); }}
+					className={`inline px-1.5 py-0.5 rounded text-xs font-mono transition-colors cursor-pointer ${
+						isActive
+							? "bg-muted ring-1 ring-blue-500/40 text-blue-500 dark:text-blue-300"
+							: "bg-muted text-blue-600 dark:text-blue-400 hover:bg-blue-500/10"
+					}`}
+				>
+					{id.split("/").pop()}
+				</span>
+			);
+		},
+		blockquote: ({ children }) => (
+			<blockquote className="border-l-2 border-muted-foreground/30 pl-4 text-sm text-muted-foreground italic mb-3">{children}</blockquote>
+		),
+		hr: () => <hr className="border-border my-4" />,
+		table: ({ children }) => (
+			<div className="overflow-x-auto mb-3">
+				<table className="text-sm w-full border-collapse">{children}</table>
+			</div>
+		),
+		th: ({ children }) => <th className="border-b border-border px-3 py-1.5 text-left text-xs font-medium text-muted-foreground">{children}</th>,
+		td: ({ children }) => <td className="border-b border-border px-3 py-1.5 text-sm">{children}</td>,
+	};
+
+	return <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{processed}</ReactMarkdown>;
+}

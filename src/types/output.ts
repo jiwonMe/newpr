@@ -18,6 +18,8 @@ export interface PrMeta {
 	base_branch: string;
 	head_branch: string;
 	author: string;
+	author_avatar?: string;
+	author_url?: string;
 	total_files_changed: number;
 	total_additions: number;
 	total_deletions: number;

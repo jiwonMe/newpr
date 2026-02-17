@@ -9,31 +9,33 @@ interface WebServerOptions {
 	config: NewprConfig;
 }
 
-async function buildCss(): Promise<string> {
+function getCssPaths() {
 	const webDir = dirname(Bun.resolveSync("./src/web/index.html", process.cwd()));
-	const input = join(webDir, "styles", "globals.css");
-	const output = join(webDir, "styles", "built.css");
+	return {
+		input: join(webDir, "styles", "globals.css"),
+		output: join(webDir, "styles", "built.css"),
+		bin: join(process.cwd(), "node_modules", ".bin", "tailwindcss"),
+	};
+}
 
-	const result = Bun.spawnSync({
-		cmd: ["bunx", "@tailwindcss/cli", "-i", input, "-o", output, "--minify"],
-		cwd: process.cwd(),
-		stderr: "pipe",
-		stdout: "pipe",
-	});
-
-	if (result.exitCode !== 0) {
-		const stderr = result.stderr.toString();
-		throw new Error(`Tailwind CSS build failed: ${stderr}`);
+async function buildCss(bin: string, input: string, output: string): Promise<void> {
+	const proc = Bun.spawn(
+		[bin, "-i", input, "-o", output, "--minify"],
+		{ cwd: process.cwd(), stderr: "pipe", stdout: "pipe" },
+	);
+	const exitCode = await proc.exited;
+	if (exitCode !== 0) {
+		const stderr = await new Response(proc.stderr).text();
+		throw new Error(`Tailwind CSS build failed (exit ${exitCode}): ${stderr}`);
 	}
-
-	return output;
 }
 
 export async function startWebServer(options: WebServerOptions): Promise<void> {
 	const { port, token, config } = options;
 	const routes = createRoutes(token, config);
+	const css = getCssPaths();
 
-	const cssPath = await buildCss();
+	await buildCss(css.bin, css.input, css.output);
 
 	const server = Bun.serve({
 		port,
@@ -41,9 +43,13 @@ export async function startWebServer(options: WebServerOptions): Promise<void> {
 		routes: {
 			"/": index,
 			"/styles.css": async () => {
-				const file = Bun.file(cssPath);
+				await buildCss(css.bin, css.input, css.output);
+				const file = Bun.file(css.output);
 				return new Response(file, {
-					headers: { "content-type": "text/css; charset=utf-8" },
+					headers: {
+						"content-type": "text/css; charset=utf-8",
+						"cache-control": "no-cache, no-store, must-revalidate",
+					},
 				});
 			},
 			"/api/analysis": {
@@ -51,6 +57,9 @@ export async function startWebServer(options: WebServerOptions): Promise<void> {
 			},
 			"/api/sessions": {
 				GET: routes["GET /api/sessions"],
+			},
+			"/api/me": {
+				GET: routes["GET /api/me"],
 			},
 			"/api/config": {
 				GET: routes["GET /api/config"],

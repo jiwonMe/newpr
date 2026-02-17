@@ -16,6 +16,12 @@ const STATUS_COLOR: Record<FileStatus, string> = {
 	renamed: "text-blue-500",
 };
 
+function splitPath(fullPath: string): { dir: string; name: string } {
+	const lastSlash = fullPath.lastIndexOf("/");
+	if (lastSlash === -1) return { dir: "", name: fullPath };
+	return { dir: fullPath.slice(0, lastSlash + 1), name: fullPath.slice(lastSlash + 1) };
+}
+
 export function FilesPanel({ files }: { files: FileChange[] }) {
 	const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -28,21 +34,22 @@ export function FilesPanel({ files }: { files: FileChange[] }) {
 	}
 
 	return (
-		<div className="pt-4">
+		<div className="pt-6">
 			<div className="text-xs text-muted-foreground mb-3">
 				{files.length} files changed
 			</div>
-			<div className="border rounded-lg divide-y overflow-hidden">
+			<div className="divide-y">
 				{files.map((file) => {
 					const Icon = STATUS_ICON[file.status];
 					const open = expanded.has(file.path);
+					const { dir, name } = splitPath(file.path);
 
 					return (
 						<div key={file.path}>
 							<button
 								type="button"
 								onClick={() => toggle(file.path)}
-								className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-accent/50 transition-colors min-w-0"
+								className="w-full flex items-center gap-3 py-2.5 text-left hover:bg-accent/30 transition-colors min-w-0 -mx-1 px-1 rounded"
 							>
 								{open ? (
 									<ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
@@ -50,17 +57,20 @@ export function FilesPanel({ files }: { files: FileChange[] }) {
 									<ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
 								)}
 								<Icon className={`h-3.5 w-3.5 shrink-0 ${STATUS_COLOR[file.status]}`} />
-								<span className="text-sm font-mono flex-1 min-w-0 truncate">{file.path}</span>
-								<span className="text-xs text-green-500 shrink-0">+{file.additions}</span>
-								<span className="text-xs text-red-500 shrink-0">−{file.deletions}</span>
+								<span className="flex-1 min-w-0 flex items-baseline overflow-hidden" title={file.path}>
+									<span className="text-xs text-muted-foreground/50 font-mono truncate shrink">{dir}</span>
+									<span className="text-sm font-mono font-medium shrink-0">{name}</span>
+								</span>
+								<span className="text-xs tabular-nums text-green-500 shrink-0 w-10 text-right">+{file.additions}</span>
+								<span className="text-xs tabular-nums text-red-500 shrink-0 w-10 text-right">−{file.deletions}</span>
 							</button>
 							{open && (
-								<div className="px-4 pb-3 pl-14">
-									<p className="text-sm text-muted-foreground break-words">{file.summary}</p>
+								<div className="pb-3 pl-12">
+									<p className="text-xs text-muted-foreground leading-relaxed break-words">{file.summary}</p>
 									{file.groups.length > 0 && (
 										<div className="flex flex-wrap gap-1.5 mt-2">
 											{file.groups.map((g) => (
-												<span key={g} className="text-xs bg-muted px-2 py-0.5 rounded-full truncate max-w-[200px]">{g}</span>
+												<span key={g} className="text-[11px] bg-muted px-2 py-0.5 rounded-full">{g}</span>
 											))}
 										</div>
 									)}

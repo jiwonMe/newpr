@@ -1,12 +1,21 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Sun, Moon, Monitor, Plus, Clock, Settings } from "lucide-react";
 import type { SessionRecord } from "../../../history/types.ts";
+import type { GithubUser } from "../hooks/useGithubUser.ts";
 import { SettingsPanel } from "./SettingsPanel.tsx";
+import { ResizeHandle } from "./ResizeHandle.tsx";
 
 type Theme = "light" | "dark" | "system";
 
 const THEME_CYCLE: Theme[] = ["light", "dark", "system"];
 const THEME_ICON = { light: Sun, dark: Moon, system: Monitor };
+
+const LEFT_MIN = 180;
+const LEFT_MAX = 400;
+const LEFT_DEFAULT = 256;
+const RIGHT_MIN = 240;
+const RIGHT_MAX = 520;
+const RIGHT_DEFAULT = 320;
 
 const RISK_DOT: Record<string, string> = {
 	low: "bg-green-500",
@@ -30,24 +39,38 @@ export function AppShell({
 	theme,
 	onThemeChange,
 	sessions,
+	githubUser,
 	onSessionSelect,
 	onNewAnalysis,
+	detailPanel,
 	children,
 }: {
 	theme: Theme;
 	onThemeChange: (t: Theme) => void;
 	sessions: SessionRecord[];
+	githubUser: GithubUser | null;
 	onSessionSelect: (sessionId: string) => void;
 	onNewAnalysis: () => void;
+	detailPanel?: React.ReactNode;
 	children: React.ReactNode;
 }) {
 	const [settingsOpen, setSettingsOpen] = useState(false);
+	const [leftWidth, setLeftWidth] = useState(LEFT_DEFAULT);
+	const [rightWidth, setRightWidth] = useState(RIGHT_DEFAULT);
 	const Icon = THEME_ICON[theme];
 	const next = THEME_CYCLE[(THEME_CYCLE.indexOf(theme) + 1) % THEME_CYCLE.length]!;
 
+	const handleLeftResize = useCallback((delta: number) => {
+		setLeftWidth((w) => Math.min(LEFT_MAX, Math.max(LEFT_MIN, w + delta)));
+	}, []);
+
+	const handleRightResize = useCallback((delta: number) => {
+		setRightWidth((w) => Math.min(RIGHT_MAX, Math.max(RIGHT_MIN, w + delta)));
+	}, []);
+
 	return (
 		<div className="flex h-screen bg-background overflow-hidden">
-			<aside className="flex flex-col w-64 shrink-0 border-r bg-background">
+			<aside className="flex flex-col shrink-0 border-r bg-background" style={{ width: leftWidth }}>
 				<div className="flex h-14 items-center justify-between px-4 border-b">
 					<button
 						type="button"
@@ -101,34 +124,67 @@ export function AppShell({
 					)}
 				</div>
 
-				<div className="border-t px-4 py-3 flex items-center justify-between">
-					<button
-						type="button"
-						onClick={() => onThemeChange(next)}
-						className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
-						title={`Switch to ${next} mode`}
-					>
-						<Icon className="h-3.5 w-3.5" />
-						<span className="capitalize">{theme}</span>
-					</button>
-					<button
-						type="button"
-						onClick={() => setSettingsOpen(true)}
-						className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
-						title="Settings"
-					>
-						<Settings className="h-3.5 w-3.5" />
-					</button>
+				<div className="border-t px-3 py-3 space-y-2">
+					{githubUser && (
+						<a
+							href={githubUser.html_url}
+							target="_blank"
+							rel="noopener noreferrer"
+							className="flex items-center gap-2.5 rounded-md px-1.5 py-1.5 hover:bg-accent/50 transition-colors"
+						>
+							<img
+								src={githubUser.avatar_url}
+								alt={githubUser.login}
+								className="h-6 w-6 rounded-full"
+							/>
+							<div className="flex-1 min-w-0">
+								<div className="text-xs font-medium truncate">{githubUser.name ?? githubUser.login}</div>
+								{githubUser.name && (
+									<div className="text-[10px] text-muted-foreground truncate">@{githubUser.login}</div>
+								)}
+							</div>
+						</a>
+					)}
+					<div className="flex items-center justify-between px-1.5">
+						<button
+							type="button"
+							onClick={() => onThemeChange(next)}
+							className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
+							title={`Switch to ${next} mode`}
+						>
+							<Icon className="h-3.5 w-3.5" />
+							<span className="capitalize">{theme}</span>
+						</button>
+						<button
+							type="button"
+							onClick={() => setSettingsOpen(true)}
+							className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+							title="Settings"
+						>
+							<Settings className="h-3.5 w-3.5" />
+						</button>
+					</div>
 				</div>
 			</aside>
 
+			<ResizeHandle onResize={handleLeftResize} side="right" />
+
 			<div className="flex-1 flex flex-col min-w-0 overflow-hidden">
 				<main className="flex-1 overflow-y-auto">
-					<div className="mx-auto max-w-4xl px-8 py-8">
+					<div className="mx-auto max-w-4xl px-10 py-10">
 						{children}
 					</div>
 				</main>
 			</div>
+
+			{detailPanel && (
+				<>
+					<ResizeHandle onResize={handleRightResize} side="left" />
+					<aside className="shrink-0 border-l bg-background overflow-y-auto" style={{ width: rightWidth }}>
+						{detailPanel}
+					</aside>
+				</>
+			)}
 
 			{settingsOpen && (
 				<div className="fixed inset-0 z-50 flex items-center justify-center">

@@ -72,6 +72,45 @@ function batchChunks(chunks: DiffChunk[], batchSize: number): DiffChunk[][] {
 	return batches;
 }
 
+async function runExploration(
+	pr: PrIdentifier,
+	token: string,
+	baseBranch: string,
+	changedFiles: string[],
+	prTitle: string,
+	rawDiff: string,
+	preferredAgent?: AgentToolName,
+	onProgress?: ProgressCallback,
+): Promise<ExplorationResult> {
+	const agent = await requireAgent(preferredAgent);
+
+	onProgress?.({ stage: "cloning", message: `${pr.owner}/${pr.repo}` });
+	const bareRepoPath = await ensureRepo(pr.owner, pr.repo, token, (msg) => {
+		onProgress?.({ stage: "cloning", message: msg });
+	});
+	onProgress?.({ stage: "cloning", message: `${pr.owner}/${pr.repo} ready` });
+
+	onProgress?.({ stage: "checkout", message: `${baseBranch} ← PR #${pr.number}` });
+	const worktrees = await createWorktrees(
+		bareRepoPath, baseBranch, pr.number, pr.owner, pr.repo,
+		(msg) => onProgress?.({ stage: "checkout", message: msg }),
+	);
+	onProgress?.({ stage: "checkout", message: `${baseBranch} ← PR #${pr.number} worktrees ready` });
+
+	onProgress?.({ stage: "exploring", message: `${agent.name}: analyzing ${changedFiles.length} files...` });
+	const exploration = await exploreCodebase(
+		agent, worktrees.headPath, changedFiles, prTitle, rawDiff,
+		(msg, current, total) => onProgress?.({ stage: "exploring", message: msg, current, total }),
+	);
+	onProgress?.({ stage: "exploring", message: `${agent.name}: exploration complete` });
+
+	await cleanupWorktrees(bareRepoPath, pr.number, pr.owner, pr.repo).catch(() => {});
+
+	return exploration;
+}
+
+const MAX_EXPLORE_RETRIES = 2;
+
 async function tryExploreCodebase(
 	pr: PrIdentifier,
 	token: string,
@@ -82,37 +121,32 @@ async function tryExploreCodebase(
 	preferredAgent?: AgentToolName,
 	onProgress?: ProgressCallback,
 ): Promise<ExplorationResult | null> {
-	try {
-		const agent = await requireAgent(preferredAgent);
-
-		onProgress?.({ stage: "cloning", message: `${pr.owner}/${pr.repo}` });
-		const bareRepoPath = await ensureRepo(pr.owner, pr.repo, token, (msg) => {
-			onProgress?.({ stage: "cloning", message: msg });
-		});
-		onProgress?.({ stage: "cloning", message: `${pr.owner}/${pr.repo} ready` });
-
-		onProgress?.({ stage: "checkout", message: `${baseBranch} ← PR #${pr.number}` });
-		const worktrees = await createWorktrees(
-			bareRepoPath, baseBranch, pr.number, pr.owner, pr.repo,
-			(msg) => onProgress?.({ stage: "checkout", message: msg }),
-		);
-		onProgress?.({ stage: "checkout", message: `${baseBranch} ← PR #${pr.number} worktrees ready` });
-
-		onProgress?.({ stage: "exploring", message: `${agent.name}: analyzing ${changedFiles.length} files...` });
-		const exploration = await exploreCodebase(
-			agent, worktrees.headPath, changedFiles, prTitle, rawDiff,
-			(msg, current, total) => onProgress?.({ stage: "exploring", message: msg, current, total }),
-		);
-		onProgress?.({ stage: "exploring", message: `${agent.name}: exploration complete` });
-
-		await cleanupWorktrees(bareRepoPath, pr.number, pr.owner, pr.repo).catch(() => {});
-
-		return exploration;
-	} catch (err) {
-		const msg = err instanceof Error ? err.message : String(err);
-		onProgress?.({ stage: "exploring", message: `Skipped: ${msg}` });
-		return null;
+	for (let attempt = 1; attempt <= MAX_EXPLORE_RETRIES; attempt++) {
+		try {
+			return await runExploration(
+				pr, token, baseBranch, changedFiles, prTitle, rawDiff,
+				preferredAgent, onProgress,
+			);
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			if (attempt < MAX_EXPLORE_RETRIES) {
+				onProgress?.({
+					stage: "exploring",
+					message: `Attempt ${attempt} failed: ${msg}. Retrying...`,
+				});
+				await cleanupWorktrees(
+					await ensureRepo(pr.owner, pr.repo, token).catch(() => ""),
+					pr.number, pr.owner, pr.repo,
+				).catch(() => {});
+			} else {
+				onProgress?.({
+					stage: "exploring",
+					message: `Exploration failed after ${MAX_EXPLORE_RETRIES} attempts: ${msg}`,
+				});
+			}
+		}
 	}
+	return null;
 }
 
 export async function analyzePr(options: PipelineOptions): Promise<NewprOutput> {
@@ -249,6 +283,8 @@ export async function analyzePr(options: PipelineOptions): Promise<NewprOutput> 
 			base_branch: prData.base_branch,
 			head_branch: prData.head_branch,
 			author: prData.author,
+			author_avatar: prData.author_avatar,
+			author_url: prData.author_url,
 			total_files_changed: prData.changed_files,
 			total_additions: prData.additions,
 			total_deletions: prData.deletions,

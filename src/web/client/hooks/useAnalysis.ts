@@ -83,14 +83,19 @@ export function useAnalysis() {
 				}));
 			});
 
-			es.addEventListener("error", (e) => {
+			es.addEventListener("analysis_error", (e) => {
 				es.close();
 				eventSourceRef.current = null;
-				const data = (e as MessageEvent).data;
 				let msg = "Analysis failed";
-				try { msg = JSON.parse(data).data ?? msg; } catch {}
+				try { msg = JSON.parse((e as MessageEvent).data).message ?? msg; } catch {}
 				setState((s) => ({ ...s, phase: "error", error: msg }));
 			});
+
+			es.onerror = () => {
+				if (es.readyState === EventSource.CLOSED) {
+					eventSourceRef.current = null;
+				}
+			};
 		} catch (err) {
 			setState((s) => ({
 				...s,

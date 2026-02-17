@@ -19,6 +19,8 @@ export interface GithubPrData {
 	base_branch: string;
 	head_branch: string;
 	author: string;
+	author_avatar?: string;
+	author_url?: string;
 	additions: number;
 	deletions: number;
 	changed_files: number;
