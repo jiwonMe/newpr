@@ -11,7 +11,7 @@ import { createStderrProgress, createSilentProgress, createStreamJsonProgress } 
 import { renderLoading, renderShell } from "../tui/render.tsx";
 import { checkForUpdate, printUpdateNotice } from "./update-check.ts";
 
-const VERSION = "0.1.0";
+const VERSION = "0.1.1";
 
 async function main(): Promise<void> {
 	const args = parseArgs(process.argv);
