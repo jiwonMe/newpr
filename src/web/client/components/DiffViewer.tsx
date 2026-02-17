@@ -3,6 +3,7 @@ import { type Highlighter, type ThemedToken } from "shiki";
 import { MessageSquare, Trash2, ExternalLink, CornerDownLeft, Pencil, Check, X } from "lucide-react";
 import { ensureHighlighter, getHighlighterSync, detectShikiLang, type ShikiLang } from "../lib/shiki.ts";
 import type { DiffComment } from "../../../types/output.ts";
+import { TipTapEditor } from "./TipTapEditor.tsx";
 
 interface DiffLine {
 	type: "header" | "hunk" | "added" | "removed" | "context" | "binary";
@@ -209,12 +210,7 @@ function CommentCard({
 	const [editing, setEditing] = useState(false);
 	const [editBody, setEditBody] = useState(comment.body);
 	const [saving, setSaving] = useState(false);
-	const editRef = useRef<HTMLTextAreaElement>(null);
 	const isOwn = currentLogin === comment.author;
-
-	useEffect(() => {
-		if (editing) editRef.current?.focus();
-	}, [editing]);
 
 	const handleSave = useCallback(async () => {
 		const trimmed = editBody.trim();
@@ -266,37 +262,36 @@ function CommentCard({
 					</div>
 				)}
 			</div>
-			{editing ? (
-				<div className="pl-[22px]">
-					<textarea
-						ref={editRef}
-						value={editBody}
-						onChange={(e) => setEditBody(e.target.value)}
-						onKeyDown={(e) => {
-							if (e.key === "Escape") { e.preventDefault(); setEditing(false); }
-							if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); handleSave(); }
-						}}
-						rows={2}
-						className="w-full bg-transparent text-[12px] leading-[1.6] border rounded-md px-2 py-1.5 resize-none focus:outline-none focus:border-foreground/20 min-h-[36px]"
+		{editing ? (
+			<div className="pl-[22px]">
+				<div className="border rounded-md px-2 py-1.5 focus-within:border-foreground/20 min-h-[36px]">
+					<TipTapEditor
+						content={editBody}
+						onChange={setEditBody}
+						autoFocus
+						submitOnModEnter
+						onSubmit={handleSave}
+						onEscape={() => setEditing(false)}
 					/>
-					<div className="flex items-center justify-end gap-1.5 mt-1">
-						<button
-							type="button"
-							onClick={() => setEditing(false)}
-							className="p-1 rounded-md text-muted-foreground/50 hover:text-foreground/70 transition-colors"
-						>
-							<X className="h-3.5 w-3.5" />
-						</button>
-						<button
-							type="button"
-							onClick={handleSave}
-							disabled={!editBody.trim() || saving}
-							className={`p-1 rounded-md transition-colors ${editBody.trim() && !saving ? "text-foreground/80 hover:text-foreground" : "text-muted-foreground/30 cursor-not-allowed"}`}
-						>
-							<Check className="h-3.5 w-3.5" />
-						</button>
-					</div>
 				</div>
+				<div className="flex items-center justify-end gap-1.5 mt-1">
+					<button
+						type="button"
+						onClick={() => setEditing(false)}
+						className="p-1 rounded-md text-muted-foreground/50 hover:text-foreground/70 transition-colors"
+					>
+						<X className="h-3.5 w-3.5" />
+					</button>
+					<button
+						type="button"
+						onClick={handleSave}
+						disabled={!editBody.trim() || saving}
+						className={`p-1 rounded-md transition-colors ${editBody.trim() && !saving ? "text-foreground/80 hover:text-foreground" : "text-muted-foreground/30 cursor-not-allowed"}`}
+					>
+						<Check className="h-3.5 w-3.5" />
+					</button>
+				</div>
+			</div>
 			) : (
 				<p className="text-[12px] text-foreground/80 whitespace-pre-wrap break-words leading-[1.6] pl-[22px]">{comment.body}</p>
 			)}
@@ -315,12 +310,6 @@ function CommentForm({
 }) {
 	const [body, setBody] = useState("");
 	const [submitting, setSubmitting] = useState(false);
-	const [focused, setFocused] = useState(false);
-	const ref = useRef<HTMLTextAreaElement>(null);
-
-	useEffect(() => {
-		ref.current?.focus();
-	}, []);
 
 	const handleSubmit = useCallback(async () => {
 		const trimmed = body.trim();
@@ -338,27 +327,23 @@ function CommentForm({
 
 	return (
 		<div className="px-3 py-2.5">
-			<div className={`rounded-lg border transition-colors ${focused ? "border-foreground/20 shadow-sm" : "border-border/60"}`}>
+			<div className="rounded-lg border border-border/60 transition-colors focus-within:border-foreground/20 focus-within:shadow-sm">
 				<div className="flex items-start gap-2 p-2">
 					{currentUser?.avatar_url ? (
 						<img src={currentUser.avatar_url} alt="" className="h-5 w-5 rounded-full shrink-0 mt-0.5" />
 					) : (
 						<div className="h-5 w-5 rounded-full bg-muted-foreground/20 shrink-0 mt-0.5" />
 					)}
-					<textarea
-						ref={ref}
-						value={body}
-						onChange={(e) => setBody(e.target.value)}
-						onFocus={() => setFocused(true)}
-						onBlur={() => setFocused(false)}
-						onKeyDown={(e) => {
-							if (e.key === "Escape") { e.preventDefault(); onCancel(); }
-							if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); handleSubmit(); }
-						}}
-						placeholder="Write a comment..."
-						rows={2}
-						className="flex-1 bg-transparent text-[12px] leading-[1.6] resize-none focus:outline-none placeholder:text-muted-foreground/40 min-h-[44px]"
-					/>
+					<div className="flex-1 min-h-[44px]">
+						<TipTapEditor
+							placeholder="Write a comment..."
+							autoFocus
+							submitOnModEnter
+							onSubmit={handleSubmit}
+							onChange={setBody}
+							onEscape={onCancel}
+						/>
+					</div>
 				</div>
 				<div className="flex items-center justify-end gap-2 px-2 pb-2">
 					<button
