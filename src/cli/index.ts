@@ -44,6 +44,20 @@ async function main(): Promise<void> {
 		return;
 	}
 
+	if (args.command === "web") {
+		try {
+			const config = await loadConfig({ model: args.model });
+			const token = await getGithubToken();
+			const { startWebServer } = await import("../web/server.ts");
+			await startWebServer({ port: args.port ?? 3000, token, config });
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			process.stderr.write(`Error: ${message}\n`);
+			process.exit(1);
+		}
+		return;
+	}
+
 	if (args.command === "shell") {
 		try {
 			const config = await loadConfig({ model: args.model });

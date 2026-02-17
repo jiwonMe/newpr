@@ -19,15 +19,28 @@
   "devDependencies": {
     "@biomejs/biome": "latest",
     "@types/bun": "latest",
-    "@types/react": "19.1.0"
+    "@types/react": "19.1.0",
+    "@types/react-dom": "^19.2.3"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
   "dependencies": {
+    "@radix-ui/react-dropdown-menu": "^2.1.16",
+    "@radix-ui/react-scroll-area": "^1.2.10",
+    "@radix-ui/react-slot": "^1.2.4",
+    "@radix-ui/react-tabs": "^1.1.13",
+    "@tailwindcss/cli": "^4.1.18",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "ink": "6.6.0",
     "ink-spinner": "5.0.0",
     "ink-text-input": "6.0.0",
-    "react": "19.1.0"
+    "lucide-react": "^0.567.0",
+    "react": "19.1.0",
+    "react-dom": "^19.2.4",
+    "tailwind-merge": "^3.4.1",
+    "tailwindcss": "^4.1.18",
+    "tailwindcss-animate": "^1.0.7"
   }
 }

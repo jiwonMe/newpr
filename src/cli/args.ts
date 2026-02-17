@@ -1,7 +1,7 @@
 import type { AgentToolName } from "../workspace/types.ts";
 
 export interface CliArgs {
-	command: "shell" | "review" | "auth" | "history" | "help" | "version";
+	command: "shell" | "review" | "auth" | "history" | "web" | "help" | "version";
 	prInput?: string;
 	repo?: string;
 	model?: string;
@@ -9,6 +9,7 @@ export interface CliArgs {
 	verbose: boolean;
 	noClone: boolean;
 	agent?: AgentToolName;
+	port?: number;
 	subArgs: string[];
 }
 
@@ -19,6 +20,7 @@ newpr - AI-powered large PR review tool
 Usage:
   newpr                                # launch interactive shell
   newpr <pr-url>                       # launch shell with PR pre-loaded
+  newpr --web [--port 3000]            # launch web UI
   newpr review <pr-url> --json         # non-interactive JSON output
   newpr history                        # list past review sessions
   newpr history show <id>              # show full JSON for a session
@@ -32,9 +34,14 @@ Usage:
 Examples:
   newpr                                            # interactive shell
   newpr https://github.com/owner/repo/pull/123     # shell + auto-analyze
+  newpr --web --port 8080                          # web UI on port 8080
   newpr review owner/repo#123 --json               # pipe-friendly JSON
   newpr review 123 --repo owner/repo --no-clone    # diff-only (no git clone)
   newpr auth --key sk-or-xxx
+
+Options:
+  --web                 Launch web UI instead of TUI
+  --port <number>       Port for web server (default: 3000)
 
 Options (review mode):
   --repo <owner/repo>   Repository (required when using PR number only)
@@ -87,6 +94,15 @@ export function parseArgs(argv: string[]): CliArgs {
 
 	if (args.includes("-v") || args.includes("--version")) {
 		return { command: "version", ...DEFAULTS };
+	}
+
+	if (args.includes("--web")) {
+		let port = 3000;
+		const portIdx = args.indexOf("--port");
+		if (portIdx !== -1 && args[portIdx + 1]) {
+			port = Number.parseInt(args[portIdx + 1]!, 10) || 3000;
+		}
+		return { command: "web", port, ...DEFAULTS };
 	}
 
 	if (args.length === 0) {
