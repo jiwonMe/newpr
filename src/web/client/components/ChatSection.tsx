@@ -283,10 +283,26 @@ export function ChatMessages({ onAnchorClick, activeId }: {
 	activeId?: string | null;
 }) {
 	const ctx = useContext(ChatContext);
-	const messagesEndRef = useRef<HTMLDivElement>(null);
+	const containerRef = useRef<HTMLDivElement>(null);
+	const isNearBottomRef = useRef(true);
+	const mainElRef = useRef<HTMLElement | null>(null);
 
 	useEffect(() => {
-		messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+		const el = containerRef.current?.closest("main") as HTMLElement | null;
+		mainElRef.current = el;
+		if (!el) return;
+		const onScroll = () => {
+			isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+		};
+		el.addEventListener("scroll", onScroll, { passive: true });
+		return () => el.removeEventListener("scroll", onScroll);
+	}, []);
+
+	useEffect(() => {
+		const el = mainElRef.current;
+		if (el && isNearBottomRef.current) {
+			el.scrollTop = el.scrollHeight;
+		}
 	}, [ctx?.state.messages, ctx?.state.streaming]);
 
 	if (!ctx) return null;
@@ -304,7 +320,7 @@ export function ChatMessages({ onAnchorClick, activeId }: {
 	if (!hasMessages) return null;
 
 	return (
-		<div className="border-t mt-5 pt-4 space-y-4">
+		<div ref={containerRef} className="border-t mt-5 pt-4 space-y-4">
 			{messages.map((msg, i) => {
 				if (msg.role === "user") {
 					return (
@@ -334,8 +350,6 @@ export function ChatMessages({ onAnchorClick, activeId }: {
 					isStreaming
 				/>
 			)}
-
-			<div ref={messagesEndRef} />
 		</div>
 	);
 }
