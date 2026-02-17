@@ -1,0 +1,26 @@
+{
+  "name": "newpr",
+  "version": "0.1.0",
+  "description": "AI-powered large PR review tool - understand PRs with 1000+ lines of changes",
+  "module": "src/cli/index.ts",
+  "type": "module",
+  "bin": {
+    "newpr": "./src/cli/index.ts"
+  },
+  "scripts": {
+    "start": "bun run src/cli/index.ts",
+    "test": "bun test",
+    "lint": "bunx @biomejs/biome check .",
+    "lint:fix": "bunx @biomejs/biome check --write .",
+    "format": "bunx @biomejs/biome format --write .",
+    "typecheck": "tsc --noEmit"
+  },
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@biomejs/biome": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
