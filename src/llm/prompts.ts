@@ -17,11 +17,28 @@ export interface FileSummaryInput {
 export interface PromptContext {
 	commits?: PrCommit[];
 	language?: string;
+	prBody?: string;
+	discussion?: Array<{ author: string; body: string }>;
 }
 
 function langDirective(lang?: string): string {
 	if (!lang || lang === "English") return "";
 	return `\nCRITICAL LANGUAGE RULE: ALL text values in your response MUST be written in ${lang}. This includes every summary, description, name, purpose, scope, and impact field. JSON keys stay in English, but ALL string values MUST be in ${lang}. Do NOT use English for any descriptive text.`;
+}
+
+function formatDiscussion(ctx?: PromptContext): string {
+	const parts: string[] = [];
+	if (ctx?.prBody?.trim()) {
+		parts.push(`PR Description:\n${ctx.prBody.trim()}`);
+	}
+	if (ctx?.discussion && ctx.discussion.length > 0) {
+		const comments = ctx.discussion
+			.map((c) => `@${c.author}: ${c.body.length > 500 ? `${c.body.slice(0, 500)}…` : c.body}`)
+			.join("\n\n");
+		parts.push(`Discussion (${ctx.discussion.length} comments):\n${comments}`);
+	}
+	if (parts.length === 0) return "";
+	return `\n\n--- PR DISCUSSION ---\n${parts.join("\n\n")}`;
 }
 
 function formatCommitHistory(commits: PrCommit[]): string {
@@ -44,13 +61,15 @@ export function buildFileSummaryPrompt(chunks: DiffChunk[], ctx?: PromptContext)
 
 	const commitCtx = ctx?.commits ? formatCommitHistory(ctx.commits) : "";
 
+	const discussionCtx = formatDiscussion(ctx);
+
 	return {
 		system: `You are an expert code reviewer. Analyze the given diff and provide a 1-line summary for each changed file.
-Use the commit history to understand the intent behind each change — why the change was made, not just what changed.
+Use the commit history and PR discussion to understand the intent behind each change — why the change was made, not just what changed.
 Respond ONLY with a JSON array. Each element: {"path": "file/path", "summary": "one line description of what changed"}.
 The "path" value must be the exact file path. The "summary" value is a human-readable description.
 No markdown, no explanation, just the JSON array.${langDirective(ctx?.language)}`,
-		user: `${fileList}${commitCtx}`,
+		user: `${fileList}${commitCtx}${discussionCtx}`,
 	};
 }
 
@@ -61,15 +80,17 @@ export function buildGroupingPrompt(fileSummaries: FileSummaryInput[], ctx?: Pro
 
 	const commitCtx = ctx?.commits ? formatCommitHistory(ctx.commits) : "";
 
+	const discussionCtx = formatDiscussion(ctx);
+
 	return {
 		system: `You are an expert code reviewer. Group the following changed files by their semantic purpose.
 Each group should have a descriptive name, a type (one of: feature, refactor, bugfix, chore, docs, test, config), a description, and a list of file paths.
 A file MAY appear in multiple groups if it serves multiple purposes (e.g., index.ts re-exporting for both a feature and a refactor).
-Use the commit history to understand which changes belong together logically.
+Use the commit history and PR discussion to understand which changes belong together logically.
 Respond ONLY with a JSON array. Each element: {"name": "group name", "type": "feature|refactor|bugfix|chore|docs|test|config", "description": "what this group of changes does", "files": ["path1", "path2"]}.
 The "name" and "description" values are human-readable text. The "type" value must be one of the English keywords listed above. File paths stay as-is.
 Every file must appear in at least one group. No markdown, no explanation, just the JSON array.${langDirective(ctx?.language)}`,
-		user: `Changed files:\n${fileList}${commitCtx}`,
+		user: `Changed files:\n${fileList}${commitCtx}${discussionCtx}`,
 	};
 }
 
@@ -86,13 +107,15 @@ export function buildOverallSummaryPrompt(
 	const fileList = fileSummaries.map((f) => `- ${f.path}: ${f.summary}`).join("\n");
 	const commitCtx = ctx?.commits ? formatCommitHistory(ctx.commits) : "";
 
+	const discussionCtx = formatDiscussion(ctx);
+
 	return {
 		system: `You are an expert code reviewer. Provide an overall summary of this Pull Request.
-Use the commit history to understand the development progression and intent.
+Use the commit history and PR discussion to understand the development progression and intent. The PR description and reviewer comments provide essential context about why changes were made.
 Respond ONLY with a JSON object: {"purpose": "why this PR exists (1-2 sentences)", "scope": "what areas of code are affected", "impact": "what is the impact of these changes", "risk_level": "low|medium|high"}.
 The "purpose", "scope", and "impact" values are human-readable text. The "risk_level" must be one of: low, medium, high (in English).
 No markdown, no explanation, just the JSON object.${langDirective(ctx?.language)}`,
-		user: `PR Title: ${prTitle}\n\nChange Groups:\n${groupList}\n\nFile Summaries:\n${fileList}${commitCtx}`,
+		user: `PR Title: ${prTitle}\n\nChange Groups:\n${groupList}\n\nFile Summaries:\n${fileList}${commitCtx}${discussionCtx}`,
 	};
 }
 
@@ -109,17 +132,19 @@ export function buildNarrativePrompt(
 	const commitCtx = ctx?.commits ? formatCommitHistory(ctx.commits) : "";
 	const lang = ctx?.language && ctx.language !== "English" ? ctx.language : null;
 
+	const discussionCtx = formatDiscussion(ctx);
+
 	return {
 		system: `You are an expert code reviewer writing a review walkthrough for other developers.
 Write a clear, concise narrative that tells the "story" of this PR — what changes were made and in what logical order.
-Use the commit history to understand the development progression: which changes came first, how the PR evolved, and the intent behind each step.
+Use the commit history and PR discussion to understand the development progression: which changes came first, how the PR evolved, and the intent behind each step. The PR description often explains the author's motivation and approach.
 Use markdown formatting. Write 2-5 paragraphs. Do NOT use JSON. Write natural prose.
 ${lang ? `CRITICAL: Write the ENTIRE narrative in ${lang}. Every sentence must be in ${lang}. Do NOT use English except for code identifiers, file paths, and [[group:...]]/[[file:...]] tokens.` : "If the PR title is in a non-English language, write the narrative in that same language."}
 
 IMPORTANT: When referencing a change group, wrap it as [[group:Group Name]]. When referencing a specific file, wrap it as [[file:path/to/file.ts]].
 Use the EXACT group names and file paths provided. Every group MUST be referenced at least once. Reference key files where relevant.
 Example: "The [[group:Auth Flow]] group introduces session management via [[file:src/auth/session.ts]] and [[file:src/auth/token.ts]]."`,
-		user: `PR Title: ${prTitle}\n\nSummary:\n- Purpose: ${summary.purpose}\n- Scope: ${summary.scope}\n- Impact: ${summary.impact}\n- Risk: ${summary.risk_level}\n\nChange Groups:\n${groupDetails}${commitCtx}`,
+		user: `PR Title: ${prTitle}\n\nSummary:\n- Purpose: ${summary.purpose}\n- Scope: ${summary.scope}\n- Impact: ${summary.impact}\n- Risk: ${summary.risk_level}\n\nChange Groups:\n${groupDetails}${commitCtx}${discussionCtx}`,
 	};
 }
 

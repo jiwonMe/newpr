@@ -6,7 +6,7 @@ import type { ExplorationResult } from "../workspace/types.ts";
 import type { AgentToolName } from "../workspace/types.ts";
 import { parseDiff } from "../diff/parser.ts";
 import { chunkDiff } from "../diff/chunker.ts";
-import { fetchPrData } from "../github/fetch-pr.ts";
+import { fetchPrData, fetchPrComments } from "../github/fetch-pr.ts";
 import { fetchPrDiff } from "../github/fetch-diff.ts";
 import { createLlmClient, type LlmClient, type LlmResponse } from "../llm/client.ts";
 import {
@@ -159,12 +159,13 @@ export async function analyzePr(options: PipelineOptions): Promise<NewprOutput> 
 		timeout: config.timeout,
 	});
 
-	progress({ stage: "fetching", message: "Fetching PR data and diff..." });
-	const [prData, rawDiff] = await Promise.all([
+	progress({ stage: "fetching", message: "Fetching PR data, diff, and discussion..." });
+	const [prData, rawDiff, prComments] = await Promise.all([
 		fetchPrData(pr, token),
 		fetchPrDiff(pr, token),
+		fetchPrComments(pr, token).catch(() => []),
 	]);
-	progress({ stage: "fetching", message: `#${prData.number} "${prData.title}" by ${prData.author} · +${prData.additions} −${prData.deletions}` });
+	progress({ stage: "fetching", message: `#${prData.number} "${prData.title}" by ${prData.author} · +${prData.additions} −${prData.deletions} · ${prComments.length} comments` });
 
 	progress({ stage: "parsing", message: "Parsing diff..." });
 	const parsed = parseDiff(rawDiff);
@@ -193,7 +194,12 @@ export async function analyzePr(options: PipelineOptions): Promise<NewprOutput> 
 		);
 	}
 
-	const promptCtx: PromptContext = { commits: prData.commits, language: config.language };
+	const promptCtx: PromptContext = {
+		commits: prData.commits,
+		language: config.language,
+		prBody: prData.body,
+		discussion: prComments.map((c) => ({ author: c.author, body: c.body })),
+	};
 	const enrichedTag = exploration ? " + codebase context" : "";
 
 	progress({
