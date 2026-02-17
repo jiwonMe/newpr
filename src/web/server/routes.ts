@@ -1,7 +1,10 @@
 import type { NewprConfig } from "../../types/config.ts";
 import type { NewprOutput } from "../../types/output.ts";
 import { DEFAULT_CONFIG } from "../../types/config.ts";
-import { listSessions, loadSession } from "../../history/store.ts";
+import { listSessions, loadSession, loadSinglePatch, savePatchesSidecar } from "../../history/store.ts";
+import { fetchPrDiff } from "../../github/fetch-diff.ts";
+import { parseDiff } from "../../diff/parser.ts";
+import { parsePrInput } from "../../github/parse-pr.ts";
 import { writeStoredConfig, type StoredConfig } from "../../config/store.ts";
 import { startAnalysis, getSession, cancelAnalysis, subscribe } from "./session-manager.ts";
 import { generateCartoon } from "../../llm/cartoon.ts";
@@ -45,6 +48,7 @@ export function createRoutes(token: string, config: NewprConfig, options: RouteO
 				finishedAt: session.finishedAt,
 				error: session.error,
 				result: session.result,
+				historyId: session.historyId,
 			});
 		},
 
@@ -119,6 +123,61 @@ export function createRoutes(token: string, config: NewprConfig, options: RouteO
 			const data = await loadSession(id);
 			if (!data) return json({ error: "Session not found" }, 404);
 			return json(data);
+		},
+
+		"GET /api/sessions/:id/diff": async (req: Request) => {
+			const url = new URL(req.url);
+			const segments = url.pathname.split("/");
+			const id = segments[segments.length - 2]!;
+			const filePath = url.searchParams.get("path");
+			if (!filePath) return json({ error: "Missing 'path' query parameter" }, 400);
+
+			const patch = await loadSinglePatch(id, filePath);
+			if (patch) return json({ patch, path: filePath });
+
+			let prUrl: string | null = null;
+			let storeId = id;
+
+			const storedSession = await loadSession(id);
+			if (storedSession) {
+				prUrl = storedSession.meta.pr_url;
+			} else {
+				const liveSession = getSession(id);
+				if (liveSession?.result?.meta?.pr_url) {
+					prUrl = liveSession.result.meta.pr_url;
+					if (liveSession.historyId) storeId = liveSession.historyId;
+				} else if (liveSession?.historyId) {
+					const histPatch = await loadSinglePatch(liveSession.historyId, filePath);
+					if (histPatch) return json({ patch: histPatch, path: filePath });
+
+					const histSession = await loadSession(liveSession.historyId);
+					if (histSession) {
+						prUrl = histSession.meta.pr_url;
+						storeId = liveSession.historyId;
+					}
+				}
+			}
+
+			if (!prUrl) return json({ error: "Session not found" }, 404);
+
+			try {
+				const pr = parsePrInput(prUrl);
+				const rawDiff = await fetchPrDiff(pr, token);
+				const parsed = parseDiff(rawDiff);
+
+				const allPatches: Record<string, string> = {};
+				for (const file of parsed.files) {
+					allPatches[file.path] = file.raw;
+				}
+				await savePatchesSidecar(storeId, allPatches).catch(() => {});
+
+				const backfilledPatch = allPatches[filePath];
+				if (!backfilledPatch) return json({ error: "File not found in diff" }, 404);
+				return json({ patch: backfilledPatch, path: filePath });
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				return json({ error: `Failed to fetch diff: ${msg}` }, 500);
+			}
 		},
 
 		"GET /api/me": async () => {

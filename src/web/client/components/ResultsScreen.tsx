@@ -1,16 +1,14 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { ArrowLeft, FileText, Layers, FolderTree, BookOpen, LayoutList, GitBranch, User, Files, Bot, Sparkles } from "lucide-react";
+import { ArrowLeft, Layers, FolderTree, BookOpen, GitBranch, User, Files, Bot, Sparkles } from "lucide-react";
 import { Button } from "../../components/ui/button.tsx";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../components/ui/tabs.tsx";
 import type { NewprOutput } from "../../../types/output.ts";
-import { SummaryPanel } from "../panels/SummaryPanel.tsx";
 import { GroupsPanel } from "../panels/GroupsPanel.tsx";
 import { FilesPanel } from "../panels/FilesPanel.tsx";
-import { NarrativePanel } from "../panels/NarrativePanel.tsx";
 import { StoryPanel } from "../panels/StoryPanel.tsx";
 import { CartoonPanel } from "../panels/CartoonPanel.tsx";
 
-const VALID_TABS = ["story", "summary", "groups", "files", "narrative", "cartoon"] as const;
+const VALID_TABS = ["story", "groups", "files", "cartoon"] as const;
 type TabValue = typeof VALID_TABS[number];
 
 function getInitialTab(): TabValue {
@@ -165,11 +163,7 @@ export function ResultsScreen({
 						<BookOpen className="h-3.5 w-3.5 shrink-0" />
 						Story
 					</TabsTrigger>
-					<TabsTrigger value="summary" className="gap-1.5">
-						<LayoutList className="h-3.5 w-3.5 shrink-0" />
-						Summary
-					</TabsTrigger>
-					<TabsTrigger value="groups" className="gap-1.5">
+				<TabsTrigger value="groups" className="gap-1.5">
 						<Layers className="h-3.5 w-3.5 shrink-0" />
 						Groups
 					</TabsTrigger>
@@ -177,11 +171,7 @@ export function ResultsScreen({
 						<FolderTree className="h-3.5 w-3.5 shrink-0" />
 						Files
 					</TabsTrigger>
-					<TabsTrigger value="narrative" className="gap-1.5">
-						<FileText className="h-3.5 w-3.5 shrink-0" />
-						Narrative
-					</TabsTrigger>
-					{cartoonEnabled && (
+				{cartoonEnabled && (
 						<TabsTrigger value="cartoon" className="gap-1.5">
 							<Sparkles className="h-3.5 w-3.5 shrink-0" />
 							Comic
@@ -193,17 +183,15 @@ export function ResultsScreen({
 			<TabsContent value="story">
 				<StoryPanel data={data} activeId={activeId} onAnchorClick={onAnchorClick} />
 			</TabsContent>
-			<TabsContent value="summary">
-				<SummaryPanel summary={data.summary} />
-			</TabsContent>
 			<TabsContent value="groups">
 				<GroupsPanel groups={data.groups} />
 			</TabsContent>
 			<TabsContent value="files">
-				<FilesPanel files={data.files} />
-			</TabsContent>
-			<TabsContent value="narrative">
-				<NarrativePanel narrative={data.narrative} />
+				<FilesPanel
+					files={data.files}
+					selectedPath={activeId?.startsWith("file:") ? activeId.slice(5) : null}
+					onFileSelect={(path) => onAnchorClick("file", path)}
+				/>
 			</TabsContent>
 			{cartoonEnabled && (
 				<TabsContent value="cartoon">

@@ -80,6 +80,9 @@ export async function startWebServer(options: WebServerOptions): Promise<void> {
 			if (path.match(/^\/api\/analysis\/[^/]+$/) && req.method === "GET") {
 				return routes["GET /api/analysis/:id"](req);
 			}
+			if (path.match(/^\/api\/sessions\/[^/]+\/diff$/) && req.method === "GET") {
+				return routes["GET /api/sessions/:id/diff"](req);
+			}
 			if (path.match(/^\/api\/sessions\/[^/]+$/) && req.method === "GET") {
 				return routes["GET /api/sessions/:id"](req);
 			}

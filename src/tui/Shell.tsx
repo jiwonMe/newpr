@@ -7,7 +7,7 @@ import type { SessionRecord } from "../history/types.ts";
 import type { AgentToolName } from "../workspace/types.ts";
 import { parsePrInput } from "../github/parse-pr.ts";
 import { analyzePr } from "../analyzer/pipeline.ts";
-import { saveSession, listSessions, loadSession } from "../history/store.ts";
+import { saveSession, savePatchesSidecar, listSessions, loadSession } from "../history/store.ts";
 import { detectAgents } from "../workspace/agent.ts";
 import { App } from "./App.tsx";
 import { InputBar } from "./InputBar.tsx";
@@ -94,10 +94,12 @@ export function Shell({ token, config: initialConfig, initialPr }: ShellProps) {
 				setState({ phase: "loading", steps: [], startTime });
 				setElapsed(0);
 
+				let capturedPatches: Record<string, string> = {};
 				const result = await analyzePr({
 					pr,
 					token,
 					config: liveConfig,
+					onFilePatches: (patches) => { capturedPatches = patches; },
 					onProgress: (event: ProgressEvent) => {
 						const stamped = { ...event, timestamp: event.timestamp ?? Date.now() };
 						const prev = eventsRef.current;
@@ -117,7 +119,10 @@ export function Shell({ token, config: initialConfig, initialPr }: ShellProps) {
 					},
 				});
 
-				await saveSession(result);
+				const record = await saveSession(result);
+				if (Object.keys(capturedPatches).length > 0) {
+					await savePatchesSidecar(record.id, capturedPatches).catch(() => {});
+				}
 				const updated = await listSessions(10);
 				setSessions(updated);
 

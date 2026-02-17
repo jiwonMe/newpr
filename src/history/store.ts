@@ -91,6 +91,39 @@ export async function clearHistory(): Promise<void> {
 	}
 }
 
+export async function savePatchesSidecar(
+	id: string,
+	patches: Record<string, string>,
+): Promise<void> {
+	ensureDirs();
+	await Bun.write(
+		join(SESSIONS_DIR, `${id}.patches.json`),
+		JSON.stringify(patches),
+	);
+}
+
+export async function loadPatchesSidecar(
+	id: string,
+): Promise<Record<string, string> | null> {
+	try {
+		const filePath = join(SESSIONS_DIR, `${id}.patches.json`);
+		const file = Bun.file(filePath);
+		if (!(await file.exists())) return null;
+		return JSON.parse(await file.text()) as Record<string, string>;
+	} catch {
+		return null;
+	}
+}
+
+export async function loadSinglePatch(
+	id: string,
+	filePath: string,
+): Promise<string | null> {
+	const patches = await loadPatchesSidecar(id);
+	if (!patches) return null;
+	return patches[filePath] ?? null;
+}
+
 export function getHistoryPath(): string {
 	return HISTORY_DIR;
 }

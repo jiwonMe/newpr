@@ -50,6 +50,7 @@ interface PipelineOptions {
 	token: string;
 	config: NewprConfig;
 	onProgress?: ProgressCallback;
+	onFilePatches?: (patches: Record<string, string>) => void;
 	noClone?: boolean;
 	preferredAgent?: AgentToolName;
 }
@@ -174,6 +175,15 @@ export async function analyzePr(options: PipelineOptions): Promise<NewprOutput> 
 	const totalAdd = chunks.reduce((s, c) => s + c.additions, 0);
 	const totalDel = chunks.reduce((s, c) => s + c.deletions, 0);
 	progress({ stage: "parsing", message: `${chunks.length} files · +${totalAdd} −${totalDel}${wasTruncated ? ` (${allChunks.length - config.max_files} skipped)` : ""}` });
+
+	const changedFilesSet = new Set(changedFiles);
+	const filePatches: Record<string, string> = {};
+	for (const fileDiff of parsed.files) {
+		if (changedFilesSet.has(fileDiff.path)) {
+			filePatches[fileDiff.path] = fileDiff.raw;
+		}
+	}
+	options.onFilePatches?.(filePatches);
 
 	let exploration: ExplorationResult | null = null;
 	if (!noClone) {

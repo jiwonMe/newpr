@@ -22,15 +22,28 @@ function splitPath(fullPath: string): { dir: string; name: string } {
 	return { dir: fullPath.slice(0, lastSlash + 1), name: fullPath.slice(lastSlash + 1) };
 }
 
-export function FilesPanel({ files }: { files: FileChange[] }) {
+export function FilesPanel({
+	files,
+	selectedPath,
+	onFileSelect,
+}: {
+	files: FileChange[];
+	selectedPath?: string | null;
+	onFileSelect?: (path: string) => void;
+}) {
 	const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-	function toggle(path: string) {
+	function toggleExpand(e: React.MouseEvent, path: string) {
+		e.stopPropagation();
 		setExpanded((s) => {
 			const next = new Set(s);
 			next.has(path) ? next.delete(path) : next.add(path);
 			return next;
 		});
+	}
+
+	function handleRowClick(path: string) {
+		onFileSelect?.(path);
 	}
 
 	return (
@@ -42,20 +55,31 @@ export function FilesPanel({ files }: { files: FileChange[] }) {
 				{files.map((file) => {
 					const Icon = STATUS_ICON[file.status];
 					const open = expanded.has(file.path);
+					const isSelected = selectedPath === file.path;
 					const { dir, name } = splitPath(file.path);
 
 					return (
 						<div key={file.path}>
-							<button
-								type="button"
-								onClick={() => toggle(file.path)}
-								className="w-full flex items-center gap-3 py-2.5 text-left hover:bg-accent/30 transition-colors min-w-0 -mx-1 px-1 rounded"
+							<div
+								role="button"
+								tabIndex={0}
+								onClick={() => handleRowClick(file.path)}
+								onKeyDown={(e) => { if (e.key === "Enter") handleRowClick(file.path); }}
+								className={`w-full flex items-center gap-3 py-2.5 text-left hover:bg-accent/30 transition-colors min-w-0 -mx-1 px-1 rounded cursor-pointer ${
+									isSelected ? "bg-accent/40 ring-1 ring-accent" : ""
+								}`}
 							>
-								{open ? (
-									<ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-								) : (
-									<ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-								)}
+								<button
+									type="button"
+									onClick={(e) => toggleExpand(e, file.path)}
+									className="shrink-0 p-0.5 -m-0.5 rounded hover:bg-accent/50 transition-colors"
+								>
+									{open ? (
+										<ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+									) : (
+										<ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+									)}
+								</button>
 								<Icon className={`h-3.5 w-3.5 shrink-0 ${STATUS_COLOR[file.status]}`} />
 								<span className="flex-1 min-w-0 flex items-baseline overflow-hidden" title={file.path}>
 									<span className="text-xs text-muted-foreground/50 font-mono truncate shrink">{dir}</span>
@@ -63,7 +87,7 @@ export function FilesPanel({ files }: { files: FileChange[] }) {
 								</span>
 								<span className="text-xs tabular-nums text-green-500 shrink-0 w-10 text-right">+{file.additions}</span>
 								<span className="text-xs tabular-nums text-red-500 shrink-0 w-10 text-right">−{file.deletions}</span>
-							</button>
+							</div>
 							{open && (
 								<div className="pb-3 pl-12">
 									<p className="text-xs text-muted-foreground leading-relaxed break-words">{file.summary}</p>

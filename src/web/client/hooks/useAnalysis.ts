@@ -7,6 +7,7 @@ type Phase = "idle" | "loading" | "done" | "error";
 interface AnalysisState {
 	phase: Phase;
 	sessionId: string | null;
+	historyId: string | null;
 	events: ProgressEvent[];
 	result: NewprOutput | null;
 	error: string | null;
@@ -18,6 +19,7 @@ export function useAnalysis() {
 	const [state, setState] = useState<AnalysisState>({
 		phase: "idle",
 		sessionId: null,
+		historyId: null,
 		events: [],
 		result: null,
 		error: null,
@@ -30,6 +32,7 @@ export function useAnalysis() {
 		setState({
 			phase: "loading",
 			sessionId: null,
+			historyId: null,
 			events: [],
 			result: null,
 			error: null,
@@ -75,11 +78,12 @@ export function useAnalysis() {
 				es.close();
 				eventSourceRef.current = null;
 				const resultRes = await fetch(`/api/analysis/${sessionId}`);
-				const data = await resultRes.json();
+				const data = await resultRes.json() as { result?: NewprOutput; historyId?: string };
 				setState((s) => ({
 					...s,
 					phase: "done",
 					result: data.result ?? null,
+					historyId: data.historyId ?? null,
 				}));
 			});
 
@@ -109,6 +113,7 @@ export function useAnalysis() {
 		setState((s) => ({
 			...s,
 			phase: "loading",
+			historyId: null,
 			events: [],
 			result: null,
 			error: null,
@@ -125,6 +130,7 @@ export function useAnalysis() {
 				phase: "done",
 				result: data,
 				sessionId,
+				historyId: sessionId,
 			}));
 		} catch (err) {
 			setState((s) => ({
@@ -141,6 +147,7 @@ export function useAnalysis() {
 		setState({
 			phase: "idle",
 			sessionId: null,
+			historyId: null,
 			events: [],
 			result: null,
 			error: null,

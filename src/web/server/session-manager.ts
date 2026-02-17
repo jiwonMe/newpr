@@ -3,7 +3,7 @@ import type { NewprOutput } from "../../types/output.ts";
 import type { ProgressEvent } from "../../analyzer/progress.ts";
 import { analyzePr } from "../../analyzer/pipeline.ts";
 import { parsePrInput } from "../../github/parse-pr.ts";
-import { saveSession } from "../../history/store.ts";
+import { saveSession, savePatchesSidecar } from "../../history/store.ts";
 
 type SessionStatus = "running" | "done" | "error" | "canceled";
 
@@ -12,6 +12,7 @@ interface AnalysisSession {
 	status: SessionStatus;
 	events: ProgressEvent[];
 	result?: NewprOutput;
+	historyId?: string;
 	error?: string;
 	startedAt: number;
 	finishedAt?: number;
@@ -73,11 +74,13 @@ async function runPipeline(
 ): Promise<void> {
 	try {
 		const pr = parsePrInput(prInput);
+		let capturedPatches: Record<string, string> = {};
 		const result = await analyzePr({
 			pr,
 			token,
 			config,
 			preferredAgent: config.agent,
+			onFilePatches: (patches) => { capturedPatches = patches; },
 			onProgress: (event: ProgressEvent) => {
 				const stamped = { ...event, timestamp: event.timestamp ?? Date.now() };
 				session.events.push(stamped);
@@ -96,7 +99,13 @@ async function runPipeline(
 		}
 		session.subscribers.clear();
 
-		await saveSession(result).catch(() => {});
+		const record = await saveSession(result).catch(() => null);
+		if (record) {
+			session.historyId = record.id;
+			if (Object.keys(capturedPatches).length > 0) {
+				await savePatchesSidecar(record.id, capturedPatches).catch(() => {});
+			}
+		}
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
 		session.status = "error";

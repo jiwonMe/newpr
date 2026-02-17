@@ -80,8 +80,10 @@ export function App() {
 		analysis.reset();
 	}
 
+	const diffSessionId = analysis.historyId ?? analysis.sessionId;
+	const prUrl = analysis.result?.meta.pr_url;
 	const detailPanel = detailTarget ? (
-		<DetailPane target={detailTarget} onClose={() => setActiveId(null)} />
+		<DetailPane target={detailTarget} sessionId={diffSessionId} prUrl={prUrl} onClose={() => setActiveId(null)} />
 	) : null;
 
 	return (

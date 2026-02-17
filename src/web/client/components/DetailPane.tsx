@@ -1,5 +1,7 @@
-import { Layers, FileText, Plus, Pencil, Trash2, ArrowRight, X } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Layers, FileText, Plus, Pencil, Trash2, ArrowRight, X, Loader2 } from "lucide-react";
 import type { FileGroup, FileChange, FileStatus } from "../../../types/output.ts";
+import { DiffViewer } from "./DiffViewer.tsx";
 
 export interface DetailTarget {
 	kind: "group" | "file";
@@ -49,7 +51,173 @@ export function resolveDetail(
 	return { kind: "file", file, files: [file] };
 }
 
-export function DetailPane({ target, onClose }: { target: DetailTarget | null; onClose?: () => void }) {
+type FileTab = "summary" | "diff";
+
+function usePatchFetcher(sessionId: string | null | undefined, filePath: string | undefined) {
+	const [patch, setPatch] = useState<string | null>(null);
+	const [loading, setLoading] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+
+	useEffect(() => {
+		setPatch(null);
+		setError(null);
+		setLoading(false);
+	}, [sessionId, filePath]);
+
+	const fetchPatch = useCallback(async () => {
+		if (!sessionId || !filePath) return;
+		setLoading(true);
+		setError(null);
+		try {
+			const res = await fetch(`/api/sessions/${sessionId}/diff?path=${encodeURIComponent(filePath)}`);
+			if (!res.ok) {
+				const body = await res.json().catch(() => ({ error: "Failed to load diff" }));
+				throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
+			}
+			const data = await res.json() as { patch: string };
+			setPatch(data.patch);
+		} catch (err) {
+			setError(err instanceof Error ? err.message : String(err));
+		} finally {
+			setLoading(false);
+		}
+	}, [sessionId, filePath]);
+
+	return { patch, loading, error, fetchPatch };
+}
+
+function FileDetail({
+	file,
+	sessionId,
+	prUrl,
+	onClose,
+}: {
+	file: FileChange;
+	sessionId?: string | null;
+	prUrl?: string;
+	onClose?: () => void;
+}) {
+	const Icon = STATUS_ICON[file.status];
+	const [tab, setTab] = useState<FileTab>("summary");
+	const { patch, loading, error, fetchPatch } = usePatchFetcher(sessionId, file.path);
+
+	useEffect(() => {
+		if (tab === "diff" && !patch && !loading && !error) {
+			fetchPatch();
+		}
+	}, [tab, patch, loading, error, fetchPatch]);
+
+	return (
+		<div className="p-4 space-y-4">
+			<div className="flex items-start justify-between gap-2">
+				<div className="space-y-2 min-w-0">
+					<div className="flex items-center gap-2 min-w-0">
+						<FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+						<span className="text-sm font-mono font-medium break-all">{file.path}</span>
+					</div>
+					<div className="flex items-center gap-3">
+						<div className="flex items-center gap-1.5">
+							<Icon className={`h-3 w-3 ${STATUS_COLOR[file.status]}`} />
+							<span className="text-xs text-muted-foreground">{file.status}</span>
+						</div>
+						<span className="text-xs text-green-500">+{file.additions}</span>
+						<span className="text-xs text-red-500">−{file.deletions}</span>
+					</div>
+				</div>
+				{onClose && (
+					<button type="button" onClick={onClose} className="shrink-0 p-1 rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors">
+						<X className="h-3.5 w-3.5" />
+					</button>
+				)}
+			</div>
+
+			{sessionId && (
+				<div className="flex gap-1 bg-muted rounded-md p-0.5">
+					<button
+						type="button"
+						onClick={() => setTab("summary")}
+						className={`flex-1 text-xs font-medium px-3 py-1 rounded transition-colors ${
+							tab === "summary"
+								? "bg-background text-foreground shadow-sm"
+								: "text-muted-foreground hover:text-foreground"
+						}`}
+					>
+						Summary
+					</button>
+					<button
+						type="button"
+						onClick={() => setTab("diff")}
+						className={`flex-1 text-xs font-medium px-3 py-1 rounded transition-colors ${
+							tab === "diff"
+								? "bg-background text-foreground shadow-sm"
+								: "text-muted-foreground hover:text-foreground"
+						}`}
+					>
+						Diff
+					</button>
+				</div>
+			)}
+
+			{tab === "summary" && (
+				<>
+					<p className="text-sm text-muted-foreground leading-relaxed break-words">{file.summary}</p>
+					{file.groups.length > 0 && (
+						<div className="border-t pt-3">
+							<div className="text-xs text-muted-foreground mb-2">Groups</div>
+							<div className="flex flex-wrap gap-1.5">
+								{file.groups.map((g) => (
+									<span key={g} className="text-xs bg-muted px-2 py-0.5 rounded-full">{g}</span>
+								))}
+							</div>
+						</div>
+					)}
+				</>
+			)}
+
+			{tab === "diff" && (
+				<>
+					{loading && (
+						<div className="flex items-center justify-center py-8">
+							<Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+							<span className="text-xs text-muted-foreground ml-2">Loading diff...</span>
+						</div>
+					)}
+					{error && (
+						<div className="text-center py-6 space-y-2">
+							<p className="text-xs text-red-500">{error}</p>
+							<button
+								type="button"
+								onClick={fetchPatch}
+								className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+							>
+								Retry
+							</button>
+						</div>
+					)}
+					{patch && (
+						<DiffViewer
+							patch={patch}
+							filePath={file.path}
+							githubUrl={prUrl ? `${prUrl}/files` : undefined}
+						/>
+					)}
+				</>
+			)}
+		</div>
+	);
+}
+
+export function DetailPane({
+	target,
+	sessionId,
+	prUrl,
+	onClose,
+}: {
+	target: DetailTarget | null;
+	sessionId?: string | null;
+	prUrl?: string;
+	onClose?: () => void;
+}) {
 	if (!target) return null;
 
 	if (target.kind === "group" && target.group) {
@@ -97,44 +265,7 @@ export function DetailPane({ target, onClose }: { target: DetailTarget | null; o
 	}
 
 	if (target.kind === "file" && target.file) {
-		const f = target.file;
-		const Icon = STATUS_ICON[f.status];
-		return (
-			<div className="p-4 space-y-4">
-				<div className="flex items-start justify-between gap-2">
-					<div className="space-y-2 min-w-0">
-						<div className="flex items-center gap-2 min-w-0">
-							<FileText className="h-4 w-4 text-muted-foreground shrink-0" />
-							<span className="text-sm font-mono font-medium break-all">{f.path}</span>
-						</div>
-						<div className="flex items-center gap-3">
-							<div className="flex items-center gap-1.5">
-								<Icon className={`h-3 w-3 ${STATUS_COLOR[f.status]}`} />
-								<span className="text-xs text-muted-foreground">{f.status}</span>
-							</div>
-							<span className="text-xs text-green-500">+{f.additions}</span>
-							<span className="text-xs text-red-500">−{f.deletions}</span>
-						</div>
-					</div>
-					{onClose && (
-						<button type="button" onClick={onClose} className="shrink-0 p-1 rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors">
-							<X className="h-3.5 w-3.5" />
-						</button>
-					)}
-				</div>
-				<p className="text-sm text-muted-foreground leading-relaxed break-words">{f.summary}</p>
-				{f.groups.length > 0 && (
-					<div className="border-t pt-3">
-						<div className="text-xs text-muted-foreground mb-2">Groups</div>
-						<div className="flex flex-wrap gap-1.5">
-							{f.groups.map((g) => (
-								<span key={g} className="text-xs bg-muted px-2 py-0.5 rounded-full">{g}</span>
-							))}
-						</div>
-					</div>
-				)}
-			</div>
-		);
+		return <FileDetail file={target.file} sessionId={sessionId} prUrl={prUrl} onClose={onClose} />;
 	}
 
 	return null;
