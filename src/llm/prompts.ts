@@ -201,6 +201,20 @@ There are THREE anchor types. You MUST use ALL of them.
 - Do NOT pair [[file:...]] with [[line:...]] for the same file. The line anchor already opens the file.
 - Use the diff context provided to find accurate line numbers. If unsure of exact lines, use [[file:...]] instead.
 
+### Anchor Density — TWO levels:
+When describing a function or class, use anchors at TWO granularity levels:
+
+**Level 1 — Declaration**: Anchor the function/class name itself to its full definition range.
+**Level 2 — Implementation details**: When explaining what the code does, anchor EACH distinct piece of logic to its specific lines within the function.
+
+Example with two levels:
+"[[line:src/auth/session.ts#L15-L50]](The validateToken function) handles the full JWT lifecycle. It [[line:src/auth/session.ts#L18-L22]](extracts the token from the Authorization header), [[line:src/auth/session.ts#L24-L30]](verifies the signature against the configured secret), and [[line:src/auth/session.ts#L32-L40]](checks the expiration timestamp). If validation fails, [[line:src/auth/session.ts#L42-L48]](it throws a typed AuthError with a specific error code)."
+
+Key principles:
+- The first anchor covers the entire function (L15-L50). Subsequent anchors zoom into specific parts within it.
+- Each sub-anchor should cover 2-10 lines — one logical step.
+- Descriptive text for sub-anchors should explain the step, not name the function again.
+
 ### Line Anchor Granularity:
 - Anchor individual functions, not entire files: [[line:auth.ts#L15-L30]](validateToken) not [[line:auth.ts#L1-L200]](auth module)
 - Anchor key type definitions: [[line:types.ts#L5-L12]](the new UserSession interface)
@@ -208,14 +222,14 @@ There are THREE anchor types. You MUST use ALL of them.
 - Anchor imports and exports that wire things together: [[line:index.ts#L3-L3]](re-exported from the barrel file)
 - For multi-part changes, anchor each part separately
 
-GOOD example (uses all 3 anchor types):
-"The [[group:Auth Flow]] group introduces session management. [[line:src/auth/session.ts#L15-L30]](The new validateToken function) parses JWT tokens and verifies their signature against [[line:src/auth/config.ts#L8-L8]](the configured secret). [[line:src/auth/middleware.ts#L8-L20]](The auth middleware) invokes it on every request. Supporting configuration lives in [[file:src/auth/constants.ts]]."
+GOOD example (uses all 3 anchor types + two-level density):
+"The [[group:Auth Flow]] group introduces session management. [[line:src/auth/session.ts#L15-L50]](The new validateToken function) handles JWT parsing: [[line:src/auth/session.ts#L18-L22]](it extracts the token from the header), then [[line:src/auth/session.ts#L24-L35]](verifies the signature and checks expiration). [[line:src/auth/middleware.ts#L8-L20]](The auth middleware) invokes it on every request, [[line:src/auth/middleware.ts#L15-L18]](rejecting invalid tokens with a 401). Supporting configuration lives in [[file:src/auth/constants.ts]]."
 
 BAD examples:
 - No group anchors: "The auth changes introduce session management." (MUST use [[group:Auth Flow]])
-- No file/line anchors: "The validateToken function handles JWT parsing." (MUST anchor the function)
+- No anchors in implementation details: "The validateToken function extracts the token, verifies the signature, and checks expiration." (MUST anchor each step separately)
+- One big anchor for everything: "[[line:session.ts#L15-L50]](The function extracts tokens, verifies signatures, and checks expiration)" (MUST split into sub-anchors)
 - Bare line anchor: "[[line:src/auth/session.ts#L15-L30]]" (MUST have (text) after it)
-- Redundant: "[[line:src/auth/session.ts#L15]](validate) in [[file:src/auth/session.ts]]" (don't pair both for same file)
 
 ${lang ? `CRITICAL: Write the ENTIRE narrative in ${lang}. Every sentence must be in ${lang}. Do NOT use English except for code identifiers, file paths, and anchor tokens.` : "If the PR title is in a non-English language, write the narrative in that same language."}`,
 		user: `PR Title: ${prTitle}\n\nSummary:\n- Purpose: ${summary.purpose}\n- Scope: ${summary.scope}\n- Impact: ${summary.impact}\n- Risk: ${summary.risk_level}\n\nChange Groups:\n${groupDetails}${commitCtx}${discussionCtx}${diffContext}`,

@@ -164,6 +164,7 @@ function FileDetail({
 				)}
 				{patch && (
 					<DiffViewer
+						key={`${file.path}-${scrollToLine ?? 0}-${scrollToLineEnd ?? 0}`}
 						patch={patch}
 						filePath={file.path}
 						sessionId={sessionId}
