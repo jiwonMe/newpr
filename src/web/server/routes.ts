@@ -15,6 +15,17 @@ import { getPlugin, getAllPlugins } from "../../plugins/registry.ts";
 import { chatWithTools, createLlmClient, type ChatTool, type ChatStreamEvent } from "../../llm/client.ts";
 import { detectAgents, runAgent } from "../../workspace/agent.ts";
 import { randomBytes } from "node:crypto";
+import { partitionGroups } from "../../stack/partition.ts";
+import { applyCouplingRules } from "../../stack/coupling.ts";
+import { checkFeasibility } from "../../stack/feasibility.ts";
+import { extractDeltas } from "../../stack/delta.ts";
+import { createStackPlan } from "../../stack/plan.ts";
+import { executeStack } from "../../stack/execute.ts";
+import { verifyStack } from "../../stack/verify.ts";
+import { publishStack } from "../../stack/publish.ts";
+import { ensureRepo } from "../../workspace/repo-cache.ts";
+import { fetchPrData } from "../../github/fetch-pr.ts";
+import type { StackPlan, StackExecResult, FeasibilityResult } from "../../stack/types.ts";
 
 function json(data: unknown, status = 200): Response {
 	return new Response(JSON.stringify(data), {
@@ -1702,6 +1713,253 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 			const job = pluginJobs.get(`${pluginId}:${sessionId}`);
 			if (!job) return json({ status: "idle" });
 			return json(job);
+		},
+
+		"POST /api/stack/partition": async (req: Request) => {
+			try {
+				const body = await req.json() as { sessionId: string };
+				if (!body.sessionId) return json({ error: "Missing sessionId" }, 400);
+
+				const stored = await loadSession(body.sessionId);
+				if (!stored) return json({ error: "Session not found" }, 404);
+
+				const prUrl = stored.meta.pr_url;
+				const parsed = parsePrInput(prUrl);
+				if (!parsed) return json({ error: "Invalid PR URL in session" }, 400);
+
+				const prData = await fetchPrData(parsed, token);
+
+				const prApiUrl = `https://api.github.com/repos/${parsed.owner}/${parsed.repo}/pulls/${parsed.number}`;
+				const prResp = await fetch(prApiUrl, { headers: ghHeaders });
+				if (!prResp.ok) return json({ error: "Failed to fetch PR data from GitHub" }, 502);
+				const prJson = await prResp.json() as Record<string, unknown>;
+				const baseObj = prJson.base as Record<string, unknown>;
+				const headObj = prJson.head as Record<string, unknown>;
+				const baseSha = baseObj.sha as string;
+				const headSha = headObj.sha as string;
+				const baseBranch = baseObj.ref as string;
+
+				const repoPath = await ensureRepo(parsed.owner, parsed.repo, token);
+				const changedFiles = stored.files.map((f) => f.path);
+				const fileSummaries = stored.files.map((f) => ({
+					path: f.path,
+					status: f.status,
+					summary: f.summary,
+				}));
+
+				const llmClient = createLlmClient({
+					api_key: config.openrouter_api_key,
+					model: config.model,
+					timeout: config.timeout,
+				});
+				const partition = await partitionGroups(
+					llmClient,
+					stored.groups,
+					changedFiles,
+					fileSummaries,
+					prData.commits,
+				);
+
+				const groupOrder = stored.groups.map((g) => g.name);
+				const coupled = applyCouplingRules(partition.ownership, changedFiles, groupOrder);
+
+				const mergedOwnership = new Map(coupled.ownership);
+				const allWarnings = [...partition.warnings, ...coupled.warnings];
+
+				const deltas = await extractDeltas(repoPath, baseSha, headSha);
+				const feasibility = checkFeasibility({
+					deltas,
+					ownership: mergedOwnership,
+				});
+
+				const ownershipObj = Object.fromEntries(mergedOwnership);
+
+				return json({
+					partition: {
+						ownership: ownershipObj,
+						reattributed: partition.reattributed,
+						warnings: allWarnings,
+						forced_merges: coupled.forced_merges,
+					},
+					feasibility,
+					context: {
+						repo_path: repoPath,
+						base_sha: baseSha,
+						head_sha: headSha,
+						base_branch: baseBranch,
+						pr_number: parsed.number,
+						owner: parsed.owner,
+						repo: parsed.repo,
+						deltas_count: deltas.length,
+					},
+				});
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				return json({ error: msg }, 500);
+			}
+		},
+
+		"POST /api/stack/plan": async (req: Request) => {
+			try {
+				const body = await req.json() as {
+					sessionId: string;
+					ownership: Record<string, string>;
+					feasibility: FeasibilityResult;
+					context: {
+						repo_path: string;
+						base_sha: string;
+						head_sha: string;
+						base_branch: string;
+						pr_number: number;
+						owner: string;
+						repo: string;
+					};
+				};
+
+				if (!body.sessionId) return json({ error: "Missing sessionId" }, 400);
+				if (!body.feasibility?.feasible) return json({ error: "Stacking is not feasible" }, 400);
+				if (!body.feasibility.ordered_group_ids) return json({ error: "Missing group ordering" }, 400);
+
+				const stored = await loadSession(body.sessionId);
+				if (!stored) return json({ error: "Session not found" }, 404);
+
+				const ownership = new Map(Object.entries(body.ownership));
+				const repoPath = body.context.repo_path;
+				const baseSha = body.context.base_sha;
+				const headSha = body.context.head_sha;
+
+				const deltas = await extractDeltas(repoPath, baseSha, headSha);
+				const plan = await createStackPlan({
+					repo_path: repoPath,
+					base_sha: baseSha,
+					head_sha: headSha,
+					deltas,
+					ownership,
+					group_order: body.feasibility.ordered_group_ids,
+					groups: stored.groups,
+				});
+
+				const serializedPlan = {
+					base_sha: plan.base_sha,
+					head_sha: plan.head_sha,
+					groups: plan.groups,
+					expected_trees: Object.fromEntries(plan.expected_trees),
+				};
+
+				return json({
+					plan: serializedPlan,
+					context: body.context,
+				});
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				return json({ error: msg }, 500);
+			}
+		},
+
+		"POST /api/stack/execute": async (req: Request) => {
+			try {
+				const body = await req.json() as {
+					sessionId: string;
+					plan: {
+						base_sha: string;
+						head_sha: string;
+						groups: StackPlan["groups"];
+						expected_trees: Record<string, string>;
+					};
+					ownership: Record<string, string>;
+					context: {
+						repo_path: string;
+						base_sha: string;
+						head_sha: string;
+						base_branch: string;
+						pr_number: number;
+						owner: string;
+						repo: string;
+					};
+				};
+
+				if (!body.sessionId) return json({ error: "Missing sessionId" }, 400);
+				if (!body.plan) return json({ error: "Missing plan" }, 400);
+
+				const stored = await loadSession(body.sessionId);
+				if (!stored) return json({ error: "Session not found" }, 404);
+
+				const repoPath = body.context.repo_path;
+				const baseSha = body.context.base_sha;
+				const headSha = body.context.head_sha;
+				const ownership = new Map(Object.entries(body.ownership));
+
+				const plan: StackPlan = {
+					base_sha: body.plan.base_sha,
+					head_sha: body.plan.head_sha,
+					groups: body.plan.groups,
+					expected_trees: new Map(Object.entries(body.plan.expected_trees)),
+				};
+
+				const deltas = await extractDeltas(repoPath, baseSha, headSha);
+				const execResult = await executeStack({
+					repo_path: repoPath,
+					plan,
+					deltas,
+					ownership,
+					pr_author: {
+						name: stored.meta.author,
+						email: `${stored.meta.author}@users.noreply.github.com`,
+					},
+					pr_number: body.context.pr_number,
+				});
+
+				const verifyResult = await verifyStack({
+					repo_path: repoPath,
+					base_sha: baseSha,
+					head_sha: headSha,
+					exec_result: execResult,
+					ownership,
+				});
+
+				return json({
+					exec_result: execResult,
+					verify_result: verifyResult,
+					context: body.context,
+				});
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				return json({ error: msg }, 500);
+			}
+		},
+
+		"POST /api/stack/publish": async (req: Request) => {
+			try {
+				const body = await req.json() as {
+					sessionId: string;
+					exec_result: StackExecResult;
+					context: {
+						repo_path: string;
+						base_branch: string;
+						pr_number: number;
+						owner: string;
+						repo: string;
+					};
+				};
+
+				if (!body.sessionId) return json({ error: "Missing sessionId" }, 400);
+				if (!body.exec_result) return json({ error: "Missing exec_result" }, 400);
+
+				const stored = await loadSession(body.sessionId);
+				if (!stored) return json({ error: "Session not found" }, 404);
+
+				const result = await publishStack({
+					repo_path: body.context.repo_path,
+					exec_result: body.exec_result,
+					pr_meta: stored.meta,
+					base_branch: body.context.base_branch,
+				});
+
+				return json({ publish_result: result });
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				return json({ error: msg }, 500);
+			}
 		},
 	};
 }
