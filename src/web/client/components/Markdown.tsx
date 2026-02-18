@@ -96,8 +96,7 @@ function MediaEmbed({ src }: { src: string }) {
 }
 
 const ANCHOR_RE = /\[\[(group|file):([^\]]+)\]\]/g;
-const LINE_ANCHOR_WITH_TEXT_RE = /\[\[line:([^\]]+)\]\]\(([^)]+)\)/g;
-const LINE_ANCHOR_BARE_RE = /\[\[line:([^\]]+)\]\]/g;
+
 const BOLD_CJK_RE = /\*\*(.+?)\*\*/g;
 
 function hasCJK(text: string): boolean {
@@ -120,17 +119,24 @@ function inlineMarkdownToHtml(text: string): string {
 		.replace(/`([^`]+)`/g, "<code>$1</code>");
 }
 
+function replaceLineAnchors(text: string): string {
+	return text.replace(
+		/\[\[line:([\w/.#\-]+)\](?:\]\(([^)\]]+)\)|\(([^)\]]+)\)\]|\(([^)\]]+)\])|\[\[line:([\w/.#\-]+)\]\]/g,
+		(match, id1, text1, text2, text3, bareId) => {
+			const id = id1 ?? bareId;
+			const label = text1 ?? text2 ?? text3;
+			if (!id) return match;
+			const encoded = encodeURIComponent(id);
+			if (label) {
+				return `<span data-line-ref="${encoded}">${inlineMarkdownToHtml(label)}</span>`;
+			}
+			return `<span data-line-ref="${encoded}">${formatLineLabel(id)}</span>`;
+		},
+	);
+}
+
 function preprocess(text: string): string {
-	return text
-		.replace(LINE_ANCHOR_WITH_TEXT_RE, (_, id, label) => {
-			const encoded = encodeURIComponent(id);
-			return `<span data-line-ref="${encoded}">${inlineMarkdownToHtml(label)}</span>`;
-		})
-		.replace(LINE_ANCHOR_BARE_RE, (_, id) => {
-			const encoded = encodeURIComponent(id);
-			const label = formatLineLabel(id);
-			return `<span data-line-ref="${encoded}">${label}</span>`;
-		})
+	return replaceLineAnchors(text)
 		.replace(ANCHOR_RE, (_, kind, id) => {
 			const encoded = encodeURIComponent(id);
 			return `![${kind}:${encoded}](newpr)`;
@@ -284,5 +290,5 @@ export function Markdown({ children, onAnchorClick, activeId }: MarkdownProps) {
 		td: ({ children }) => <td className="border-b border-border px-3 py-1.5 text-sm">{children}</td>,
 	};
 
-	return <ReactMarkdown remarkPlugins={[[remarkMath, { singleDollarTextMath: true }], remarkGfm]} rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: false }], rehypeRaw]} components={components}>{processed}</ReactMarkdown>;
+	return <ReactMarkdown remarkPlugins={[[remarkMath, { singleDollarTextMath: true }], remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, output: "htmlAndMathml" }]]} components={components}>{processed}</ReactMarkdown>;
 }

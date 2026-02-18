@@ -456,7 +456,19 @@ export function DiffViewer({
 					if (!scrollTarget) scrollTarget = el;
 				}
 			}
-			scrollTarget?.scrollIntoView({ behavior: "instant", block: "center" });
+			if (scrollTarget) {
+				let scrollParent = scrollTarget.parentElement;
+				while (scrollParent) {
+					const style = getComputedStyle(scrollParent);
+					if (style.overflowY === "auto" || style.overflowY === "scroll") break;
+					scrollParent = scrollParent.parentElement;
+				}
+				if (scrollParent) {
+					const parentRect = scrollParent.getBoundingClientRect();
+					const targetRect = scrollTarget.getBoundingClientRect();
+					scrollParent.scrollTop += targetRect.top - parentRect.top - parentRect.height / 2;
+				}
+			}
 		}, 100);
 		return () => clearTimeout(timer);
 	}, [scrollToLine, scrollToLineEnd, patch]);
