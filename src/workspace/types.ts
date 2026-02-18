@@ -1,4 +1,4 @@
-export type AgentToolName = "claude" | "opencode" | "codex";
+export type AgentToolName = "claude" | "cursor" | "gemini" | "opencode" | "codex";
 
 export interface AgentTool {
 	name: AgentToolName;
@@ -26,6 +26,8 @@ export interface ExplorationResult {
 
 export const INSTALL_INSTRUCTIONS: Record<AgentToolName, string> = {
 	claude: "npm install -g @anthropic-ai/claude-code",
-	opencode: "npm install -g opencode",
+	cursor: "curl https://cursor.com/install -fsS | bash",
+	gemini: "npm install -g @google/gemini-cli",
+	opencode: "npm install -g opencode-ai",
 	codex: "npm install -g @openai/codex",
 };

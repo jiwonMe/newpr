@@ -1,10 +1,12 @@
 import type { AgentTool, AgentToolName, AgentResult } from "./types.ts";
 import { INSTALL_INSTRUCTIONS } from "./types.ts";
 
-const AGENT_PRIORITY: AgentToolName[] = ["claude", "opencode", "codex"];
+const AGENT_PRIORITY: AgentToolName[] = ["claude", "cursor", "gemini", "opencode", "codex"];
 
 const DETECTION_COMMANDS: Record<AgentToolName, string> = {
 	claude: "claude",
+	cursor: "agent",
+	gemini: "gemini",
 	opencode: "opencode",
 	codex: "codex",
 };
@@ -141,6 +143,10 @@ export async function runAgent(
 	switch (agent.name) {
 		case "claude":
 			return runClaude(agent, workdir, prompt, timeout, options?.onOutput);
+		case "cursor":
+			return runCursor(agent, workdir, prompt, timeout, options?.onOutput);
+		case "gemini":
+			return runGemini(agent, workdir, prompt, timeout, options?.onOutput);
 		case "opencode":
 			return runOpencode(agent, workdir, prompt, timeout, options?.onOutput);
 		case "codex":
@@ -214,6 +220,105 @@ async function runClaude(
 	return {
 		answer,
 		cost_usd: costUsd,
+		duration_ms: duration,
+		tool_used: agent.name,
+	};
+}
+
+async function runCursor(
+	agent: AgentTool,
+	workdir: string,
+	prompt: string,
+	timeout: number,
+	onOutput?: (line: string) => void,
+): Promise<AgentResult> {
+	const start = Date.now();
+	const proc = Bun.spawn(
+		[
+			agent.path,
+			"-p",
+			"--output-format", "stream-json",
+			"--force",
+			"--mode", "ask",
+			prompt,
+		],
+		{
+			cwd: workdir,
+			stdin: "ignore",
+			stdout: "pipe",
+			stderr: "ignore",
+		},
+	);
+
+	let answer = "";
+
+	const stdoutPromise = proc.stdout
+		? streamLines(proc.stdout, (line) => {
+			try {
+				const event = JSON.parse(line);
+				if (event.type === "assistant" && event.message?.content) {
+					for (const block of event.message.content) {
+						if (block.type === "tool_use" && onOutput) {
+							const label = formatToolUse(
+								block.name ?? "",
+								(block.input as Record<string, unknown>) ?? {},
+							);
+							if (label) onOutput(label);
+						}
+						if (block.type === "text" && block.text && onOutput) {
+							const firstLine = (block.text as string).split("\n")[0]?.trim();
+							if (firstLine && firstLine.length > 5) {
+								onOutput(`💭 ${firstLine.slice(0, 80)}${firstLine.length > 80 ? "…" : ""}`);
+							}
+						}
+					}
+				} else if (event.type === "result") {
+					answer = event.result ?? "";
+				}
+			} catch {}
+		})
+		: Promise.resolve();
+
+	const timeoutId = setTimeout(() => proc.kill(), timeout);
+	await stdoutPromise;
+	clearTimeout(timeoutId);
+
+	const duration = Date.now() - start;
+
+	return { answer, duration_ms: duration, tool_used: agent.name };
+}
+
+async function runGemini(
+	agent: AgentTool,
+	workdir: string,
+	prompt: string,
+	timeout: number,
+	onOutput?: (line: string) => void,
+): Promise<AgentResult> {
+	const start = Date.now();
+	const proc = Bun.spawn(
+		[agent.path, "-p", prompt],
+		{
+			cwd: workdir,
+			stdin: "ignore",
+			stdout: "pipe",
+			stderr: "pipe",
+		},
+	);
+
+	const stderrPromise = onOutput && proc.stderr
+		? streamLines(proc.stderr, onOutput)
+		: Promise.resolve();
+
+	const timeoutId = setTimeout(() => proc.kill(), timeout);
+	const output = await new Response(proc.stdout).text();
+	await stderrPromise;
+	clearTimeout(timeoutId);
+
+	const duration = Date.now() - start;
+
+	return {
+		answer: output.trim(),
 		duration_ms: duration,
 		tool_used: agent.name,
 	};

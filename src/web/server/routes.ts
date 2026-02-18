@@ -612,7 +612,7 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 			}
 			if (body.agent !== undefined) {
 				const val = body.agent as string;
-				if (val === "claude" || val === "opencode" || val === "codex") {
+				if (val === "claude" || val === "cursor" || val === "gemini" || val === "opencode" || val === "codex") {
 					update.agent = val;
 					config.agent = val;
 				} else if (val === "" || val === "auto") {

@@ -32,6 +32,8 @@ interface ModelInfo {
 const AGENTS = [
 	{ value: "", label: "Auto" },
 	{ value: "claude", label: "Claude" },
+	{ value: "cursor", label: "Cursor" },
+	{ value: "gemini", label: "Gemini" },
 	{ value: "opencode", label: "OpenCode" },
 	{ value: "codex", label: "Codex" },
 ];
