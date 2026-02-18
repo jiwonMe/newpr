@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo, useRef, useCallback, type ReactNode } from "react";
 import { type Highlighter, type ThemedToken } from "shiki";
-import { MessageSquare, Trash2, ExternalLink, CornerDownLeft, Pencil, Check, X } from "lucide-react";
+import { MessageSquare, Trash2, ExternalLink, CornerDownLeft, Pencil, Check, X, Sparkles, Loader2 } from "lucide-react";
 import { ensureHighlighter, getHighlighterSync, detectShikiLang, type ShikiLang } from "../lib/shiki.ts";
 import type { DiffComment } from "../../../types/output.ts";
 import { TipTapEditor } from "./TipTapEditor.tsx";
+import { Markdown } from "./Markdown.tsx";
 
 interface DiffLine {
 	type: "header" | "hunk" | "added" | "removed" | "context" | "binary";
@@ -375,6 +376,135 @@ function CommentForm({
 	);
 }
 
+function AskAiPanel({
+	sessionId,
+	filePath,
+	startLine,
+	endLine,
+	codeSnippet,
+	onClose,
+}: {
+	sessionId: string;
+	filePath: string;
+	startLine: number;
+	endLine: number;
+	codeSnippet: string;
+	onClose: () => void;
+}) {
+	const [question, setQuestion] = useState("");
+	const [response, setResponse] = useState("");
+	const [loading, setLoading] = useState(false);
+	const [autoStarted, setAutoStarted] = useState(false);
+
+	const ask = useCallback(async (customQuestion?: string) => {
+		setLoading(true);
+		setResponse("");
+		const q = customQuestion ?? question.trim();
+		const prompt = q
+			? `Regarding this code in ${filePath} (lines ${startLine}-${endLine}):\n\`\`\`\n${codeSnippet}\n\`\`\`\n\nQuestion: ${q}`
+			: `Analyze this code in ${filePath} (lines ${startLine}-${endLine}). Explain what it does, identify any issues (bugs, performance, security, style), and suggest improvements:\n\`\`\`\n${codeSnippet}\n\`\`\``;
+
+		try {
+			const res = await fetch(`/api/sessions/${sessionId}/chat`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ message: prompt }),
+			});
+			if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+			const reader = res.body!.getReader();
+			const decoder = new TextDecoder();
+			let buffer = "";
+			let text = "";
+			let pendingEvent = "";
+
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				buffer += decoder.decode(value, { stream: true });
+				const lines = buffer.split("\n");
+				buffer = lines.pop() ?? "";
+				for (const line of lines) {
+					const trimmed = line.trim();
+					if (!trimmed) { pendingEvent = ""; continue; }
+					if (trimmed.startsWith("event: ")) { pendingEvent = trimmed.slice(7); continue; }
+					if (!trimmed.startsWith("data: ")) continue;
+					try {
+						const data = JSON.parse(trimmed.slice(6));
+						if (pendingEvent === "text") {
+							text += data.content ?? "";
+							setResponse(text);
+						}
+					} catch {}
+					pendingEvent = "";
+				}
+			}
+		} catch (err) {
+			setResponse(`Error: ${err instanceof Error ? err.message : String(err)}`);
+		} finally {
+			setLoading(false);
+		}
+	}, [sessionId, filePath, startLine, endLine, codeSnippet, question]);
+
+	useEffect(() => {
+		if (!autoStarted) {
+			setAutoStarted(true);
+			ask();
+		}
+	}, [autoStarted, ask]);
+
+	return (
+		<div className="px-3 py-2.5 font-sans">
+			<div className="space-y-2.5">
+				<div className="flex items-center justify-between">
+					<div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/60">
+						<Sparkles className="h-3 w-3" />
+						<span>AI Analysis</span>
+						<span className="text-muted-foreground/30">L{startLine}{endLine !== startLine ? `-L${endLine}` : ""}</span>
+					</div>
+					<button type="button" onClick={onClose} className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground/30 hover:text-muted-foreground/60 transition-colors">
+						<X className="h-3 w-3" />
+					</button>
+				</div>
+
+				{loading && !response && (
+					<div className="flex items-center gap-1.5 py-2">
+						<Loader2 className="h-3 w-3 animate-spin text-muted-foreground/40" />
+						<span className="text-[11px] text-muted-foreground/40">Analyzing...</span>
+					</div>
+				)}
+
+				{response && (
+					<div className="text-xs leading-relaxed">
+						<Markdown>{response}</Markdown>
+					</div>
+				)}
+
+				{!loading && (
+					<div className="flex items-center gap-1.5">
+						<input
+							type="text"
+							value={question}
+							onChange={(e) => setQuestion(e.target.value)}
+							onKeyDown={(e) => { if (e.key === "Enter" && question.trim()) ask(); }}
+							placeholder="Ask a follow-up..."
+							className="flex-1 h-7 rounded-md border bg-background px-2.5 text-[11px] placeholder:text-muted-foreground/30 focus:outline-none focus:border-foreground/20"
+						/>
+						<button
+							type="button"
+							onClick={() => ask()}
+							disabled={loading}
+							className="h-7 px-2.5 rounded-md bg-foreground text-background text-[11px] font-medium disabled:opacity-30 hover:opacity-80 transition-opacity"
+						>
+							Ask
+						</button>
+					</div>
+				)}
+			</div>
+		</div>
+	);
+}
+
 function InlineComments({
 	comments,
 	currentUser,
@@ -383,6 +513,11 @@ function InlineComments({
 	formTarget,
 	onSubmit,
 	onCancel,
+	sessionId,
+	filePath,
+	startLine,
+	endLine,
+	codeSnippet,
 }: {
 	comments: DiffComment[];
 	currentUser: { login: string; avatar_url: string } | null;
@@ -391,16 +526,48 @@ function InlineComments({
 	formTarget: boolean;
 	onSubmit: (body: string) => Promise<void>;
 	onCancel: () => void;
+	sessionId?: string | null;
+	filePath: string;
+	startLine?: number;
+	endLine?: number;
+	codeSnippet?: string;
 }) {
+	const [showAi, setShowAi] = useState(false);
 	const hasComments = comments.length > 0;
-	if (!hasComments && !formTarget) return null;
+	if (!hasComments && !formTarget && !showAi) return null;
 
 	return (
 		<div className="border-y border-border/30 bg-card/80 font-sans divide-y divide-border/20">
 			{comments.map((c) => (
 				<CommentCard key={c.id} comment={c} currentLogin={currentUser?.login ?? null} onEdit={onEdit} onDelete={onDelete} />
 			))}
-			{formTarget && <CommentForm currentUser={currentUser} onSubmit={onSubmit} onCancel={onCancel} />}
+			{formTarget && (
+				<div>
+					<CommentForm currentUser={currentUser} onSubmit={onSubmit} onCancel={onCancel} />
+					{sessionId && startLine && endLine && codeSnippet && !showAi && (
+						<div className="px-3 pb-2">
+							<button
+								type="button"
+								onClick={() => setShowAi(true)}
+								className="flex items-center gap-1.5 text-[11px] text-muted-foreground/40 hover:text-foreground transition-colors"
+							>
+								<Sparkles className="h-3 w-3" />
+								Ask AI about this code
+							</button>
+						</div>
+					)}
+				</div>
+			)}
+			{showAi && sessionId && startLine && endLine && codeSnippet && (
+				<AskAiPanel
+					sessionId={sessionId}
+					filePath={filePath}
+					startLine={startLine}
+					endLine={endLine}
+					codeSnippet={codeSnippet}
+					onClose={() => setShowAi(false)}
+				/>
+			)}
 		</div>
 	);
 }
@@ -595,6 +762,18 @@ export function DiffViewer({
 		return () => document.removeEventListener("mouseup", handleUp);
 	}, []);
 
+	const codeSnippetForRange = useMemo(() => {
+		if (!formRange) return "";
+		return lines
+			.filter((l) => {
+				const lk = lineKey(l);
+				if (!lk || lk.side !== formRange.side) return false;
+				return lk.num >= formRange.startLine && lk.num <= formRange.endLine;
+			})
+			.map((l) => l.content)
+			.join("\n");
+	}, [formRange, lines]);
+
 	const commentCount = comments.length;
 
 	return (
@@ -691,6 +870,11 @@ export function DiffViewer({
 										formTarget={!!isFormAnchor}
 										onSubmit={handleAddComment}
 										onCancel={() => setFormRange(null)}
+										sessionId={sessionId}
+										filePath={filePath}
+										startLine={formRange?.startLine}
+										endLine={formRange?.endLine}
+										codeSnippet={codeSnippetForRange}
 									/>
 									</div>
 								)}
