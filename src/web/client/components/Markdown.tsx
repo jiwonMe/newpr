@@ -226,7 +226,8 @@ export function Markdown({ children, onAnchorClick, activeId }: MarkdownProps) {
 			<pre className="bg-muted rounded-lg p-4 overflow-x-auto mb-3 whitespace-pre text-xs font-mono [&>span>pre]:!bg-transparent [&>span>pre]:!p-0 [&>span>pre]:!m-0">{children}</pre>
 		),
 		span: ({ children, ...props }) => {
-			const lineRef = (props as Record<string, unknown>)["data-line-ref"] as string | undefined;
+			const allProps = props as Record<string, unknown>;
+			const lineRef = allProps["data-line-ref"] as string | undefined;
 			if (lineRef && onAnchorClick) {
 				const id = decodeURIComponent(lineRef);
 				const isActive = activeId === `line:${id}`;
@@ -249,7 +250,8 @@ export function Markdown({ children, onAnchorClick, activeId }: MarkdownProps) {
 			if (lineRef) {
 				return <span className="underline decoration-foreground/10 decoration-1 underline-offset-[3px]">{children}</span>;
 			}
-			return <span>{children}</span>;
+			const { node, ...rest } = allProps as Record<string, unknown> & { node?: unknown };
+			return <span {...rest as React.HTMLAttributes<HTMLSpanElement>}>{children}</span>;
 		},
 		a: ({ href, children }) => {
 			if (href && isMediaUrl(href)) {
