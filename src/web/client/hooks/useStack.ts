@@ -1,5 +1,5 @@
-import { useState, useCallback } from "react";
-import type { FeasibilityResult, StackWarning } from "../../../stack/types.ts";
+import { useState, useCallback, useEffect, useRef } from "react";
+import type { FeasibilityResult, StackWarning, StackGroupStats } from "../../../stack/types.ts";
 
 type StackPhase = "idle" | "partitioning" | "planning" | "executing" | "publishing" | "done" | "error";
 
@@ -29,7 +29,6 @@ interface StackContext {
 	pr_number: number;
 	owner: string;
 	repo: string;
-	deltas_count?: number;
 }
 
 interface PlanData {
@@ -43,6 +42,8 @@ interface PlanData {
 		files: string[];
 		deps: string[];
 		order: number;
+		stats?: StackGroupStats;
+		pr_title?: string;
 	}>;
 	expected_trees: Record<string, string>;
 }
@@ -55,6 +56,7 @@ interface ExecResultData {
 		commit_sha: string;
 		tree_sha: string;
 		branch_name: string;
+		pr_title?: string;
 	}>;
 	final_tree_sha: string;
 	verified: boolean;
@@ -79,6 +81,21 @@ interface PublishResultData {
 	}>;
 }
 
+interface ServerStackState {
+	status: string;
+	phase: string | null;
+	error: string | null;
+	maxGroups: number | null;
+	context: StackContext | null;
+	partition: PartitionData | null;
+	feasibility: FeasibilityResult | null;
+	plan: PlanData | null;
+	execResult: ExecResultData | null;
+	verifyResult: VerifyResultData | null;
+	startedAt: number;
+	finishedAt: number | null;
+}
+
 export interface StackState {
 	phase: StackPhase;
 	error: string | null;
@@ -90,6 +107,30 @@ export interface StackState {
 	execResult: ExecResultData | null;
 	verifyResult: VerifyResultData | null;
 	publishResult: PublishResultData | null;
+	progressMessage: string | null;
+}
+
+function serverPhaseToClient(status: string, phase: string | null): StackPhase {
+	if (status === "error" || status === "canceled") return "error";
+	if (status === "done") return "done";
+	if (phase === "partitioning") return "partitioning";
+	if (phase === "planning") return "planning";
+	if (phase === "executing") return "executing";
+	if (phase === "done") return "done";
+	return "idle";
+}
+
+function applyServerState(server: ServerStackState): Partial<StackState> {
+	return {
+		phase: serverPhaseToClient(server.status, server.phase),
+		error: server.error,
+		context: server.context,
+		partition: server.partition,
+		feasibility: server.feasibility,
+		plan: server.plan,
+		execResult: server.execResult,
+		verifyResult: server.verifyResult,
+	};
 }
 
 export function useStack(sessionId: string | null | undefined) {
@@ -104,117 +145,110 @@ export function useStack(sessionId: string | null | undefined) {
 		execResult: null,
 		verifyResult: null,
 		publishResult: null,
+		progressMessage: null,
 	});
+
+	const eventSourceRef = useRef<EventSource | null>(null);
+
+	useEffect(() => {
+		if (!sessionId) return;
+
+		fetch(`/api/stack/${sessionId}`)
+			.then((res) => res.json())
+			.then((data: { state: ServerStackState | null }) => {
+				if (!data.state) return;
+				setState((s) => ({ ...s, ...applyServerState(data.state!) }));
+			})
+			.catch(() => {});
+	}, [sessionId]);
 
 	const setMaxGroups = useCallback((n: number | null) => {
 		setState((s) => ({ ...s, maxGroups: n }));
 	}, []);
 
-	const startPartition = useCallback(async () => {
+	const connectSSE = useCallback((id: string) => {
+		eventSourceRef.current?.close();
+
+		const es = new EventSource(`/api/stack/${id}/events`);
+		eventSourceRef.current = es;
+
+		es.addEventListener("progress", (e) => {
+			try {
+				const data = JSON.parse(e.data) as { phase: string; message: string; state: ServerStackState };
+				setState((s) => ({
+					...s,
+					...applyServerState(data.state),
+					progressMessage: data.message,
+				}));
+			} catch {}
+		});
+
+		es.addEventListener("done", (e) => {
+			try {
+				const data = JSON.parse(e.data) as { state: ServerStackState };
+				setState((s) => ({
+					...s,
+					...applyServerState(data.state),
+					progressMessage: null,
+				}));
+			} catch {}
+			es.close();
+			eventSourceRef.current = null;
+		});
+
+		es.addEventListener("stack_error", (e) => {
+			try {
+				const data = JSON.parse(e.data) as { message: string; state?: ServerStackState };
+				setState((s) => ({
+					...s,
+					phase: "error",
+					error: data.message,
+					...(data.state ? applyServerState(data.state) : {}),
+					progressMessage: null,
+				}));
+			} catch {}
+			es.close();
+			eventSourceRef.current = null;
+		});
+
+		es.onerror = () => {
+			es.close();
+			eventSourceRef.current = null;
+		};
+	}, []);
+
+	const runFullPipeline = useCallback(async () => {
 		if (!sessionId) return;
-		setState((s) => ({ ...s, phase: "partitioning", error: null }));
+
+		setState((s) => ({ ...s, phase: "partitioning", error: null, progressMessage: "Starting..." }));
 		try {
-			const res = await fetch("/api/stack/partition", {
+			const res = await fetch("/api/stack/start", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ sessionId, maxGroups: state.maxGroups }),
 			});
 			const data = await res.json();
-			if (!res.ok) throw new Error(data.error ?? "Partition failed");
+			if (!res.ok) throw new Error(data.error ?? "Failed to start stack pipeline");
 
-			setState((s) => ({
-				...s,
-				phase: data.feasibility.feasible ? "partitioning" : "error",
-				partition: data.partition,
-				feasibility: data.feasibility,
-				context: data.context,
-				error: data.feasibility.feasible ? null : "Stacking is not feasible — dependency cycle detected",
-			}));
+			connectSSE(sessionId);
 		} catch (err) {
 			setState((s) => ({
 				...s,
 				phase: "error",
 				error: err instanceof Error ? err.message : String(err),
+				progressMessage: null,
 			}));
 		}
-	}, [sessionId, state.maxGroups]);
-
-	const startPlan = useCallback(async () => {
-		if (!sessionId || !state.partition || !state.feasibility || !state.context) return;
-		setState((s) => ({ ...s, phase: "planning" }));
-		try {
-			const res = await fetch("/api/stack/plan", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					sessionId,
-					ownership: state.partition.ownership,
-					feasibility: state.feasibility,
-					groups: state.partition.groups,
-					context: state.context,
-				}),
-			});
-			const data = await res.json();
-			if (!res.ok) throw new Error(data.error ?? "Planning failed");
-
-			setState((s) => ({
-				...s,
-				plan: data.plan,
-				context: data.context,
-			}));
-		} catch (err) {
-			setState((s) => ({
-				...s,
-				phase: "error",
-				error: err instanceof Error ? err.message : String(err),
-			}));
-		}
-	}, [sessionId, state.partition, state.feasibility, state.context]);
-
-	const startExecute = useCallback(async () => {
-		if (!sessionId || !state.plan || !state.partition || !state.context) return;
-		setState((s) => ({ ...s, phase: "executing" }));
-		try {
-			const res = await fetch("/api/stack/execute", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					sessionId,
-					plan: state.plan,
-					ownership: state.partition.ownership,
-					context: state.context,
-				}),
-			});
-			const data = await res.json();
-			if (!res.ok) throw new Error(data.error ?? "Execution failed");
-
-			setState((s) => ({
-				...s,
-				execResult: data.exec_result,
-				verifyResult: data.verify_result,
-				context: data.context,
-			}));
-		} catch (err) {
-			setState((s) => ({
-				...s,
-				phase: "error",
-				error: err instanceof Error ? err.message : String(err),
-			}));
-		}
-	}, [sessionId, state.plan, state.partition, state.context]);
+	}, [sessionId, state.maxGroups, connectSSE]);
 
 	const startPublish = useCallback(async () => {
-		if (!sessionId || !state.execResult || !state.context) return;
+		if (!sessionId) return;
 		setState((s) => ({ ...s, phase: "publishing" }));
 		try {
 			const res = await fetch("/api/stack/publish", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					sessionId,
-					exec_result: state.execResult,
-					context: state.context,
-				}),
+				body: JSON.stringify({ sessionId }),
 			});
 			const data = await res.json();
 			if (!res.ok) throw new Error(data.error ?? "Publishing failed");
@@ -231,101 +265,11 @@ export function useStack(sessionId: string | null | undefined) {
 				error: err instanceof Error ? err.message : String(err),
 			}));
 		}
-	}, [sessionId, state.execResult, state.context]);
-
-	const runFullPipeline = useCallback(async () => {
-		if (!sessionId) return;
-
-		setState((s) => ({ ...s, phase: "partitioning", error: null }));
-		try {
-			const partRes = await fetch("/api/stack/partition", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ sessionId, maxGroups: state.maxGroups }),
-			});
-			const partData = await partRes.json();
-			if (!partRes.ok) throw new Error(partData.error ?? "Partition failed");
-			if (!partData.feasibility.feasible) {
-				setState((s) => ({
-					...s,
-					phase: "error",
-					partition: partData.partition,
-					feasibility: partData.feasibility,
-					context: partData.context,
-					error: "Stacking is not feasible — dependency cycle detected",
-				}));
-				return;
-			}
-
-			setState((s) => ({
-				...s,
-				phase: "planning",
-				partition: partData.partition,
-				feasibility: partData.feasibility,
-				context: partData.context,
-			}));
-
-			const planRes = await fetch("/api/stack/plan", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					sessionId,
-					ownership: partData.partition.ownership,
-					feasibility: partData.feasibility,
-					groups: partData.partition.groups,
-					context: partData.context,
-				}),
-			});
-			const planData = await planRes.json();
-			if (!planRes.ok) throw new Error(planData.error ?? "Planning failed");
-
-			setState((s) => ({
-				...s,
-				phase: "executing",
-				plan: planData.plan,
-				context: planData.context,
-			}));
-
-			const execRes = await fetch("/api/stack/execute", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					sessionId,
-					plan: planData.plan,
-					ownership: partData.partition.ownership,
-					context: planData.context,
-				}),
-			});
-			const execData = await execRes.json();
-			if (!execRes.ok) throw new Error(execData.error ?? "Execution failed");
-
-			setState((s) => ({
-				...s,
-				execResult: execData.exec_result,
-				verifyResult: execData.verify_result,
-				context: execData.context,
-			}));
-
-			if (!execData.verify_result.verified) {
-				setState((s) => ({
-					...s,
-					phase: "error",
-					error: `Verification failed: ${execData.verify_result.errors.join(", ")}`,
-				}));
-				return;
-			}
-
-			setState((s) => ({ ...s, phase: "done" }));
-		} catch (err) {
-			setState((s) => ({
-				...s,
-				phase: "error",
-				error: err instanceof Error ? err.message : String(err),
-			}));
-		}
-	}, [sessionId, state.maxGroups]);
+	}, [sessionId]);
 
 	const reset = useCallback(() => {
+		eventSourceRef.current?.close();
+		eventSourceRef.current = null;
 		setState((s) => ({
 			phase: "idle",
 			error: null,
@@ -337,17 +281,21 @@ export function useStack(sessionId: string | null | undefined) {
 			execResult: null,
 			verifyResult: null,
 			publishResult: null,
+			progressMessage: null,
 		}));
+	}, []);
+
+	useEffect(() => {
+		return () => {
+			eventSourceRef.current?.close();
+		};
 	}, []);
 
 	return {
 		...state,
 		setMaxGroups,
-		startPartition,
-		startPlan,
-		startExecute,
-		startPublish,
 		runFullPipeline,
+		startPublish,
 		reset,
 	};
 }

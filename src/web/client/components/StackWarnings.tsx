@@ -39,28 +39,31 @@ function WarningGroup({ category, items, defaultOpen }: {
 	const hasWarn = items.some((w) => w.severity === "warn");
 
 	return (
-		<div className="rounded-md border bg-card">
+		<div>
 			<button
 				type="button"
 				onClick={() => setExpanded(!expanded)}
-				className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-accent/30 transition-colors rounded-md"
+				className="w-full flex items-center gap-2 px-2.5 py-2 text-left hover:bg-accent/20 transition-colors rounded-md"
 			>
-				<ChevronRight className={`h-3 w-3 text-muted-foreground/40 shrink-0 transition-transform ${expanded ? "rotate-90" : ""}`} />
+				<ChevronRight className={`h-3 w-3 text-muted-foreground/20 shrink-0 transition-transform duration-150 ${expanded ? "rotate-90" : ""}`} />
 				{hasWarn
-					? <AlertTriangle className="h-3 w-3 text-yellow-500 shrink-0" />
-					: <Info className="h-3 w-3 text-blue-400 shrink-0" />
+					? <AlertTriangle className="h-3 w-3 text-yellow-500/60 shrink-0" />
+					: <Info className="h-3 w-3 text-muted-foreground/30 shrink-0" />
 				}
-				<span className="text-[10px] font-medium flex-1">{CATEGORY_LABELS[category]}</span>
-				<span className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full ${
+				<span className="text-[11px] font-medium text-muted-foreground/50 flex-1">
+					{CATEGORY_LABELS[category]}
+				</span>
+				<span className={`text-[9px] font-medium tabular-nums px-1.5 py-0.5 rounded-full ${
 					hasWarn
-						? "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400"
-						: "bg-blue-500/10 text-blue-500 dark:text-blue-400"
+						? "bg-yellow-500/8 text-yellow-600/70 dark:text-yellow-400/70"
+						: "bg-foreground/[0.04] text-muted-foreground/30"
 				}`}>
 					{items.length}
 				</span>
 			</button>
+
 			{expanded && (
-				<div className="px-3 pb-2.5 pt-0 space-y-2 border-t">
+				<div className="ml-5 pl-3 border-l border-border/40 space-y-1.5 pb-2">
 					{items.map((w, i) => (
 						<WarningItem key={i} warning={w} />
 					))}
@@ -75,27 +78,27 @@ function WarningItem({ warning }: { warning: StackWarning }) {
 	const hasDetails = warning.details && warning.details.length > 0;
 
 	return (
-		<div className="pt-1.5">
+		<div className="py-1">
 			<div className="flex items-start gap-1.5">
-				<span className={`mt-1 h-1.5 w-1.5 rounded-full shrink-0 ${
-					warning.severity === "warn" ? "bg-yellow-500" : "bg-blue-400"
+				<span className={`mt-[5px] h-1 w-1 rounded-full shrink-0 ${
+					warning.severity === "warn" ? "bg-yellow-500/60" : "bg-muted-foreground/20"
 				}`} />
 				<div className="flex-1 min-w-0">
-					<div className="text-[10px] font-medium text-foreground/80">{warning.title}</div>
-					<div className="text-[10px] text-muted-foreground/50 leading-relaxed">{warning.message}</div>
+					<div className="text-[11px] font-medium text-foreground/60">{warning.title}</div>
+					<div className="text-[10px] text-muted-foreground/35 leading-relaxed">{warning.message}</div>
 					{hasDetails && (
 						<button
 							type="button"
 							onClick={() => setDetailsOpen(!detailsOpen)}
-							className="text-[9px] text-muted-foreground/40 hover:text-muted-foreground/60 mt-0.5 transition-colors"
+							className="text-[10px] text-muted-foreground/25 hover:text-muted-foreground/50 mt-0.5 transition-colors"
 						>
-							{detailsOpen ? "Hide details" : `Show ${warning.details!.length} details`}
+							{detailsOpen ? "Hide" : `${warning.details!.length} details`}
 						</button>
 					)}
 					{detailsOpen && hasDetails && (
-						<div className="mt-1 space-y-px">
+						<div className="mt-1.5 space-y-0">
 							{warning.details!.map((d, i) => (
-								<div key={i} className="text-[9px] font-mono text-muted-foreground/40 pl-2 py-0.5">
+								<div key={i} className="text-[9px] font-mono text-muted-foreground/25 py-[1px] truncate">
 									{d}
 								</div>
 							))}
@@ -118,7 +121,7 @@ export function StackWarnings({ warnings, defaultCollapsed }: {
 	const hasAnyWarn = warnings.some((w) => w.severity === "warn");
 
 	return (
-		<div className="space-y-1.5">
+		<div className="space-y-0">
 			{sortedCategories.map((category) => (
 				<WarningGroup
 					key={category}
