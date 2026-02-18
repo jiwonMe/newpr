@@ -221,6 +221,31 @@ export async function loadSlidesSidecar(
 	}
 }
 
+export async function saveStackSidecar(
+	id: string,
+	data: unknown,
+): Promise<void> {
+	ensureDirs();
+	const tmpPath = join(SESSIONS_DIR, `${id}.stack.json.tmp`);
+	const finalPath = join(SESSIONS_DIR, `${id}.stack.json`);
+	await Bun.write(tmpPath, JSON.stringify(data, null, 2));
+	const { renameSync } = await import("node:fs");
+	renameSync(tmpPath, finalPath);
+}
+
+export async function loadStackSidecar(
+	id: string,
+): Promise<Record<string, unknown> | null> {
+	try {
+		const filePath = join(SESSIONS_DIR, `${id}.stack.json`);
+		const file = Bun.file(filePath);
+		if (!(await file.exists())) return null;
+		return JSON.parse(await file.text()) as Record<string, unknown>;
+	} catch {
+		return null;
+	}
+}
+
 export function getHistoryPath(): string {
 	return HISTORY_DIR;
 }

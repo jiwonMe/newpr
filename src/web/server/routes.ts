@@ -15,19 +15,8 @@ import { getPlugin, getAllPlugins } from "../../plugins/registry.ts";
 import { chatWithTools, createLlmClient, type ChatTool, type ChatStreamEvent } from "../../llm/client.ts";
 import { detectAgents, runAgent } from "../../workspace/agent.ts";
 import { randomBytes } from "node:crypto";
-import { partitionGroups } from "../../stack/partition.ts";
-import { applyCouplingRules } from "../../stack/coupling.ts";
-import { mergeGroups } from "../../stack/merge-groups.ts";
-import { checkFeasibility } from "../../stack/feasibility.ts";
-import { extractDeltas } from "../../stack/delta.ts";
-import { createStackPlan } from "../../stack/plan.ts";
-import { executeStack } from "../../stack/execute.ts";
-import { verifyStack } from "../../stack/verify.ts";
 import { publishStack } from "../../stack/publish.ts";
-import { ensureRepo } from "../../workspace/repo-cache.ts";
-import { fetchPrData } from "../../github/fetch-pr.ts";
-import type { StackPlan, StackExecResult, FeasibilityResult, StackWarning } from "../../stack/types.ts";
-import type { FileGroup } from "../../types/output.ts";
+import { startStack, getStackState, cancelStack, subscribeStack } from "./stack-manager.ts";
 
 function json(data: unknown, status = 200): Response {
 	return new Response(JSON.stringify(data), {
@@ -1717,331 +1706,110 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 			return json(job);
 		},
 
-		"POST /api/stack/partition": async (req: Request) => {
+		"POST /api/stack/start": async (req: Request) => {
 			try {
 				const body = await req.json() as { sessionId: string; maxGroups?: number };
 				if (!body.sessionId) return json({ error: "Missing sessionId" }, 400);
-
-				const stored = await loadSession(body.sessionId);
-				if (!stored) return json({ error: "Session not found" }, 404);
-
-				const prUrl = stored.meta.pr_url;
-				const parsed = parsePrInput(prUrl);
-				if (!parsed) return json({ error: "Invalid PR URL in session" }, 400);
-
-				const prData = await fetchPrData(parsed, token);
-
-				const prApiUrl = `https://api.github.com/repos/${parsed.owner}/${parsed.repo}/pulls/${parsed.number}`;
-				const prResp = await fetch(prApiUrl, { headers: ghHeaders });
-				if (!prResp.ok) return json({ error: "Failed to fetch PR data from GitHub" }, 502);
-				const prJson = await prResp.json() as Record<string, unknown>;
-				const baseObj = prJson.base as Record<string, unknown>;
-				const headObj = prJson.head as Record<string, unknown>;
-				const baseSha = baseObj.sha as string;
-				const headSha = headObj.sha as string;
-				const baseBranch = baseObj.ref as string;
-				const headBranch = headObj.ref as string;
-
-				const repoPath = await ensureRepo(parsed.owner, parsed.repo, token);
-				const changedFiles = stored.files.map((f) => f.path);
-				const fileSummaries = stored.files.map((f) => ({
-					path: f.path,
-					status: f.status,
-					summary: f.summary,
-				}));
-
-				const llmClient = createLlmClient({
-					api_key: config.openrouter_api_key,
-					model: config.model,
-					timeout: config.timeout,
-				});
-				const partition = await partitionGroups(
-					llmClient,
-					stored.groups,
-					changedFiles,
-					fileSummaries,
-					prData.commits,
-				);
-
-			const groupOrder = stored.groups.map((g) => g.name);
-			const coupled = applyCouplingRules(partition.ownership, changedFiles, groupOrder);
-
-			const mergedOwnership = new Map(coupled.ownership);
-			const allWarnings = [...partition.warnings, ...coupled.warnings];
-			const allStructuredWarnings: StackWarning[] = [...partition.structured_warnings, ...coupled.structured_warnings];
-
-			if (partition.reattributed.length > 0) {
-				const resolved = partition.reattributed.filter((r) => r.from_groups.length > 0);
-				const assigned = partition.reattributed.filter((r) => r.from_groups.length === 0);
-				if (resolved.length > 0) {
-					allStructuredWarnings.push({
-						category: "assignment",
-						severity: "info",
-						title: `${resolved.length} ambiguous file(s) resolved by AI`,
-						message: "These files appeared in multiple groups — AI chose the best fit",
-						details: resolved.map((r) => `${r.path} → ${r.to_group}`),
-					});
-				}
-				if (assigned.length > 0) {
-					allStructuredWarnings.push({
-						category: "assignment",
-						severity: "info",
-						title: `${assigned.length} unassigned file(s) placed by AI`,
-						message: "These files were not in any group — AI assigned them",
-						details: assigned.map((r) => `${r.path} → ${r.to_group}`),
-					});
-				}
+				const result = startStack(body.sessionId, body.maxGroups ?? null, token, config);
+				if ("error" in result) return json({ error: result.error }, result.status);
+				return json({ ok: true });
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				return json({ error: msg }, 500);
 			}
+		},
 
-				const deltas = await extractDeltas(repoPath, baseSha, headSha);
+		"GET /api/stack/:id": (req: Request) => {
+			const url = new URL(req.url);
+			const id = url.pathname.split("/").pop()!;
+			const state = getStackState(id);
+			if (!state) return json({ state: null });
+			return json({ state });
+		},
 
-				const lastGroup = groupOrder[groupOrder.length - 1];
-				if (lastGroup) {
-					const backfilled: string[] = [];
-					for (const delta of deltas) {
-						for (const change of delta.changes) {
-							if (!mergedOwnership.has(change.path)) {
-								mergedOwnership.set(change.path, lastGroup);
-								backfilled.push(change.path);
+		"POST /api/stack/:id/cancel": (req: Request) => {
+			const url = new URL(req.url);
+			const segments = url.pathname.split("/");
+			const id = segments[segments.length - 2]!;
+			const ok = cancelStack(id);
+			return json({ ok });
+		},
+
+		"GET /api/stack/:id/events": (req: Request) => {
+			const url = new URL(req.url);
+			const segments = url.pathname.split("/");
+			const id = segments[segments.length - 2]!;
+
+			const stream = new ReadableStream({
+				start(controller) {
+					const encoder = new TextEncoder();
+					const send = (eventType: string, data: string) => {
+						controller.enqueue(encoder.encode(`event: ${eventType}\ndata: ${data}\n\n`));
+					};
+
+					const unsubscribe = subscribeStack(id, (event) => {
+						try {
+							if ("type" in event && event.type === "done") {
+								send("done", JSON.stringify({ state: getStackState(id) }));
+								controller.close();
+							} else if ("type" in event && event.type === "error") {
+								send("stack_error", JSON.stringify({ message: event.data ?? "Unknown error", state: getStackState(id) }));
+								controller.close();
+							} else {
+								send("progress", JSON.stringify({ ...event, state: getStackState(id) }));
 							}
-							if (change.old_path && !mergedOwnership.has(change.old_path)) {
-								mergedOwnership.set(change.old_path, lastGroup);
-								backfilled.push(change.old_path);
-							}
+						} catch {
+							controller.close();
 						}
-					}
-				if (backfilled.length > 0) {
-					allWarnings.push(`Files from git diff not in analysis, assigned to "${lastGroup}": ${backfilled.join(", ")}`);
-					allStructuredWarnings.push({
-						category: "assignment",
-						severity: "warn",
-						title: `${backfilled.length} file(s) found in git diff but not in analysis`,
-						message: `These files were in the git diff but not tracked by the analysis — assigned to "${lastGroup}"`,
-						details: backfilled,
 					});
-				}
-				}
 
-				let finalGroups = stored.groups;
-				if (body.maxGroups && body.maxGroups > 0 && stored.groups.length > body.maxGroups) {
-					const merged = mergeGroups(stored.groups, mergedOwnership, body.maxGroups);
-					finalGroups = merged.groups;
-					for (const [path, groupId] of merged.ownership) {
-						mergedOwnership.set(path, groupId);
+					if (!unsubscribe) {
+						const existingState = getStackState(id);
+						if (existingState) {
+							send("done", JSON.stringify({ state: existingState }));
+						} else {
+							send("stack_error", JSON.stringify({ message: "No stack session found" }));
+						}
+						controller.close();
 					}
-				const mergeDetails: string[] = [];
-				for (const m of merged.merges) {
-					allWarnings.push(`Merged group "${m.absorbed}" into "${m.into}"`);
-					mergeDetails.push(`"${m.absorbed}" → "${m.into}"`);
-				}
-				if (mergeDetails.length > 0) {
-					allStructuredWarnings.push({
-						category: "grouping",
-						severity: "info",
-						title: `${mergeDetails.length} group(s) merged to reduce PR count`,
-						message: "Smaller groups were combined with adjacent ones to meet the max PRs limit",
-						details: mergeDetails,
+
+					req.signal.addEventListener("abort", () => {
+						unsubscribe?.();
+						try { controller.close(); } catch {}
 					});
-				}
-				}
-
-				const feasibility = checkFeasibility({
-					deltas,
-					ownership: mergedOwnership,
-				});
-
-				const ownershipObj = Object.fromEntries(mergedOwnership);
-
-			return json({
-				partition: {
-					ownership: ownershipObj,
-					reattributed: partition.reattributed,
-					warnings: allWarnings,
-					structured_warnings: allStructuredWarnings,
-					forced_merges: coupled.forced_merges,
-					groups: finalGroups,
 				},
-					feasibility,
-					context: {
-						repo_path: repoPath,
-						base_sha: baseSha,
-						head_sha: headSha,
-						base_branch: baseBranch,
-						head_branch: headBranch,
-						pr_number: parsed.number,
-						owner: parsed.owner,
-						repo: parsed.repo,
-						deltas_count: deltas.length,
-					},
-				});
-			} catch (err) {
-				const msg = err instanceof Error ? err.message : String(err);
-				return json({ error: msg }, 500);
-			}
-		},
+			});
 
-		"POST /api/stack/plan": async (req: Request) => {
-			try {
-				const body = await req.json() as {
-					sessionId: string;
-					ownership: Record<string, string>;
-					feasibility: FeasibilityResult;
-					groups?: FileGroup[];
-					context: {
-						repo_path: string;
-						base_sha: string;
-						head_sha: string;
-						base_branch: string;
-						head_branch: string;
-						pr_number: number;
-						owner: string;
-						repo: string;
-					};
-				};
-
-				if (!body.sessionId) return json({ error: "Missing sessionId" }, 400);
-				if (!body.feasibility?.feasible) return json({ error: "Stacking is not feasible" }, 400);
-				if (!body.feasibility.ordered_group_ids) return json({ error: "Missing group ordering" }, 400);
-
-				const stored = await loadSession(body.sessionId);
-				if (!stored) return json({ error: "Session not found" }, 404);
-
-				const ownership = new Map(Object.entries(body.ownership));
-				const repoPath = body.context.repo_path;
-				const baseSha = body.context.base_sha;
-				const headSha = body.context.head_sha;
-				const groups = body.groups ?? stored.groups;
-
-				const deltas = await extractDeltas(repoPath, baseSha, headSha);
-				const plan = await createStackPlan({
-					repo_path: repoPath,
-					base_sha: baseSha,
-					head_sha: headSha,
-					deltas,
-					ownership,
-					group_order: body.feasibility.ordered_group_ids,
-					groups,
-				});
-
-				const serializedPlan = {
-					base_sha: plan.base_sha,
-					head_sha: plan.head_sha,
-					groups: plan.groups,
-					expected_trees: Object.fromEntries(plan.expected_trees),
-				};
-
-				return json({
-					plan: serializedPlan,
-					context: body.context,
-				});
-			} catch (err) {
-				const msg = err instanceof Error ? err.message : String(err);
-				return json({ error: msg }, 500);
-			}
-		},
-
-		"POST /api/stack/execute": async (req: Request) => {
-			try {
-				const body = await req.json() as {
-					sessionId: string;
-					plan: {
-						base_sha: string;
-						head_sha: string;
-						groups: StackPlan["groups"];
-						expected_trees: Record<string, string>;
-					};
-					ownership: Record<string, string>;
-					context: {
-						repo_path: string;
-						base_sha: string;
-						head_sha: string;
-						base_branch: string;
-						head_branch: string;
-						pr_number: number;
-						owner: string;
-						repo: string;
-					};
-				};
-
-				if (!body.sessionId) return json({ error: "Missing sessionId" }, 400);
-				if (!body.plan) return json({ error: "Missing plan" }, 400);
-
-				const stored = await loadSession(body.sessionId);
-				if (!stored) return json({ error: "Session not found" }, 404);
-
-				const repoPath = body.context.repo_path;
-				const baseSha = body.context.base_sha;
-				const headSha = body.context.head_sha;
-				const ownership = new Map(Object.entries(body.ownership));
-
-				const plan: StackPlan = {
-					base_sha: body.plan.base_sha,
-					head_sha: body.plan.head_sha,
-					groups: body.plan.groups,
-					expected_trees: new Map(Object.entries(body.plan.expected_trees)),
-				};
-
-				const deltas = await extractDeltas(repoPath, baseSha, headSha);
-				const execResult = await executeStack({
-					repo_path: repoPath,
-					plan,
-					deltas,
-					ownership,
-					pr_author: {
-						name: stored.meta.author,
-						email: `${stored.meta.author}@users.noreply.github.com`,
-					},
-					pr_number: body.context.pr_number,
-					head_branch: body.context.head_branch,
-				});
-
-				const verifyResult = await verifyStack({
-					repo_path: repoPath,
-					base_sha: baseSha,
-					head_sha: headSha,
-					exec_result: execResult,
-					ownership,
-				});
-
-				return json({
-					exec_result: execResult,
-					verify_result: verifyResult,
-					context: body.context,
-				});
-			} catch (err) {
-				const msg = err instanceof Error ? err.message : String(err);
-				return json({ error: msg }, 500);
-			}
+			return new Response(stream, {
+				headers: {
+					"Content-Type": "text/event-stream",
+					"Cache-Control": "no-cache",
+					Connection: "keep-alive",
+				},
+			});
 		},
 
 		"POST /api/stack/publish": async (req: Request) => {
 			try {
-				const body = await req.json() as {
-					sessionId: string;
-					exec_result: StackExecResult;
-					context: {
-						repo_path: string;
-						base_branch: string;
-						pr_number: number;
-						owner: string;
-						repo: string;
-					};
-				};
-
+				const body = await req.json() as { sessionId: string };
 				if (!body.sessionId) return json({ error: "Missing sessionId" }, 400);
-				if (!body.exec_result) return json({ error: "Missing exec_result" }, 400);
+
+				const state = getStackState(body.sessionId);
+				if (!state) return json({ error: "No stack state found" }, 404);
+				if (!state.execResult) return json({ error: "Stack not executed yet" }, 400);
+				if (!state.context) return json({ error: "Missing context" }, 400);
 
 				const stored = await loadSession(body.sessionId);
 				if (!stored) return json({ error: "Session not found" }, 404);
 
-			const result = await publishStack({
-				repo_path: body.context.repo_path,
-				exec_result: body.exec_result,
-				pr_meta: stored.meta,
-				base_branch: body.context.base_branch,
-				owner: body.context.owner,
-				repo: body.context.repo,
-			});
+				const result = await publishStack({
+					repo_path: state.context.repo_path,
+					exec_result: state.execResult,
+					pr_meta: stored.meta,
+					base_branch: state.context.base_branch,
+					owner: state.context.owner,
+					repo: state.context.repo,
+				});
 
 				return json({ publish_result: result });
 			} catch (err) {

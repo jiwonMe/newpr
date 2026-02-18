@@ -185,17 +185,20 @@ export async function startWebServer(options: WebServerOptions): Promise<void> {
 			if (path === "/api/review" && req.method === "POST") {
 				return routes["POST /api/review"](req);
 			}
-			if (path === "/api/stack/partition" && req.method === "POST") {
-				return routes["POST /api/stack/partition"](req);
-			}
-			if (path === "/api/stack/plan" && req.method === "POST") {
-				return routes["POST /api/stack/plan"](req);
-			}
-			if (path === "/api/stack/execute" && req.method === "POST") {
-				return routes["POST /api/stack/execute"](req);
+			if (path === "/api/stack/start" && req.method === "POST") {
+				return routes["POST /api/stack/start"](req);
 			}
 			if (path === "/api/stack/publish" && req.method === "POST") {
 				return routes["POST /api/stack/publish"](req);
+			}
+			if (path.match(/^\/api\/stack\/[^/]+\/events$/) && req.method === "GET") {
+				return routes["GET /api/stack/:id/events"](req);
+			}
+			if (path.match(/^\/api\/stack\/[^/]+\/cancel$/) && req.method === "POST") {
+				return routes["POST /api/stack/:id/cancel"](req);
+			}
+			if (path.match(/^\/api\/stack\/[^/]+$/) && req.method === "GET") {
+				return routes["GET /api/stack/:id"](req);
 			}
 
 			return new Response("Not Found", { status: 404 });
