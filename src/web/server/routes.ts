@@ -16,7 +16,7 @@ import { chatWithTools, createLlmClient, type ChatTool, type ChatStreamEvent } f
 import { detectAgents, runAgent } from "../../workspace/agent.ts";
 import { randomBytes } from "node:crypto";
 import { publishStack } from "../../stack/publish.ts";
-import { startStack, getStackState, cancelStack, subscribeStack } from "./stack-manager.ts";
+import { startStack, getStackState, cancelStack, subscribeStack, restoreCompletedStacks } from "./stack-manager.ts";
 
 function json(data: unknown, status = 200): Response {
 	return new Response(JSON.stringify(data), {
@@ -1719,10 +1719,14 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 			}
 		},
 
-		"GET /api/stack/:id": (req: Request) => {
+		"GET /api/stack/:id": async (req: Request) => {
 			const url = new URL(req.url);
 			const id = url.pathname.split("/").pop()!;
-			const state = getStackState(id);
+			let state = getStackState(id);
+			if (!state) {
+				await restoreCompletedStacks([id]);
+				state = getStackState(id);
+			}
 			if (!state) return json({ state: null });
 			return json({ state });
 		},
@@ -1794,7 +1798,11 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 				const body = await req.json() as { sessionId: string };
 				if (!body.sessionId) return json({ error: "Missing sessionId" }, 400);
 
-				const state = getStackState(body.sessionId);
+				let state = getStackState(body.sessionId);
+				if (!state) {
+					await restoreCompletedStacks([body.sessionId]);
+					state = getStackState(body.sessionId);
+				}
 				if (!state) return json({ error: "No stack state found" }, 404);
 				if (!state.execResult) return json({ error: "Stack not executed yet" }, 400);
 				if (!state.context) return json({ error: "Missing context" }, 400);

@@ -1,6 +1,18 @@
 import type { LlmClient } from "../llm/client.ts";
 import type { StackGroup } from "./types.ts";
 
+function truncateTitle(type: string, text: string): string {
+	const words = text.split(/\s+/).filter(Boolean);
+	const kept = words.slice(0, 5).join(" ");
+	const title = `${type}: ${kept}`;
+	return title.length > 40 ? title.slice(0, 40).trimEnd() : title;
+}
+
+function fallbackTitle(g: StackGroup): string {
+	const slug = g.name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+	return truncateTitle(g.type, slug);
+}
+
 export async function generatePrTitles(
 	llmClient: LlmClient,
 	groups: StackGroup[],
@@ -15,17 +27,30 @@ export async function generatePrTitles(
 		].join("\n"))
 		.join("\n\n");
 
-	const system = `You generate short PR titles for stacked PRs.
+	const system = `You generate short PR titles for stacked PRs — like real GitHub PR titles.
 
 Rules:
-- Format: "type: description" — NO scope parentheses
-- type: feat | fix | refactor | chore | docs | test | perf
-- description: 3-6 words, imperative mood, lowercase, no period
-- Be terse. Shorter is better. Omit filler words (add, implement, update, etc. when redundant)
+- Format: "type: description"
+- type must be one of: feat | fix | refactor | chore | docs | test | perf
+- description: 2-5 words MAX. Imperative mood, lowercase, no period
+- HARD LIMIT: entire title must be under 40 characters total
+- Cut aggressively. Think of it as a git branch name in prose form
+- NO scope parentheses, NO filler words (add, implement, introduce, update, support, handle, ensure)
 - Each title must be unique across the set
 
-Good: "feat: jwt token refresh", "fix: null user response", "refactor: shared validators", "chore: eslint config"
-Bad: "feat(auth): add jwt token refresh middleware for authentication module" (too long, has scope)
+Good examples:
+- "feat: jwt token refresh"
+- "fix: null user crash"
+- "refactor: shared validators"
+- "chore: eslint config"
+- "test: auth edge cases"
+- "feat: loop node schema"
+- "refactor: canvas renderer"
+
+Bad examples (TOO LONG):
+- "feat: add jwt token refresh middleware for authentication" (way too long)
+- "feat: implement loop node support for workflow editor" (too many words)
+- "refactor: update canvas rendering logic to support new shapes" (sentence, not title)
 
 Return ONLY JSON array: [{"group_id": "...", "title": "..."}]`;
 
@@ -33,7 +58,7 @@ Return ONLY JSON array: [{"group_id": "...", "title": "..."}]`;
 
 ${groupSummaries}
 
-Generate a unique, descriptive PR title for each group. Return JSON array:
+Generate a unique, short PR title for each group (<40 chars). Return JSON array:
 [{"group_id": "...", "title": "..."}]`;
 
 	const response = await llmClient.complete(system, user);
@@ -45,18 +70,19 @@ Generate a unique, descriptive PR title for each group. Return JSON array:
 		const parsed = JSON.parse(cleaned) as Array<{ group_id: string; title: string }>;
 		for (const item of parsed) {
 			if (item.group_id && item.title) {
-				titles.set(item.group_id, item.title);
+				const t = item.title.length > 40 ? truncateTitle(item.title.split(":")[0] ?? "chore", item.title.split(":").slice(1).join(":").trim()) : item.title;
+				titles.set(item.group_id, t);
 			}
 		}
 	} catch {
 		for (const g of groups) {
-			titles.set(g.id, `${g.type}: ${g.description}`);
+			titles.set(g.id, fallbackTitle(g));
 		}
 	}
 
 	for (const g of groups) {
 		if (!titles.has(g.id)) {
-			titles.set(g.id, `${g.type}: ${g.description}`);
+			titles.set(g.id, fallbackTitle(g));
 		}
 	}
 
