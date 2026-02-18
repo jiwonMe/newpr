@@ -1,19 +1,66 @@
 declare global {
 	interface Window {
 		gtag?: (...args: unknown[]) => void;
+		dataLayer?: unknown[];
+	}
+}
+
+const GA_ID = "G-L3SL6T6JQ1";
+const CONSENT_KEY = "newpr-analytics-consent";
+
+export type ConsentState = "granted" | "denied" | "pending";
+
+export function getConsent(): ConsentState {
+	const stored = localStorage.getItem(CONSENT_KEY);
+	if (stored === "granted" || stored === "denied") return stored;
+	return "pending";
+}
+
+export function setConsent(state: "granted" | "denied"): void {
+	localStorage.setItem(CONSENT_KEY, state);
+	if (state === "granted") {
+		loadGA();
+	} else {
+		disableGA();
+	}
+}
+
+let gaLoaded = false;
+
+function loadGA(): void {
+	if (gaLoaded) return;
+	gaLoaded = true;
+
+	const script = document.createElement("script");
+	script.async = true;
+	script.src = `https://www.googletagmanager.com/gtag/js?id=${GA_ID}`;
+	document.head.appendChild(script);
+
+	window.dataLayer = window.dataLayer || [];
+	window.gtag = function (...args: unknown[]) {
+		window.dataLayer!.push(args);
+	};
+	window.gtag("js", new Date());
+	window.gtag("config", GA_ID);
+}
+
+function disableGA(): void {
+	(window as unknown as Record<string, unknown>)[`ga-disable-${GA_ID}`] = true;
+}
+
+export function initAnalytics(): void {
+	if (getConsent() === "granted") {
+		loadGA();
 	}
 }
 
 function gtag(command: string, ...args: unknown[]): void {
+	if (getConsent() !== "granted") return;
 	window.gtag?.(command, ...args);
 }
 
-export function trackEvent(name: string, params?: Record<string, string | number | boolean>): void {
+function trackEvent(name: string, params?: Record<string, string | number | boolean>): void {
 	gtag("event", name, params);
-}
-
-export function trackPageView(path: string, title?: string): void {
-	gtag("event", "page_view", { page_path: path, page_title: title });
 }
 
 export const analytics = {

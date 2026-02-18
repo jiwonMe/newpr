@@ -14,7 +14,8 @@ import { DetailPane, resolveDetail } from "./components/DetailPane.tsx";
 import { useChatState, ChatProvider, ChatInput } from "./components/ChatSection.tsx";
 import type { AnchorItem } from "./components/TipTapEditor.tsx";
 import { requestNotificationPermission } from "./lib/notify.ts";
-import { analytics } from "./lib/analytics.ts";
+import { analytics, initAnalytics, getConsent } from "./lib/analytics.ts";
+import { AnalyticsConsent } from "./components/AnalyticsConsent.tsx";
 
 function getUrlParam(key: string): string | null {
 	return new URLSearchParams(window.location.search).get(key);
@@ -40,8 +41,12 @@ export function App() {
 	const features = useFeatures();
 	const bgAnalyses = useBackgroundAnalyses();
 	const initialLoadDone = useRef(false);
+	const [showConsent, setShowConsent] = useState(() => getConsent() === "pending");
 
-	useEffect(() => { requestNotificationPermission(); }, []);
+	useEffect(() => {
+		requestNotificationPermission();
+		initAnalytics();
+	}, []);
 	const [activeId, setActiveId] = useState<string | null>(null);
 
 	useEffect(() => {
@@ -155,6 +160,7 @@ export function App() {
 
 	return (
 		<ChatProvider state={chatState} anchorItems={anchorItems} analyzedAt={analysis.result?.meta.analyzed_at}>
+		{showConsent && <AnalyticsConsent onDone={() => setShowConsent(false)} />}
 		<AppShell
 			theme={themeCtx.theme}
 			onThemeChange={themeCtx.setTheme}

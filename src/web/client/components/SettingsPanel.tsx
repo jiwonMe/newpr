@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { X, Check, Loader2, Search, ChevronDown } from "lucide-react";
-import { analytics } from "../lib/analytics.ts";
+import { analytics, getConsent, setConsent } from "../lib/analytics.ts";
 
 interface ConfigData {
 	model: string;
@@ -268,8 +268,44 @@ export function SettingsPanel({ onClose, onFeaturesChange }: { onClose: () => vo
 						</div>
 					</Section>
 				)}
+				<Section title="Privacy">
+					<AnalyticsToggle />
+				</Section>
 			</div>
 		</div>
+	);
+}
+
+function AnalyticsToggle() {
+	const [consent, setLocal] = useState(() => getConsent());
+	const enabled = consent === "granted";
+
+	const toggle = () => {
+		const next = enabled ? "denied" : "granted";
+		setConsent(next);
+		setLocal(next);
+		analytics.settingsChanged("analytics");
+	};
+
+	return (
+		<Row label="Usage Analytics">
+			<div className="flex items-center gap-2">
+				<span className="text-[11px] text-muted-foreground/50">
+					{enabled ? "Enabled" : "Disabled"}
+				</span>
+				<button
+					type="button"
+					onClick={toggle}
+					className={`relative inline-flex h-4 w-7 items-center rounded-full shrink-0 transition-colors ${
+						enabled ? "bg-foreground" : "bg-muted"
+					}`}
+				>
+					<span className={`inline-block h-3 w-3 rounded-full bg-background transition-transform ${
+						enabled ? "translate-x-3.5" : "translate-x-0.5"
+					}`} />
+				</button>
+			</div>
+		</Row>
 	);
 }
 
