@@ -1,5 +1,4 @@
 const PACKAGE_NAME = "newpr";
-const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
 interface UpdateInfo {
 	current: string;
@@ -7,27 +6,32 @@ interface UpdateInfo {
 	needsUpdate: boolean;
 }
 
-async function getLastCheckTime(): Promise<number> {
+interface CachedCheck {
+	latest: string;
+	checkedAt: number;
+}
+
+async function readCache(): Promise<CachedCheck | null> {
 	try {
-		const file = Bun.file(`${process.env.HOME}/.newpr/last-update-check`);
-		const text = await file.text();
-		return Number.parseInt(text.trim(), 10) || 0;
+		const file = Bun.file(`${process.env.HOME}/.newpr/update-cache.json`);
+		if (!(await file.exists())) return null;
+		return JSON.parse(await file.text()) as CachedCheck;
 	} catch {
-		return 0;
+		return null;
 	}
 }
 
-async function setLastCheckTime(): Promise<void> {
+async function writeCache(latest: string): Promise<void> {
 	const dir = `${process.env.HOME}/.newpr`;
 	const { mkdirSync } = await import("node:fs");
 	try { mkdirSync(dir, { recursive: true }); } catch {}
-	await Bun.write(`${dir}/last-update-check`, String(Date.now()));
+	await Bun.write(`${dir}/update-cache.json`, JSON.stringify({ latest, checkedAt: Date.now() }));
 }
 
 async function fetchLatestVersion(): Promise<string | null> {
 	try {
 		const controller = new AbortController();
-		const timeout = setTimeout(() => controller.abort(), 3000);
+		const timeout = setTimeout(() => controller.abort(), 5000);
 		const res = await fetch(`https://registry.npmjs.org/${PACKAGE_NAME}/latest`, {
 			signal: controller.signal,
 			headers: { Accept: "application/json" },
@@ -53,23 +57,20 @@ function compareVersions(current: string, latest: string): boolean {
 }
 
 export async function checkForUpdate(currentVersion: string): Promise<UpdateInfo | null> {
-	const lastCheck = await getLastCheckTime();
-	if (Date.now() - lastCheck < CHECK_INTERVAL_MS) return null;
-
 	const latest = await fetchLatestVersion();
-	await setLastCheckTime();
+	if (latest) await writeCache(latest);
 
-	if (!latest) return null;
-	if (!compareVersions(currentVersion, latest)) return null;
-
-	return { current: currentVersion, latest, needsUpdate: true };
+	const version = latest ?? (await readCache())?.latest;
+	if (!version) return null;
+	if (!compareVersions(currentVersion, version)) return null;
+	return { current: currentVersion, latest: version, needsUpdate: true };
 }
 
 export function printUpdateNotice(info: UpdateInfo): void {
 	const msg = [
 		"",
-		`  Update available: ${info.current} → \x1b[32m${info.latest}\x1b[0m`,
-		`  Run \x1b[36mbun add -g ${PACKAGE_NAME}\x1b[0m to update`,
+		`  \x1b[33m⚡\x1b[0m Update available: \x1b[2m${info.current}\x1b[0m → \x1b[32m${info.latest}\x1b[0m`,
+		`    Run \x1b[36mbun add -g ${PACKAGE_NAME}\x1b[0m to update`,
 		"",
 	].join("\n");
 	process.stderr.write(msg);
