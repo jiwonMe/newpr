@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { ArrowLeft, Layers, FolderTree, BookOpen, MessageSquare, GitBranch, Sparkles, Check, ChevronDown, AlertTriangle, RefreshCw, Presentation } from "lucide-react";
+import { ArrowLeft, Layers, FolderTree, BookOpen, MessageSquare, GitBranch, Sparkles, Check, ChevronDown, AlertTriangle, RefreshCw, Presentation, GitPullRequestArrow } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../components/ui/tabs.tsx";
 import type { NewprOutput } from "../../../types/output.ts";
 import { GroupsPanel } from "../panels/GroupsPanel.tsx";
@@ -8,10 +8,11 @@ import { StoryPanel } from "../panels/StoryPanel.tsx";
 import { DiscussionPanel } from "../panels/DiscussionPanel.tsx";
 import { CartoonPanel } from "../panels/CartoonPanel.tsx";
 import { SlidesPanel } from "../panels/SlidesPanel.tsx";
+import { StackPanel } from "../panels/StackPanel.tsx";
 import { ReviewModal } from "./ReviewModal.tsx";
 import { useOutdatedCheck } from "../hooks/useOutdatedCheck.ts";
 
-const VALID_TABS = ["story", "discussion", "groups", "files", "slides", "cartoon"] as const;
+const VALID_TABS = ["story", "discussion", "groups", "files", "stack", "slides", "cartoon"] as const;
 type TabValue = typeof VALID_TABS[number];
 
 function getInitialTab(): TabValue {
@@ -236,6 +237,10 @@ export function ResultsScreen({
 						<FolderTree className="h-3 w-3 shrink-0" />
 						Files
 					</TabsTrigger>
+					<TabsTrigger value="stack">
+						<GitPullRequestArrow className="h-3 w-3 shrink-0" />
+						Stack
+					</TabsTrigger>
 					{(!enabledPlugins || enabledPlugins.includes("slides")) && (
 						<TabsTrigger value="slides">
 							<Presentation className="h-3 w-3 shrink-0" />
@@ -267,6 +272,9 @@ export function ResultsScreen({
 					selectedPath={activeId?.startsWith("file:") ? activeId.slice(5) : null}
 					onFileSelect={(path: string) => onAnchorClick("file", path)}
 				/>
+			</TabsContent>
+			<TabsContent value="stack">
+				<StackPanel sessionId={sessionId} />
 			</TabsContent>
 			<TabsContent value="slides">
 				<SlidesPanel data={data} sessionId={sessionId} />
