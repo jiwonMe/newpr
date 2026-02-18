@@ -2,10 +2,11 @@ import { useState, useEffect } from "react";
 
 interface Features {
 	cartoon: boolean;
+	version: string;
 }
 
 export function useFeatures(): Features {
-	const [features, setFeatures] = useState<Features>({ cartoon: false });
+	const [features, setFeatures] = useState<Features>({ cartoon: false, version: "" });
 
 	useEffect(() => {
 		fetch("/api/features")

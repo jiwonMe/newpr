@@ -11,8 +11,9 @@ import { createStderrProgress, createSilentProgress, createStreamJsonProgress } 
 import { renderLoading, renderShell } from "../tui/render.tsx";
 import { checkForUpdate, printUpdateNotice } from "./update-check.ts";
 import { runPreflight, printPreflight } from "./preflight.ts";
+import { getVersion } from "../version.ts";
 
-const VERSION = "0.3.0";
+const VERSION = getVersion();
 
 async function main(): Promise<void> {
 	const args = parseArgs(process.argv);

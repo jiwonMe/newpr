@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { Sun, Moon, Monitor, Plus, Settings, ArrowUp } from "lucide-react";
+import { Sun, Moon, Monitor, Plus, Settings, ArrowUp, Loader2, X, Check, AlertCircle } from "lucide-react";
+import type { BackgroundAnalysis } from "../hooks/useBackgroundAnalyses.ts";
 import type { SessionRecord } from "../../../history/types.ts";
 import type { GithubUser } from "../hooks/useGithubUser.ts";
 import { SettingsPanel } from "./SettingsPanel.tsx";
@@ -52,6 +53,10 @@ export function AppShell({
 	detailPanel,
 	bottomBar,
 	activeSessionId,
+	version,
+	bgAnalyses,
+	onBgClick,
+	onBgDismiss,
 	children,
 }: {
 	theme: Theme;
@@ -63,6 +68,10 @@ export function AppShell({
 	detailPanel?: React.ReactNode;
 	bottomBar?: React.ReactNode;
 	activeSessionId?: string | null;
+	version?: string;
+	bgAnalyses?: BackgroundAnalysis[];
+	onBgClick?: (sessionId: string) => void;
+	onBgDismiss?: (sessionId: string) => void;
 	children: React.ReactNode;
 }) {
 	const [settingsOpen, setSettingsOpen] = useState(false);
@@ -121,6 +130,7 @@ export function AppShell({
 						className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
 					>
 						<span className="text-xs font-semibold tracking-tight font-mono">newpr</span>
+						{version && <span className="text-[10px] text-muted-foreground/30">v{version}</span>}
 					</button>
 					<button
 						type="button"
@@ -176,6 +186,42 @@ export function AppShell({
 						</div>
 					)}
 				</div>
+
+				{bgAnalyses && bgAnalyses.length > 0 && (
+					<div className="shrink-0 border-t px-2 py-2 space-y-px">
+						{bgAnalyses.map((bg) => (
+							<div
+								key={bg.sessionId}
+								className="flex items-center gap-2 rounded-md px-2.5 py-1.5 group"
+							>
+								{bg.status === "running" && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/40 shrink-0" />}
+								{bg.status === "done" && <Check className="h-3 w-3 text-green-500 shrink-0" />}
+								{bg.status === "error" && <AlertCircle className="h-3 w-3 text-red-500 shrink-0" />}
+								<button
+									type="button"
+									onClick={() => onBgClick?.(bg.sessionId)}
+									className="flex-1 min-w-0 text-left"
+								>
+									<div className="text-[11px] truncate text-muted-foreground/70">
+										{bg.prTitle ?? bg.prInput}
+									</div>
+									{bg.status === "running" && bg.lastMessage && (
+										<div className="text-[10px] text-muted-foreground/30 truncate font-mono mt-0.5">
+											{bg.lastMessage}
+										</div>
+									)}
+								</button>
+								<button
+									type="button"
+									onClick={(e) => { e.stopPropagation(); onBgDismiss?.(bg.sessionId); }}
+									className="h-4 w-4 flex items-center justify-center rounded text-muted-foreground/20 hover:text-muted-foreground/60 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+								>
+									<X className="h-2.5 w-2.5" />
+								</button>
+							</div>
+						))}
+					</div>
+				)}
 
 				<div className="shrink-0 border-t px-2 py-2 space-y-1">
 					{githubUser && (

@@ -82,10 +82,12 @@ export function InputScreen({
 	onSubmit,
 	sessions,
 	onSessionSelect,
+	version,
 }: {
 	onSubmit: (pr: string) => void;
 	sessions?: SessionRecord[];
 	onSessionSelect?: (id: string) => void;
+	version?: string;
 }) {
 	const [value, setValue] = useState("");
 	const [focused, setFocused] = useState(false);
@@ -112,6 +114,7 @@ export function InputScreen({
 				<div className="space-y-2">
 					<div className="flex items-baseline gap-2">
 						<h1 className="text-sm font-semibold tracking-tight font-mono">newpr</h1>
+						{version && <span className="text-[10px] text-muted-foreground/30">v{version}</span>}
 						<span className="text-[10px] text-muted-foreground/40">AI code review</span>
 					</div>
 					<p className="text-xs text-muted-foreground">

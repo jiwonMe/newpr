@@ -526,7 +526,8 @@ $$
 		},
 
 		"GET /api/features": () => {
-			return json({ cartoon: !!options.cartoon });
+			const { getVersion } = require("../../version.ts");
+			return json({ cartoon: !!options.cartoon, version: getVersion() });
 		},
 
 		"POST /api/review": async (req: Request) => {

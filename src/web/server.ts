@@ -4,6 +4,7 @@ import { createRoutes } from "./server/routes.ts";
 import index from "./index.html";
 
 import type { PreflightResult } from "../cli/preflight.ts";
+import { getVersion } from "../version.ts";
 
 interface WebServerOptions {
 	port: number;
@@ -148,7 +149,7 @@ export async function startWebServer(options: WebServerOptions): Promise<void> {
 	const green = (s: string) => `\x1b[32m${s}\x1b[0m`;
 
 	console.log("");
-	console.log(`  ${bold("newpr")} ${dim("v0.3.0")}`);
+	console.log(`  ${bold("newpr")} ${dim(`v${getVersion()}`)}`);
 	console.log("");
 	console.log(`  ${dim("→")} Local    ${cyan(url)}`);
 	console.log(`  ${dim("→")} Model    ${dim(config.model)}`);

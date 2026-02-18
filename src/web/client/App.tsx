@@ -4,6 +4,7 @@ import { useTheme } from "./hooks/useTheme.ts";
 import { useSessions } from "./hooks/useSessions.ts";
 import { useGithubUser } from "./hooks/useGithubUser.ts";
 import { useFeatures } from "./hooks/useFeatures.ts";
+import { useBackgroundAnalyses } from "./hooks/useBackgroundAnalyses.ts";
 import { AppShell } from "./components/AppShell.tsx";
 import { InputScreen } from "./components/InputScreen.tsx";
 import { LoadingTimeline } from "./components/LoadingTimeline.tsx";
@@ -35,6 +36,7 @@ export function App() {
 	const { sessions, refresh: refreshSessions } = useSessions();
 	const githubUser = useGithubUser();
 	const features = useFeatures();
+	const bgAnalyses = useBackgroundAnalyses();
 	const initialLoadDone = useRef(false);
 	const [activeId, setActiveId] = useState<string | null>(null);
 
@@ -59,9 +61,24 @@ export function App() {
 		}
 	}, [analysis.phase, analysis.sessionId]);
 
+	const bgDoneCount = bgAnalyses.analyses.filter((a) => a.status === "done").length;
+	const prevBgDoneCount = useRef(bgDoneCount);
+	useEffect(() => {
+		if (bgDoneCount > prevBgDoneCount.current) refreshSessions();
+		prevBgDoneCount.current = bgDoneCount;
+	}, [bgDoneCount, refreshSessions]);
+
+	const scrollGuardRef = useRef<number | null>(null);
 	const handleAnchorClick = useCallback((kind: "group" | "file" | "line", id: string) => {
 		const key = `${kind}:${id}`;
+		const main = document.querySelector("main");
+		const savedScroll = main?.scrollTop ?? 0;
+		scrollGuardRef.current = savedScroll;
 		setActiveId((prev) => prev === key ? null : key);
+		const restore = () => { if (main && scrollGuardRef.current !== null) main.scrollTop = scrollGuardRef.current; };
+		requestAnimationFrame(restore);
+		setTimeout(restore, 50);
+		setTimeout(() => { scrollGuardRef.current = null; }, 200);
 	}, []);
 
 	const detailTarget = useMemo(() => {
@@ -71,16 +88,40 @@ export function App() {
 		return resolveDetail(kind as "group" | "file" | "line", id, analysis.result.groups, analysis.result.files);
 	}, [activeId, analysis.result]);
 
+	const moveToBackground = useCallback(() => {
+		if (analysis.phase === "loading" && analysis.sessionId && analysis.lastPrInput) {
+			bgAnalyses.track(analysis.sessionId, analysis.lastPrInput);
+		}
+	}, [analysis.phase, analysis.sessionId, analysis.lastPrInput, bgAnalyses]);
+
 	function handleSessionSelect(id: string) {
+		moveToBackground();
 		setActiveId(null);
 		analysis.loadStoredSession(id);
 		setUrlParams({ session: id, tab: null });
 	}
 
 	function handleNewAnalysis() {
+		moveToBackground();
 		setActiveId(null);
 		analysis.reset();
 	}
+
+	const handleBgClick = useCallback((sessionId: string) => {
+		const bg = bgAnalyses.analyses.find((a) => a.sessionId === sessionId);
+		if (!bg) return;
+		if (bg.status === "done" && bg.historyId) {
+			bgAnalyses.dismiss(sessionId);
+			setActiveId(null);
+			analysis.loadStoredSession(bg.historyId);
+			setUrlParams({ session: bg.historyId, tab: null });
+			refreshSessions();
+		} else if (bg.status === "done" && bg.result) {
+			bgAnalyses.dismiss(sessionId);
+		} else if (bg.status === "error") {
+			bgAnalyses.dismiss(sessionId);
+		}
+	}, [bgAnalyses, analysis, refreshSessions]);
 
 	const diffSessionId = analysis.historyId ?? analysis.sessionId;
 	const prUrl = analysis.result?.meta.pr_url;
@@ -115,12 +156,17 @@ export function App() {
 			detailPanel={detailPanel}
 			bottomBar={analysis.phase === "done" && activeTab === "story" ? <ChatInput /> : undefined}
 			activeSessionId={diffSessionId}
+			version={features.version}
+			bgAnalyses={bgAnalyses.analyses}
+			onBgClick={handleBgClick}
+			onBgDismiss={bgAnalyses.dismiss}
 		>
 			{analysis.phase === "idle" && (
 				<InputScreen
 					onSubmit={(pr) => analysis.start(pr)}
 					sessions={sessions}
 					onSessionSelect={handleSessionSelect}
+					version={features.version}
 				/>
 			)}
 			{analysis.phase === "loading" && (
