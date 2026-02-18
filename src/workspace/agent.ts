@@ -102,15 +102,19 @@ async function streamLines(
 }
 
 const TOOL_LABELS: Record<string, (input: Record<string, unknown>) => string> = {
-	Read: (i) => `Reading ${truncPath(i.file_path as string ?? i.filePath as string ?? "")}`,
-	Glob: (i) => `Glob ${i.pattern as string ?? ""}`,
-	Grep: (i) => `Grep "${i.pattern as string ?? ""}"`,
+	Read: (i) => `📄 Read ${truncPath(i.file_path as string ?? i.filePath as string ?? "")}`,
+	Write: (i) => `✏️ Write ${truncPath(i.file_path as string ?? i.filePath as string ?? "")}`,
+	Edit: (i) => `✏️ Edit ${truncPath(i.file_path as string ?? i.filePath as string ?? "")}`,
+	Glob: (i) => `🔎 Glob ${i.pattern as string ?? ""}`,
+	Grep: (i) => `🔎 Grep "${(i.pattern as string ?? "").slice(0, 40)}"${i.include ? ` in ${i.include}` : ""}`,
 	Bash: (i) => {
 		const cmd = (i.command as string ?? "").slice(0, 60);
 		return `$ ${cmd}`;
 	},
-	ListFiles: (i) => `Listing ${truncPath(i.path as string ?? ".")}`,
-	Search: (i) => `Search "${i.query as string ?? ""}"`,
+	ListFiles: (i) => `📂 List ${truncPath(i.path as string ?? ".")}`,
+	Search: (i) => `🔎 Search "${(i.query as string ?? "").slice(0, 40)}"`,
+	WebSearch: () => "🌐 Web search",
+	WebFetch: (i) => `🌐 Fetch ${(i.url as string ?? "").slice(0, 50)}`,
 };
 
 function truncPath(p: string): string {
@@ -158,7 +162,7 @@ async function runClaude(
 			"-p",
 			"--output-format", "stream-json",
 			"--permission-mode", "bypassPermissions",
-			"--allowedTools", "Read", "Glob", "Grep", "Bash(find:*)", "Bash(wc:*)", "Bash(head:*)",
+			"--allowedTools", "Read", "Glob", "Grep", "Bash(find:*)", "Bash(wc:*)", "Bash(head:*)", "WebSearch", "WebFetch",
 			prompt,
 		],
 		{
@@ -184,6 +188,12 @@ async function runClaude(
 								(block.input as Record<string, unknown>) ?? {},
 							);
 							if (label) onOutput(label);
+						}
+						if (block.type === "text" && block.text && onOutput) {
+							const firstLine = (block.text as string).split("\n")[0]?.trim();
+							if (firstLine && firstLine.length > 5) {
+								onOutput(`💭 ${firstLine.slice(0, 80)}${firstLine.length > 80 ? "…" : ""}`);
+							}
 						}
 					}
 				} else if (event.type === "result") {
@@ -296,6 +306,12 @@ async function runCodex(
 					}
 					if (event.item.type === "agent_message" && event.item.text) {
 						answer = event.item.text;
+						if (onOutput) {
+							const firstLine = (event.item.text as string).split("\n")[0]?.trim();
+							if (firstLine && firstLine.length > 5) {
+								onOutput(`💭 ${firstLine.slice(0, 80)}${firstLine.length > 80 ? "…" : ""}`);
+							}
+						}
 					}
 				}
 			} catch {

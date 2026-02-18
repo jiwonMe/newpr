@@ -3,11 +3,14 @@ import type { NewprConfig } from "../types/config.ts";
 import { createRoutes } from "./server/routes.ts";
 import index from "./index.html";
 
+import type { PreflightResult } from "../cli/preflight.ts";
+
 interface WebServerOptions {
 	port: number;
 	token: string;
 	config: NewprConfig;
 	cartoon?: boolean;
+	preflight?: PreflightResult;
 }
 
 function getCssPaths() {
@@ -32,8 +35,8 @@ async function buildCss(bin: string, input: string, output: string): Promise<voi
 }
 
 export async function startWebServer(options: WebServerOptions): Promise<void> {
-	const { port, token, config, cartoon } = options;
-	const routes = createRoutes(token, config, { cartoon });
+	const { port, token, config, cartoon, preflight } = options;
+	const routes = createRoutes(token, config, { cartoon, preflight });
 	const css = getCssPaths();
 
 	await buildCss(css.bin, css.input, css.output);
@@ -119,8 +122,14 @@ export async function startWebServer(options: WebServerOptions): Promise<void> {
 			if (path === "/api/features" && req.method === "GET") {
 				return routes["GET /api/features"]();
 			}
+			if (path === "/api/preflight" && req.method === "GET") {
+				return routes["GET /api/preflight"]();
+			}
 			if (path === "/api/cartoon" && req.method === "POST") {
 				return routes["POST /api/cartoon"](req);
+			}
+			if (path === "/api/review" && req.method === "POST") {
+				return routes["POST /api/review"](req);
 			}
 
 			return new Response("Not Found", { status: 404 });
@@ -139,7 +148,7 @@ export async function startWebServer(options: WebServerOptions): Promise<void> {
 	const green = (s: string) => `\x1b[32m${s}\x1b[0m`;
 
 	console.log("");
-	console.log(`  ${bold("newpr")} ${dim("v0.2.0")}`);
+	console.log(`  ${bold("newpr")} ${dim("v0.3.0")}`);
 	console.log("");
 	console.log(`  ${dim("→")} Local    ${cyan(url)}`);
 	console.log(`  ${dim("→")} Model    ${dim(config.model)}`);

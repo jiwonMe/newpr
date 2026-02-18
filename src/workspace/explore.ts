@@ -42,7 +42,22 @@ Look at the actual codebase (not just the diff) to check:
 Only report real issues you can verify from the codebase. No speculation. Under 600 words.`;
 }
 
-const PHASE_LABELS = ["Analyzing project structure", "Finding related code", "Checking for issues"] as const;
+interface PhaseConfig {
+	label: string;
+	emoji: string;
+	step: number;
+}
+
+const PHASES: PhaseConfig[] = [
+	{ label: "Project structure", emoji: "🏗", step: 1 },
+	{ label: "Related code & dependencies", emoji: "🔗", step: 2 },
+	{ label: "Potential issues", emoji: "🔍", step: 3 },
+];
+
+function fmtDuration(ms: number): string {
+	const s = Math.round(ms / 1000);
+	return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${s % 60}s`;
+}
 
 export async function exploreCodebase(
 	agent: AgentTool,
@@ -53,26 +68,36 @@ export async function exploreCodebase(
 	onProgress?: (msg: string, current?: number, total?: number) => void,
 ): Promise<ExplorationResult> {
 	const timeout = 90_000;
+	const totalStart = Date.now();
 
-	onProgress?.(`${PHASE_LABELS[0]}...`, 1, 3);
-	const structureResult = await runAgent(agent, headPath, STRUCTURE_PROMPT, {
-		timeout,
-		onOutput: (line) => onProgress?.(`[1/3] ${line}`, 1, 3),
-	});
+	onProgress?.(`${agent.name}: starting exploration of ${changedFiles.length} files`, 0, 3);
 
-	onProgress?.(`${PHASE_LABELS[1]}...`, 2, 3);
+	const runPhase = async (phase: PhaseConfig, prompt: string) => {
+		const phaseStart = Date.now();
+		let toolCount = 0;
+		onProgress?.(`${phase.emoji} ${phase.label}...`, phase.step, 3);
+		const result = await runAgent(agent, headPath, prompt, {
+			timeout,
+			onOutput: (line) => {
+				toolCount++;
+				onProgress?.(`[${phase.step}/3] ${line}`, phase.step, 3);
+			},
+		});
+		const elapsed = fmtDuration(Date.now() - phaseStart);
+		onProgress?.(`${phase.emoji} ${phase.label} done (${elapsed}, ${toolCount} tool calls)`, phase.step, 3);
+		return result;
+	};
+
+	const structureResult = await runPhase(PHASES[0]!, STRUCTURE_PROMPT);
+
 	const relatedPrompt = buildRelatedCodePrompt(changedFiles, prTitle);
-	const relatedResult = await runAgent(agent, headPath, relatedPrompt, {
-		timeout,
-		onOutput: (line) => onProgress?.(`[2/3] ${line}`, 2, 3),
-	});
+	const relatedResult = await runPhase(PHASES[1]!, relatedPrompt);
 
-	onProgress?.(`${PHASE_LABELS[2]}...`, 3, 3);
 	const issuesPrompt = buildIssuesPrompt(changedFiles, diff);
-	const issuesResult = await runAgent(agent, headPath, issuesPrompt, {
-		timeout,
-		onOutput: (line) => onProgress?.(`[3/3] ${line}`, 3, 3),
-	});
+	const issuesResult = await runPhase(PHASES[2]!, issuesPrompt);
+
+	const totalElapsed = fmtDuration(Date.now() - totalStart);
+	onProgress?.(`${agent.name}: exploration complete (${totalElapsed})`, 3, 3);
 
 	return {
 		project_structure: structureResult.answer,

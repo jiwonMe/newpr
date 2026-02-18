@@ -11,6 +11,7 @@ import { writeStoredConfig, type StoredConfig } from "../../config/store.ts";
 import { startAnalysis, getSession, cancelAnalysis, subscribe } from "./session-manager.ts";
 import { generateCartoon } from "../../llm/cartoon.ts";
 import { chatWithTools, type ChatTool, type ChatStreamEvent } from "../../llm/client.ts";
+import { detectAgents, runAgent } from "../../workspace/agent.ts";
 import { randomBytes } from "node:crypto";
 
 function json(data: unknown, status = 200): Response {
@@ -20,8 +21,11 @@ function json(data: unknown, status = 200): Response {
 	});
 }
 
+import type { PreflightResult } from "../../cli/preflight.ts";
+
 interface RouteOptions {
 	cartoon?: boolean;
+	preflight?: PreflightResult;
 }
 
 export function createRoutes(token: string, config: NewprConfig, options: RouteOptions = {}) {
@@ -100,13 +104,19 @@ ${data.narrative}
 ${data.meta.pr_body ? `## PR Description\n${data.meta.pr_body}` : ""}
 
 ## Anchor Syntax (CRITICAL)
-You MUST use these anchors whenever you mention a file or group. They become clickable links in the UI.
-- File: [[file:exact/path/here.ts]] — renders as a clickable chip that opens the file diff in the sidebar.
-- Group: [[group:Exact Group Name]] — renders as a clickable chip that opens the group detail in the sidebar.
-- Use the EXACT paths and names from the lists above. Partial or invented names will not work.
-- ALWAYS prefer anchors over plain text. Instead of "the auth module", write "the [[group:Auth Flow]] group". Instead of "in session.ts", write "in [[file:src/auth/session.ts]]".
-- When listing multiple files, anchor each one: [[file:a.ts]], [[file:b.ts]], [[file:c.ts]].
-- Even in short answers, use anchors. They are the primary way users navigate from your response to the code.
+You MUST use these anchors. They become clickable links in the UI.
+
+1. Group: [[group:Exact Group Name]] — renders as a clickable chip.
+2. File: [[file:exact/path/here.ts]] — renders as a clickable chip.
+3. Line reference: [[line:exact/path/here.ts#L42-L50]](descriptive text) — the "descriptive text" becomes an underlined link that opens the diff scrolled to that line. The line info is NOT shown — only the text is visible.
+
+RULES:
+- Use EXACT paths and names from the lists above.
+- For line references, ALWAYS use [[line:path#L-L]](text). NEVER bare [[line:...]] without (text).
+- The (text) should describe what the code does, NOT show file names or line numbers.
+- Do NOT place [[file:...]] and [[line:...]] adjacent for the same file.
+- Use the get_file_diff tool to find exact line numbers before referencing them.
+- Aim for most statements about code to include at least one line reference.
 
 ## Math / LaTeX
 When expressing mathematical formulas, algorithms, or complexity analysis, use LaTeX syntax:
@@ -170,6 +180,34 @@ $$
 					name: "get_pr_details",
 					description: "Get PR metadata from GitHub: state, mergeable status, labels, requested reviewers, etc.",
 					parameters: { type: "object", properties: {} },
+				},
+			},
+			{
+				type: "function",
+				function: {
+					name: "web_search",
+					description: "Search the web for documentation, library references, best practices, or any technical question. Returns top search results with snippets.",
+					parameters: {
+						type: "object",
+						properties: {
+							query: { type: "string", description: "Search query (e.g. 'React useEffect cleanup pattern', 'zod discriminated union')" },
+						},
+						required: ["query"],
+					},
+				},
+			},
+			{
+				type: "function",
+				function: {
+					name: "web_fetch",
+					description: "Fetch the text content of a web page. Use this to read documentation pages, blog posts, or API references found via web_search.",
+					parameters: {
+						type: "object",
+						properties: {
+							url: { type: "string", description: "URL to fetch (must start with https://)" },
+						},
+						required: ["url"],
+					},
 				},
 			},
 		];
@@ -491,6 +529,41 @@ $$
 			return json({ cartoon: !!options.cartoon });
 		},
 
+		"POST /api/review": async (req: Request) => {
+			const body = await req.json() as { pr_url: string; event: string; body?: string };
+			if (!body.pr_url || !body.event) return json({ error: "Missing pr_url or event" }, 400);
+
+			const validEvents = ["APPROVE", "REQUEST_CHANGES", "COMMENT"];
+			if (!validEvents.includes(body.event)) return json({ error: `Invalid event: ${body.event}` }, 400);
+
+			try {
+				const pr = parsePrInput(body.pr_url);
+				const res = await fetch(
+					`https://api.github.com/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/reviews`,
+					{
+						method: "POST",
+						headers: ghHeaders,
+						body: JSON.stringify({
+							body: body.body ?? "",
+							event: body.event,
+						}),
+					},
+				);
+				if (!res.ok) {
+					const errBody = await res.json().catch(() => ({})) as { message?: string };
+					return json({ error: errBody.message ?? `GitHub API error: ${res.status}` }, res.status);
+				}
+				const data = await res.json() as { id: number; state: string; html_url: string };
+				return json({ ok: true, id: data.id, state: data.state, html_url: data.html_url });
+			} catch (err) {
+				return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+			}
+		},
+
+		"GET /api/preflight": () => {
+			return json(options.preflight ?? null);
+		},
+
 		"GET /api/sessions/:id/comments": async (req: Request) => {
 			const url = new URL(req.url);
 			const segments = url.pathname.split("/");
@@ -800,6 +873,75 @@ $$
 							}, null, 2);
 						} catch (err) {
 							return `Error: ${err instanceof Error ? err.message : String(err)}`;
+						}
+					}
+					case "web_search": {
+						const query = args.query as string;
+						if (!query) return "Error: query argument required";
+						const agents = await detectAgents();
+						if (agents.length > 0) {
+							try {
+								const result = await runAgent(agents[0]!, process.cwd(), `Search the web for: "${query}"\n\nReturn the top results with titles, URLs, and brief descriptions. Be concise.`, { timeout: 30_000 });
+								if (result.answer.trim()) return result.answer;
+							} catch {}
+						}
+						try {
+							const encoded = encodeURIComponent(query);
+							const res = await fetch(`https://html.duckduckgo.com/html/?q=${encoded}`, {
+								headers: { "User-Agent": "newpr-cli/0.2.0" },
+							});
+							if (!res.ok) return `Search failed: HTTP ${res.status}`;
+							const html = await res.text();
+							const results: string[] = [];
+							const resultRe = /<a[^>]+class="result__a"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
+							let m;
+							while ((m = resultRe.exec(html)) !== null && results.length < 8) {
+								const href = m[1]?.replace(/&amp;/g, "&") ?? "";
+								const title = (m[2] ?? "").replace(/<[^>]+>/g, "").trim();
+								const snippet = (m[3] ?? "").replace(/<[^>]+>/g, "").trim();
+								if (title && href) results.push(`${title}\n${href}\n${snippet}`);
+							}
+							if (results.length === 0) return `No results found for "${query}"`;
+							return results.join("\n\n---\n\n");
+						} catch (err) {
+							return `Search error: ${err instanceof Error ? err.message : String(err)}`;
+						}
+					}
+					case "web_fetch": {
+						const url = args.url as string;
+						if (!url?.startsWith("https://")) return "Error: url must start with https://";
+						const agents = await detectAgents();
+						if (agents.length > 0) {
+							try {
+								const result = await runAgent(agents[0]!, process.cwd(), `Fetch and summarize the content of this URL: ${url}\n\nReturn the key information from the page. Be thorough but concise.`, { timeout: 30_000 });
+								if (result.answer.trim()) return result.answer;
+							} catch {}
+						}
+						try {
+							const controller = new AbortController();
+							const t = setTimeout(() => controller.abort(), 15000);
+							const res = await fetch(url, {
+								signal: controller.signal,
+								headers: { "User-Agent": "newpr-cli/0.2.0", Accept: "text/html,text/plain,application/json" },
+								redirect: "follow",
+							});
+							clearTimeout(t);
+							if (!res.ok) return `Fetch failed: HTTP ${res.status}`;
+							const contentType = res.headers.get("content-type") ?? "";
+							const text = await res.text();
+							if (contentType.includes("json")) return text.slice(0, 15000);
+							const stripped = text
+								.replace(/<script[\s\S]*?<\/script>/gi, "")
+								.replace(/<style[\s\S]*?<\/style>/gi, "")
+								.replace(/<nav[\s\S]*?<\/nav>/gi, "")
+								.replace(/<footer[\s\S]*?<\/footer>/gi, "")
+								.replace(/<header[\s\S]*?<\/header>/gi, "")
+								.replace(/<[^>]+>/g, " ")
+								.replace(/\s+/g, " ")
+								.trim();
+							return stripped.slice(0, 15000) + (stripped.length > 15000 ? "\n\n... (truncated)" : "");
+						} catch (err) {
+							return `Fetch error: ${err instanceof Error ? err.message : String(err)}`;
 						}
 					}
 					default:
