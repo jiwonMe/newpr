@@ -1,9 +1,4 @@
-/**
- * Coupling Rules for Reactive PR Stacking
- *
- * Enforces atomic coupling constraints for files that must stay together
- * (e.g., package.json + lockfiles, tsconfig family).
- */
+import type { StackWarning } from "./types.ts";
 
 export interface ForcedMerge {
 	path: string;
@@ -14,6 +9,7 @@ export interface ForcedMerge {
 export interface CouplingResult {
 	ownership: Map<string, string>;
 	warnings: string[];
+	structured_warnings: StackWarning[];
 	forced_merges: ForcedMerge[];
 }
 
@@ -57,6 +53,7 @@ export function applyCouplingRules(
 ): CouplingResult {
 	const newOwnership = new Map(ownership);
 	const warnings: string[] = [];
+	const structuredWarnings: StackWarning[] = [];
 	const forcedMerges: ForcedMerge[] = [];
 
 	// Build group rank map for ordering
@@ -120,11 +117,19 @@ export function applyCouplingRules(
 		warnings.push(
 			`Coupling constraint: [${fileList}] were in groups [${groupList}], forced to earliest group "${targetGroup}"`,
 		);
+		structuredWarnings.push({
+			category: "coupling",
+			severity: "info",
+			title: `${forcedMerges.length} file(s) moved to "${targetGroup}" by coupling rule`,
+			message: `Files [${fileList}] must stay together — moved from [${groupList}] to earliest group`,
+			details: matchedFiles,
+		});
 	}
 
 	return {
 		ownership: newOwnership,
 		warnings,
+		structured_warnings: structuredWarnings,
 		forced_merges: forcedMerges,
 	};
 }

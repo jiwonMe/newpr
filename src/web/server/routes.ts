@@ -26,7 +26,7 @@ import { verifyStack } from "../../stack/verify.ts";
 import { publishStack } from "../../stack/publish.ts";
 import { ensureRepo } from "../../workspace/repo-cache.ts";
 import { fetchPrData } from "../../github/fetch-pr.ts";
-import type { StackPlan, StackExecResult, FeasibilityResult } from "../../stack/types.ts";
+import type { StackPlan, StackExecResult, FeasibilityResult, StackWarning } from "../../stack/types.ts";
 import type { FileGroup } from "../../types/output.ts";
 
 function json(data: unknown, status = 200): Response {
@@ -1763,11 +1763,35 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 					prData.commits,
 				);
 
-				const groupOrder = stored.groups.map((g) => g.name);
-				const coupled = applyCouplingRules(partition.ownership, changedFiles, groupOrder);
+			const groupOrder = stored.groups.map((g) => g.name);
+			const coupled = applyCouplingRules(partition.ownership, changedFiles, groupOrder);
 
-				const mergedOwnership = new Map(coupled.ownership);
-				const allWarnings = [...partition.warnings, ...coupled.warnings];
+			const mergedOwnership = new Map(coupled.ownership);
+			const allWarnings = [...partition.warnings, ...coupled.warnings];
+			const allStructuredWarnings: StackWarning[] = [...partition.structured_warnings, ...coupled.structured_warnings];
+
+			if (partition.reattributed.length > 0) {
+				const resolved = partition.reattributed.filter((r) => r.from_groups.length > 0);
+				const assigned = partition.reattributed.filter((r) => r.from_groups.length === 0);
+				if (resolved.length > 0) {
+					allStructuredWarnings.push({
+						category: "assignment",
+						severity: "info",
+						title: `${resolved.length} ambiguous file(s) resolved by AI`,
+						message: "These files appeared in multiple groups — AI chose the best fit",
+						details: resolved.map((r) => `${r.path} → ${r.to_group}`),
+					});
+				}
+				if (assigned.length > 0) {
+					allStructuredWarnings.push({
+						category: "assignment",
+						severity: "info",
+						title: `${assigned.length} unassigned file(s) placed by AI`,
+						message: "These files were not in any group — AI assigned them",
+						details: assigned.map((r) => `${r.path} → ${r.to_group}`),
+					});
+				}
+			}
 
 				const deltas = await extractDeltas(repoPath, baseSha, headSha);
 
@@ -1786,9 +1810,16 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 							}
 						}
 					}
-					if (backfilled.length > 0) {
-						allWarnings.push(`Files from git diff not in analysis, assigned to "${lastGroup}": ${backfilled.join(", ")}`);
-					}
+				if (backfilled.length > 0) {
+					allWarnings.push(`Files from git diff not in analysis, assigned to "${lastGroup}": ${backfilled.join(", ")}`);
+					allStructuredWarnings.push({
+						category: "assignment",
+						severity: "warn",
+						title: `${backfilled.length} file(s) found in git diff but not in analysis`,
+						message: `These files were in the git diff but not tracked by the analysis — assigned to "${lastGroup}"`,
+						details: backfilled,
+					});
+				}
 				}
 
 				let finalGroups = stored.groups;
@@ -1798,9 +1829,20 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 					for (const [path, groupId] of merged.ownership) {
 						mergedOwnership.set(path, groupId);
 					}
-					for (const m of merged.merges) {
-						allWarnings.push(`Merged group "${m.absorbed}" into "${m.into}"`);
-					}
+				const mergeDetails: string[] = [];
+				for (const m of merged.merges) {
+					allWarnings.push(`Merged group "${m.absorbed}" into "${m.into}"`);
+					mergeDetails.push(`"${m.absorbed}" → "${m.into}"`);
+				}
+				if (mergeDetails.length > 0) {
+					allStructuredWarnings.push({
+						category: "grouping",
+						severity: "info",
+						title: `${mergeDetails.length} group(s) merged to reduce PR count`,
+						message: "Smaller groups were combined with adjacent ones to meet the max PRs limit",
+						details: mergeDetails,
+					});
+				}
 				}
 
 				const feasibility = checkFeasibility({
@@ -1810,14 +1852,15 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 
 				const ownershipObj = Object.fromEntries(mergedOwnership);
 
-				return json({
-					partition: {
-						ownership: ownershipObj,
-						reattributed: partition.reattributed,
-						warnings: allWarnings,
-						forced_merges: coupled.forced_merges,
-						groups: finalGroups,
-					},
+			return json({
+				partition: {
+					ownership: ownershipObj,
+					reattributed: partition.reattributed,
+					warnings: allWarnings,
+					structured_warnings: allStructuredWarnings,
+					forced_merges: coupled.forced_merges,
+					groups: finalGroups,
+				},
 					feasibility,
 					context: {
 						repo_path: repoPath,

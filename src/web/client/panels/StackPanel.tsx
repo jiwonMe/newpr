@@ -2,6 +2,7 @@ import { Loader2, Play, Upload, RotateCcw, CheckCircle2, AlertTriangle } from "l
 import { useStack } from "../hooks/useStack.ts";
 import { FeasibilityAlert } from "../components/FeasibilityAlert.tsx";
 import { StackGroupCard } from "../components/StackGroupCard.tsx";
+import { StackWarnings } from "../components/StackWarnings.tsx";
 
 export function StackPanel({ sessionId }: { sessionId?: string | null }) {
 	const stack = useStack(sessionId);
@@ -97,32 +98,9 @@ export function StackPanel({ sessionId }: { sessionId?: string | null }) {
 				<FeasibilityAlert result={stack.feasibility} />
 			)}
 
-			{stack.partition && stack.partition.warnings.length > 0 && (
-				<div className="space-y-1">
-					{stack.partition.warnings.map((w, i) => (
-						<div key={i} className="flex items-center gap-1.5 text-[10px] text-yellow-600 dark:text-yellow-400">
-							<AlertTriangle className="h-2.5 w-2.5 shrink-0" />
-							<span>{w}</span>
-						</div>
-					))}
-				</div>
-			)}
-
-			{stack.partition && stack.partition.reattributed.length > 0 && (
-				<div className="space-y-1">
-					<div className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider">
-						Re-attributed files
-					</div>
-					{stack.partition.reattributed.map((r) => (
-						<div key={r.path} className="flex items-baseline gap-1.5 text-[10px] text-muted-foreground/50">
-							<span className="font-mono">{r.path}</span>
-							<span className="text-muted-foreground/25">→</span>
-							<span className="font-medium">{r.to_group}</span>
-							<span className="text-muted-foreground/30">({r.reason})</span>
-						</div>
-					))}
-				</div>
-			)}
+		{stack.partition && stack.partition.structured_warnings.length > 0 && (
+			<StackWarnings warnings={stack.partition.structured_warnings} />
+		)}
 
 			{stack.plan && (
 				<div className="space-y-2">
@@ -144,40 +122,33 @@ export function StackPanel({ sessionId }: { sessionId?: string | null }) {
 				</div>
 			)}
 
-		{stack.verifyResult && (
-			<div className="space-y-2">
-				<div className={`flex items-center gap-2 rounded-lg border px-3.5 py-2 ${
+	{stack.verifyResult && (
+		<div className="space-y-2">
+			<div className={`flex items-center gap-2 rounded-lg border px-3.5 py-2 ${
+				stack.verifyResult.verified
+					? "border-green-500/20 bg-green-500/5"
+					: "border-red-500/20 bg-red-500/5"
+			}`}>
+				{stack.verifyResult.verified
+					? <CheckCircle2 className="h-3.5 w-3.5 text-green-600 dark:text-green-400 shrink-0" />
+					: <AlertTriangle className="h-3.5 w-3.5 text-red-500 shrink-0" />
+				}
+				<span className={`text-[11px] ${
 					stack.verifyResult.verified
-						? "border-green-500/20 bg-green-500/5"
-						: "border-red-500/20 bg-red-500/5"
+						? "text-green-700 dark:text-green-300"
+						: "text-red-600 dark:text-red-400"
 				}`}>
 					{stack.verifyResult.verified
-						? <CheckCircle2 className="h-3.5 w-3.5 text-green-600 dark:text-green-400 shrink-0" />
-						: <AlertTriangle className="h-3.5 w-3.5 text-red-500 shrink-0" />
+						? "Tree equivalence verified — stack is correct"
+						: `Verification failed: ${stack.verifyResult.errors.join(", ")}`
 					}
-					<span className={`text-[11px] ${
-						stack.verifyResult.verified
-							? "text-green-700 dark:text-green-300"
-							: "text-red-600 dark:text-red-400"
-					}`}>
-						{stack.verifyResult.verified
-							? "Tree equivalence verified — stack is correct"
-							: `Verification failed: ${stack.verifyResult.errors.join(", ")}`
-						}
-					</span>
-				</div>
-				{stack.verifyResult.warnings && stack.verifyResult.warnings.length > 0 && (
-					<div className="space-y-1 px-1">
-						{stack.verifyResult.warnings.map((w, i) => (
-							<div key={i} className="flex items-start gap-1.5 text-[10px] text-yellow-600 dark:text-yellow-400">
-								<AlertTriangle className="h-2.5 w-2.5 shrink-0 mt-0.5" />
-								<span>{w}</span>
-							</div>
-						))}
-					</div>
-				)}
+				</span>
 			</div>
-		)}
+			{stack.verifyResult.structured_warnings.length > 0 && (
+				<StackWarnings warnings={stack.verifyResult.structured_warnings} defaultCollapsed={stack.verifyResult.verified} />
+			)}
+		</div>
+	)}
 
 			{stack.phase === "done" && stack.execResult && !stack.publishResult && (
 				<button

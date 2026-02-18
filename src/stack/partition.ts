@@ -1,7 +1,7 @@
 import type { FileGroup } from "../types/output.ts";
 import type { PrCommit } from "../types/github.ts";
 import type { LlmClient } from "../llm/client.ts";
-import type { PartitionResult, ReattributedFile } from "./types.ts";
+import type { PartitionResult, ReattributedFile, StackWarning } from "./types.ts";
 
 interface FileSummaryInput {
 	path: string;
@@ -122,6 +122,7 @@ export async function partitionGroups(
 			ownership: report.exclusive,
 			reattributed: [],
 			warnings: [],
+			structured_warnings: [],
 		};
 	}
 
@@ -161,6 +162,7 @@ function parsePartitionResponse(
 	const ownership = new Map(report.exclusive);
 	const reattributed: ReattributedFile[] = [];
 	const warnings: string[] = [];
+	const structuredWarnings: StackWarning[] = [];
 
 	const validGroupNames = new Set(groups.map((g) => g.name));
 
@@ -177,6 +179,12 @@ function parsePartitionResponse(
 
 		if (!validGroupNames.has(group)) {
 			warnings.push(`Unknown group "${group}" for file "${path}", skipping`);
+			structuredWarnings.push({
+				category: "system",
+				severity: "warn",
+				title: "Invalid group in AI response",
+				message: `"${path}" was assigned to unknown group "${group}" — skipped`,
+			});
 			continue;
 		}
 
@@ -213,13 +221,28 @@ function parsePartitionResponse(
 			reattributed.push({ path, from_groups: [], to_group: fallbackGroup, reason: "LLM did not assign; fallback to last group" });
 		}
 		warnings.push(`Files force-assigned to "${fallbackGroup}" (LLM missed): ${stillUnassigned.join(", ")}`);
+		structuredWarnings.push({
+			category: "assignment",
+			severity: "warn",
+			title: `${stillUnassigned.length} file(s) auto-assigned to "${fallbackGroup}"`,
+			message: "AI did not assign these files — they were placed in the last group as fallback",
+			details: stillUnassigned,
+		});
 	}
 	if (stillAmbiguous.length > 0 && fallbackGroup) {
+		const paths = stillAmbiguous.map((a) => a.path);
 		for (const a of stillAmbiguous) {
 			ownership.set(a.path, fallbackGroup);
 			reattributed.push({ path: a.path, from_groups: a.groups, to_group: fallbackGroup, reason: "LLM did not resolve ambiguity; fallback to last group" });
 		}
-		warnings.push(`Files force-assigned to "${fallbackGroup}" (LLM missed): ${stillAmbiguous.map((a) => a.path).join(", ")}`);
+		warnings.push(`Files force-assigned to "${fallbackGroup}" (LLM missed): ${paths.join(", ")}`);
+		structuredWarnings.push({
+			category: "assignment",
+			severity: "warn",
+			title: `${paths.length} ambiguous file(s) auto-assigned to "${fallbackGroup}"`,
+			message: "AI did not resolve which group these files belong to — placed in last group",
+			details: paths,
+		});
 	}
 
 	let sharedFoundation: FileGroup | undefined;
@@ -239,6 +262,7 @@ function parsePartitionResponse(
 		reattributed,
 		shared_foundation_group: sharedFoundation,
 		warnings,
+		structured_warnings: structuredWarnings,
 	};
 }
 

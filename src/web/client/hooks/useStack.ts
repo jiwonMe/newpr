@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import type { FeasibilityResult } from "../../../stack/types.ts";
+import type { FeasibilityResult, StackWarning } from "../../../stack/types.ts";
 
 type StackPhase = "idle" | "partitioning" | "planning" | "executing" | "publishing" | "done" | "error";
 
@@ -15,6 +15,7 @@ interface PartitionData {
 	ownership: Record<string, string>;
 	reattributed: Array<{ path: string; from_groups: string[]; to_group: string; reason: string }>;
 	warnings: string[];
+	structured_warnings: StackWarning[];
 	forced_merges: Array<{ path: string; from_group: string; to_group: string }>;
 	groups?: GroupData[];
 }
@@ -63,6 +64,7 @@ interface VerifyResultData {
 	verified: boolean;
 	errors: string[];
 	warnings: string[];
+	structured_warnings: StackWarning[];
 }
 
 interface PublishResultData {

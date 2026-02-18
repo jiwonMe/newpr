@@ -1,4 +1,4 @@
-import type { StackExecResult } from "./types.ts";
+import type { StackExecResult, StackWarning } from "./types.ts";
 
 export interface VerifyInput {
 	repo_path: string;
@@ -12,21 +12,56 @@ export interface VerifyResult {
 	verified: boolean;
 	errors: string[];
 	warnings: string[];
+	structured_warnings: StackWarning[];
 }
 
 export async function verifyStack(input: VerifyInput): Promise<VerifyResult> {
 	const { repo_path, base_sha, head_sha, exec_result, ownership } = input;
 	const errors: string[] = [];
 	const warnings: string[] = [];
+	const structuredWarnings: StackWarning[] = [];
 
-	await verifyPerGroupDiffScope(repo_path, base_sha, exec_result, ownership, warnings);
-	await verifyUnionCompleteness(repo_path, base_sha, head_sha, exec_result, warnings);
+	const scopeLeaks: string[] = [];
+	const unionMissing: string[] = [];
+	const unionExtra: string[] = [];
+
+	await verifyPerGroupDiffScope(repo_path, base_sha, exec_result, ownership, warnings, scopeLeaks);
+	await verifyUnionCompleteness(repo_path, base_sha, head_sha, exec_result, warnings, unionMissing, unionExtra);
 	await verifyFinalTreeEquivalence(repo_path, head_sha, exec_result, errors);
+
+	if (scopeLeaks.length > 0) {
+		structuredWarnings.push({
+			category: "verification.scope",
+			severity: "warn",
+			title: `${scopeLeaks.length} file(s) appear in wrong group's diff`,
+			message: "Some files changed in a group's commit but are owned by a different group — usually harmless with merge commits",
+			details: scopeLeaks,
+		});
+	}
+	if (unionMissing.length > 0) {
+		structuredWarnings.push({
+			category: "verification.completeness",
+			severity: "warn",
+			title: `${unionMissing.length} file(s) in original diff but missing from stack`,
+			message: "These files were changed in the original PR but don't appear in the stacked commits",
+			details: unionMissing,
+		});
+	}
+	if (unionExtra.length > 0) {
+		structuredWarnings.push({
+			category: "verification.completeness",
+			severity: "warn",
+			title: `${unionExtra.length} extra file(s) in stack not in original diff`,
+			message: "The stacked commits touch files not in the original PR diff — usually transient changes from merge commits",
+			details: unionExtra,
+		});
+	}
 
 	return {
 		verified: errors.length === 0,
 		errors,
 		warnings,
+		structured_warnings: structuredWarnings,
 	};
 }
 
@@ -36,6 +71,7 @@ async function verifyPerGroupDiffScope(
 	execResult: StackExecResult,
 	ownership: Map<string, string>,
 	warnings: string[],
+	scopeLeaks: string[],
 ): Promise<void> {
 	let prevCommitSha = baseSha;
 
@@ -53,9 +89,11 @@ async function verifyPerGroupDiffScope(
 		for (const path of changedPaths) {
 			const fileOwner = ownership.get(path);
 			if (fileOwner !== gc.group_id) {
+				const detail = `"${path}" in "${gc.group_id}" diff, owned by "${fileOwner ?? "unassigned"}"`;
 				warnings.push(
 					`Group "${gc.group_id}" diff contains file "${path}" owned by "${fileOwner ?? "unassigned"}"`,
 				);
+				scopeLeaks.push(detail);
 			}
 		}
 
@@ -69,6 +107,8 @@ async function verifyUnionCompleteness(
 	headSha: string,
 	execResult: StackExecResult,
 	warnings: string[],
+	unionMissing: string[],
+	unionExtra: string[],
 ): Promise<void> {
 	const expectedResult = await Bun.$`git -C ${repoPath} diff-tree -r --raw -z --no-commit-id ${baseSha} ${headSha}`.quiet().nothrow();
 
@@ -95,12 +135,14 @@ async function verifyUnionCompleteness(
 	for (const path of expectedPaths) {
 		if (!actualPaths.has(path)) {
 			warnings.push(`File "${path}" present in original diff but missing from stack`);
+			unionMissing.push(path);
 		}
 	}
 
 	for (const path of actualPaths) {
 		if (!expectedPaths.has(path)) {
 			warnings.push(`File "${path}" present in stack but not in original diff`);
+			unionExtra.push(path);
 		}
 	}
 }

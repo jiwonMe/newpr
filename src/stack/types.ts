@@ -32,6 +32,7 @@ export interface PartitionResult {
 	reattributed: ReattributedFile[];
 	shared_foundation_group?: FileGroup;
 	warnings: string[];
+	structured_warnings: StackWarning[];
 }
 
 // ============================================================================
@@ -154,6 +155,28 @@ export interface PrInfo {
 export interface StackPublishResult {
 	branches: BranchInfo[];
 	prs: PrInfo[];
+}
+
+// ============================================================================
+// Structured Warnings
+// ============================================================================
+
+export type StackWarningCategory =
+	| "assignment"
+	| "grouping"
+	| "coupling"
+	| "verification.scope"
+	| "verification.completeness"
+	| "system";
+
+export type StackWarningSeverity = "info" | "warn";
+
+export interface StackWarning {
+	category: StackWarningCategory;
+	severity: StackWarningSeverity;
+	title: string;
+	message: string;
+	details?: string[];
 }
 
 // ============================================================================
