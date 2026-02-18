@@ -85,18 +85,14 @@ async function runExploration(
 ): Promise<ExplorationResult> {
 	const agent = await requireAgent(preferredAgent);
 
-	onProgress?.({ stage: "cloning", message: `Cloning ${pr.owner}/${pr.repo}...` });
 	const bareRepoPath = await ensureRepo(pr.owner, pr.repo, token, (msg) => {
 		onProgress?.({ stage: "cloning", message: `📦 ${msg}` });
 	});
-	onProgress?.({ stage: "cloning", message: `📦 ${pr.owner}/${pr.repo} cached` });
 
-	onProgress?.({ stage: "checkout", message: `🌿 Preparing worktrees: ${baseBranch} ← PR #${pr.number}` });
 	const worktrees = await createWorktrees(
 		bareRepoPath, baseBranch, pr.number, pr.owner, pr.repo,
 		(msg) => onProgress?.({ stage: "checkout", message: `🌿 ${msg}` }),
 	);
-	onProgress?.({ stage: "checkout", message: `🌿 Worktrees ready: ${baseBranch} ← PR #${pr.number}` });
 
 	onProgress?.({ stage: "exploring", message: `🤖 ${agent.name}: exploring ${changedFiles.length} changed files...` });
 	const exploration = await exploreCodebase(
