@@ -727,6 +727,73 @@ $$
 			return json({ ok: true });
 		},
 
+		"POST /api/sessions/:id/ask-inline": async (req: Request) => {
+			const url = new URL(req.url);
+			const segments = url.pathname.split("/");
+			const sessionId = segments[3]!;
+
+			if (!config.openrouter_api_key) {
+				return json({ error: "OpenRouter API key required" }, 400);
+			}
+
+			const body = await req.json() as { message: string };
+			if (!body.message?.trim()) return json({ error: "Missing message" }, 400);
+
+			const sessionData = await loadSession(sessionId);
+			if (!sessionData) return json({ error: "Session not found" }, 404);
+
+			const systemPrompt = buildChatSystemPrompt(sessionData);
+			const apiMessages = [
+				{ role: "system" as const, content: systemPrompt },
+				{ role: "user" as const, content: body.message.trim() },
+			];
+
+			const encoder = new TextEncoder();
+			const stream = new ReadableStream({
+				async start(controller) {
+					const send = (eventType: string, data: string) => {
+						controller.enqueue(encoder.encode(`event: ${eventType}\ndata: ${data}\n\n`));
+					};
+					try {
+						await chatWithTools(
+							{ api_key: config.openrouter_api_key, model: config.model, timeout: config.timeout },
+							apiMessages as Parameters<typeof chatWithTools>[1],
+							buildChatTools(),
+							async (name: string, args: Record<string, unknown>): Promise<string> => {
+								if (name === "get_file_diff") {
+									const filePath = args.path as string;
+									if (!filePath) return "Error: path required";
+									const patches = await loadPatchesSidecar(sessionId);
+									if (patches?.[filePath]) return patches[filePath];
+									const patch = await loadSinglePatch(sessionId, filePath);
+									if (patch) return patch;
+									return `File "${filePath}" not found`;
+								}
+								if (name === "list_files") {
+									return sessionData.files.map((f) => `${f.path} (${f.status}): ${f.summary}`).join("\n");
+								}
+								return `Tool ${name} not available in inline mode`;
+							},
+							(event: ChatStreamEvent) => {
+								if (event.type === "text") send("text", JSON.stringify({ content: event.content }));
+								else if (event.type === "error") send("chat_error", JSON.stringify({ message: event.error }));
+								else if (event.type === "done") send("done", JSON.stringify({}));
+							},
+						);
+						send("done", JSON.stringify({}));
+					} catch (err) {
+						send("chat_error", JSON.stringify({ message: err instanceof Error ? err.message : String(err) }));
+					} finally {
+						controller.close();
+					}
+				},
+			});
+
+			return new Response(stream, {
+				headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
+			});
+		},
+
 		"GET /api/sessions/:id/outdated": async (req: Request) => {
 			const url = new URL(req.url);
 			const segments = url.pathname.split("/");

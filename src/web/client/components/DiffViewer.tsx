@@ -405,7 +405,7 @@ function AskAiPanel({
 			: `Analyze this code in ${filePath} (lines ${startLine}-${endLine}). Explain what it does, identify any issues (bugs, performance, security, style), and suggest improvements:\n\`\`\`\n${codeSnippet}\n\`\`\``;
 
 		try {
-			const res = await fetch(`/api/sessions/${sessionId}/chat`, {
+			const res = await fetch(`/api/sessions/${sessionId}/ask-inline`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ message: prompt }),
