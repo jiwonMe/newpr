@@ -66,8 +66,8 @@ describe("buildNarrativePrompt", () => {
 			[{ name: "DB refactor", type: "refactor", description: "Restructured queries", files: ["db.ts"] }],
 		);
 
-		expect(prompt.system).toContain("markdown");
 		expect(prompt.system).toContain("narrative");
+		expect(prompt.system).toContain("prose");
 		expect(prompt.user).toContain("Refactor DB layer");
 		expect(prompt.user).toContain("Clean up DB");
 	});

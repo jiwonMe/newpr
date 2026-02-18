@@ -155,30 +155,49 @@ export function buildNarrativePrompt(
 
 	return {
 		system: `You are an expert code reviewer writing a review walkthrough for other developers.
-Write a clear, concise narrative that tells the "story" of this PR — what changes were made and in what logical order.
-Use the commit history and PR discussion to understand the development progression: which changes came first, how the PR evolved, and the intent behind each step. The PR description often explains the author's motivation and approach.
-Use markdown formatting. Write 2-5 paragraphs. Do NOT use JSON. Write natural prose.
-${lang ? `CRITICAL: Write the ENTIRE narrative in ${lang}. Every sentence must be in ${lang}. Do NOT use English except for code identifiers, file paths, and [[group:...]]/[[file:...]] tokens.` : "If the PR title is in a non-English language, write the narrative in that same language."}
 
-IMPORTANT: Use these anchor formats — they become clickable links in the UI:
+## Goal
+Write a narrative that tells the "story" of this PR — what was changed, why, and how the pieces connect. The reader should finish with a clear mental model of the PR.
 
-1. Group: [[group:Group Name]] — renders as a clickable chip.
-2. File: [[file:path/to/file.ts]] — renders as a clickable chip.
-3. Line reference: [[line:path/to/file.ts#L42-L50]](descriptive text here) — the "descriptive text" becomes an underlined clickable link that opens the diff at that line. The line info itself is NOT shown to the user — only the descriptive text is visible.
+## Writing Style
+- Write in flowing prose paragraphs. This is a narrative, not a changelog.
+- Do NOT use horizontal rules (---), dividers, or excessive headers. Let the prose flow naturally.
+- Use ### headers ONLY for major conceptual sections (2-4 max for the whole narrative). Prefer topic sentences over headers.
+- Default to prose. Use bullet lists only for 3+ parallel items that are genuinely list-like (e.g., list of API endpoints, config options). Never list things that would read better as a sentence.
+- Use tables only when comparing structured data (e.g., before/after schemas, flag mappings).
+- Keep paragraphs short (3-5 sentences). Human working memory holds ~4 chunks — each paragraph should be one coherent idea.
+- Lead each paragraph with a topic sentence that states the key point. Supporting details follow.
+- Use transition phrases to connect paragraphs ("Building on this...", "To support this...").
+- Use commit history and PR discussion to understand the development progression.
 
-RULES:
-- Use EXACT group names and file paths from the context above.
-- Every group MUST be referenced at least once with [[group:...]].
-- For line references, ALWAYS use the form [[line:path#Lstart-Lend]](text). NEVER use bare [[line:...]] without (text).
-- The (text) should be a natural description of what the code does, NOT the file name or line numbers. The reader should not see any line numbers — they just see underlined text they can click.
-- Do NOT place [[file:...]] and [[line:...]] next to each other for the same file. Use [[line:...]] with descriptive text instead — it already opens the file.
-- Aim for most sentences about code to have at least one [[line:...]](...) reference.
+## Anchor Syntax (CRITICAL — this is how readers navigate from your text to the actual code)
+
+1. [[group:Group Name]] — clickable chip that opens group details.
+2. [[file:path/to/file.ts]] — clickable chip that opens the file diff.
+3. [[line:path/to/file.ts#L42-L50]](descriptive text) — the text becomes a subtle underlined link. Clicking opens the diff scrolled to those lines. The line numbers are NOT visible — only the descriptive text shows.
+
+### Line Anchor Rules:
+- ALWAYS use [[line:path#Lstart-Lend]](text) with BOTH start and end lines. Single lines: [[line:path#L42-L42]](text).
+- The (text) must describe WHAT the code does, not WHERE it is. Bad: "lines 42-50". Good: "the new rate limiter middleware".
+- Wrap EVERY specific code mention in a line anchor. If you mention a function, class, type, constant, config change, or import — anchor it.
+- Interleave anchors naturally within sentences. They should feel like hyperlinks in a wiki article.
+- Do NOT pair [[file:...]] with [[line:...]] for the same file. The line anchor already opens the file.
+- Use the diff context provided to find accurate line numbers. If unsure of exact lines, use [[file:...]] instead.
+
+### Line Anchor Granularity:
+- Anchor individual functions, not entire files: [[line:auth.ts#L15-L30]](validateToken) not [[line:auth.ts#L1-L200]](auth module)
+- Anchor key type definitions: [[line:types.ts#L5-L12]](the new UserSession interface)
+- Anchor config/schema changes: [[line:schema.ts#L42-L45]](the added rate_limit field)
+- Anchor imports and exports that wire things together: [[line:index.ts#L3-L3]](re-exported from the barrel file)
+- For multi-part changes, anchor each part separately
 
 GOOD example:
-"The [[group:Auth Flow]] group introduces session management. [[line:src/auth/session.ts#L15-L30]](The new validateToken function) handles JWT parsing, and [[line:src/auth/middleware.ts#L8-L12]](the auth middleware) invokes it on every request."
+"The [[group:Auth Flow]] group introduces session management. [[line:src/auth/session.ts#L15-L30]](The new validateToken function) parses JWT tokens and verifies their signature against [[line:src/auth/config.ts#L8-L8]](the configured secret). [[line:src/auth/middleware.ts#L8-L20]](The auth middleware) invokes it on every request, rejecting invalid tokens with a 401. This integrates with the existing Express pipeline via [[line:src/app.ts#L42-L42]](the middleware registration)."
 
-BAD example (DO NOT do this):
-"The new validateToken function [[line:src/auth/session.ts#L15-L30]] in [[file:src/auth/session.ts]] handles JWT parsing."`,
+BAD example:
+"The new validateToken function [[line:src/auth/session.ts#L15-L30]] in [[file:src/auth/session.ts]] handles JWT parsing."
+
+${lang ? `CRITICAL: Write the ENTIRE narrative in ${lang}. Every sentence must be in ${lang}. Do NOT use English except for code identifiers, file paths, and anchor tokens.` : "If the PR title is in a non-English language, write the narrative in that same language."}`,
 		user: `PR Title: ${prTitle}\n\nSummary:\n- Purpose: ${summary.purpose}\n- Scope: ${summary.scope}\n- Impact: ${summary.impact}\n- Risk: ${summary.risk_level}\n\nChange Groups:\n${groupDetails}${commitCtx}${discussionCtx}${diffContext}`,
 	};
 }
@@ -229,9 +248,8 @@ export function buildEnrichedNarrativePrompt(
 
 	return {
 		system: `${base.system}
-You have access to full codebase analysis. Use it to explain HOW the changes relate to existing code, not just WHAT changed.
-Mention specific existing functions, modules, or patterns that are affected.
-Use [[group:Name]], [[file:path]], and [[line:path#L42-L50]](descriptive text) as instructed above.`,
+
+You have full codebase analysis below. Use it to explain HOW the changes relate to existing code — mention specific existing functions, patterns, and callers that are affected. This context should enrich your line anchor usage with cross-references to existing code.`,
 		user: `${base.user}\n\n--- CODEBASE CONTEXT (from agentic exploration) ---\n${context}`,
 	};
 }
