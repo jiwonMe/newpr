@@ -110,27 +110,48 @@ function useTokenizedLines(
 	return useMemo(() => {
 		if (!hl || !lang) return null;
 
-		const codeIndices: number[] = [];
-		const codeLines: string[] = [];
+		const newIndices: number[] = [];
+		const newLines: string[] = [];
+		const oldIndices: number[] = [];
+		const oldLines: string[] = [];
+
 		for (let i = 0; i < lines.length; i++) {
 			const t = lines[i]!.type;
-			if (t === "added" || t === "removed" || t === "context") {
-				codeIndices.push(i);
-				codeLines.push(lines[i]!.content);
+			if (t === "added" || t === "context") {
+				newIndices.push(i);
+				newLines.push(lines[i]!.content);
+			}
+			if (t === "removed") {
+				oldIndices.push(i);
+				oldLines.push(lines[i]!.content);
+			}
+			if (t === "context") {
+				oldIndices.push(i);
+				oldLines.push(lines[i]!.content);
 			}
 		}
 
-		if (codeLines.length === 0) return null;
+		const map: TokenMap = new Map();
+		const theme = dark ? "github-dark" : "github-light";
 
 		try {
-			const theme = dark ? "github-dark" : "github-light";
-			const result = hl.codeToTokens(codeLines.join("\n"), { lang, theme });
-			const map: TokenMap = new Map();
-			for (let j = 0; j < codeIndices.length; j++) {
-				const tokens = result.tokens[j];
-				if (tokens) map.set(codeIndices[j]!, tokens);
+			if (newLines.length > 0) {
+				const result = hl.codeToTokens(newLines.join("\n"), { lang, theme });
+				for (let j = 0; j < newIndices.length; j++) {
+					const tokens = result.tokens[j];
+					if (tokens) map.set(newIndices[j]!, tokens);
+				}
 			}
-			return map;
+			if (oldLines.length > 0) {
+				const result = hl.codeToTokens(oldLines.join("\n"), { lang, theme });
+				for (let j = 0; j < oldIndices.length; j++) {
+					if (!map.has(oldIndices[j]!)) {
+						const tokens = result.tokens[j];
+						if (tokens) map.set(oldIndices[j]!, tokens);
+					}
+				}
+			}
+			return map.size > 0 ? map : null;
 		} catch {
 			return null;
 		}
