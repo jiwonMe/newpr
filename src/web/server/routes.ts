@@ -11,6 +11,7 @@ import { writeStoredConfig, type StoredConfig } from "../../config/store.ts";
 import { startAnalysis, getSession, cancelAnalysis, subscribe, listActiveSessions } from "./session-manager.ts";
 import { generateCartoon } from "../../llm/cartoon.ts";
 import { generateSlides } from "../../llm/slides.ts";
+import { getPlugin, getAllPlugins } from "../../plugins/registry.ts";
 import { chatWithTools, type ChatTool, type ChatStreamEvent } from "../../llm/client.ts";
 import { detectAgents, runAgent } from "../../workspace/agent.ts";
 import { randomBytes } from "node:crypto";
@@ -80,6 +81,14 @@ export function createRoutes(token: string, config: NewprConfig, options: RouteO
 		imagePrompts?: Array<{ index: number; prompt: string }>;
 	}
 	const slideJobs = new Map<string, SlideJob>();
+
+	interface PluginJob {
+		status: "running" | "done" | "error";
+		message: string;
+		current: number;
+		total: number;
+	}
+	const pluginJobs = new Map<string, PluginJob>();
 
 	function buildChatSystemPrompt(data: NewprOutput): string {
 		const fileSummaries = data.files
@@ -1307,6 +1316,84 @@ $$
 			const sessionId = url.searchParams.get("sessionId");
 			if (!sessionId) return json({ error: "Missing sessionId" }, 400);
 			const job = slideJobs.get(sessionId);
+			if (!job) return json({ status: "idle" });
+			return json(job);
+		},
+
+		"GET /api/plugins": () => {
+			const plugins = getAllPlugins().map((p) => ({
+				id: p.id,
+				name: p.name,
+				description: p.description,
+				icon: p.icon,
+				tabLabel: p.tabLabel,
+			}));
+			return json(plugins);
+		},
+
+		"GET /api/plugins/:id/data": async (req: Request) => {
+			const url = new URL(req.url);
+			const segments = url.pathname.split("/");
+			const pluginId = segments[3]!;
+			const sessionId = url.searchParams.get("sessionId");
+			if (!sessionId) return json({ error: "Missing sessionId" }, 400);
+			const plugin = getPlugin(pluginId);
+			if (!plugin) return json({ error: `Unknown plugin: ${pluginId}` }, 404);
+			const data = await plugin.load(sessionId);
+			return json(data);
+		},
+
+		"POST /api/plugins/:id/generate": async (req: Request) => {
+			const url = new URL(req.url);
+			const segments = url.pathname.split("/");
+			const pluginId = segments[3]!;
+			const body = await req.json() as { sessionId?: string; resume?: boolean };
+			const sessionId = body.sessionId;
+			if (!sessionId) return json({ error: "Missing sessionId" }, 400);
+			if (!config.openrouter_api_key) return json({ error: "API key required" }, 400);
+
+			const plugin = getPlugin(pluginId);
+			if (!plugin) return json({ error: `Unknown plugin: ${pluginId}` }, 404);
+
+			const data = await loadSession(sessionId);
+			if (!data) return json({ error: "Session not found" }, 404);
+
+			const jobKey = `${pluginId}:${sessionId}`;
+			if (pluginJobs.has(jobKey) && pluginJobs.get(jobKey)!.status === "running") {
+				return json({ status: "already_running" });
+			}
+
+			const job: PluginJob = { status: "running", message: "Starting...", current: 0, total: 0 };
+			pluginJobs.set(jobKey, job);
+
+			const existingData = body.resume ? await plugin.load(sessionId) : null;
+
+			(async () => {
+				try {
+					const result = await plugin.generate(
+						{ apiKey: config.openrouter_api_key, sessionId, data, language: config.language },
+						(event) => { job.message = event.message; job.current = event.current; job.total = event.total; },
+						existingData,
+					);
+					await plugin.save(sessionId, result.data);
+					job.status = "done";
+					job.message = "Complete";
+				} catch (err) {
+					job.status = "error";
+					job.message = err instanceof Error ? err.message : String(err);
+				}
+			})();
+
+			return json({ status: "started" });
+		},
+
+		"GET /api/plugins/:id/status": async (req: Request) => {
+			const url = new URL(req.url);
+			const segments = url.pathname.split("/");
+			const pluginId = segments[3]!;
+			const sessionId = url.searchParams.get("sessionId");
+			if (!sessionId) return json({ error: "Missing sessionId" }, 400);
+			const job = pluginJobs.get(`${pluginId}:${sessionId}`);
 			if (!job) return json({ status: "idle" });
 			return json(job);
 		},

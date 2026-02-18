@@ -147,6 +147,18 @@ export async function startWebServer(options: WebServerOptions): Promise<void> {
 			if (path === "/api/slides/status" && req.method === "GET") {
 				return routes["GET /api/slides/status"](req);
 			}
+			if (path === "/api/plugins" && req.method === "GET") {
+				return routes["GET /api/plugins"]();
+			}
+			if (path.match(/^\/api\/plugins\/[^/]+\/data$/) && req.method === "GET") {
+				return routes["GET /api/plugins/:id/data"](req);
+			}
+			if (path.match(/^\/api\/plugins\/[^/]+\/generate$/) && req.method === "POST") {
+				return routes["POST /api/plugins/:id/generate"](req);
+			}
+			if (path.match(/^\/api\/plugins\/[^/]+\/status$/) && req.method === "GET") {
+				return routes["GET /api/plugins/:id/status"](req);
+			}
 			if (path === "/api/review" && req.method === "POST") {
 				return routes["POST /api/review"](req);
 			}
