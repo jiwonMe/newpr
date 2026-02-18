@@ -188,6 +188,7 @@ export function App() {
 					sessionId={diffSessionId}
 					onTabChange={setActiveTab}
 					onReanalyze={(prUrl: string) => { analysis.start(prUrl); }}
+					enabledPlugins={features.enabledPlugins}
 				/>
 			)}
 			{analysis.phase === "error" && (

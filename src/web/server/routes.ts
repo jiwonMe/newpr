@@ -7,7 +7,7 @@ import { fetchPrDiff } from "../../github/fetch-diff.ts";
 import { fetchPrBody, fetchPrComments } from "../../github/fetch-pr.ts";
 import { parseDiff } from "../../diff/parser.ts";
 import { parsePrInput } from "../../github/parse-pr.ts";
-import { writeStoredConfig, type StoredConfig } from "../../config/store.ts";
+import { readStoredConfig, writeStoredConfig, type StoredConfig } from "../../config/store.ts";
 import { startAnalysis, getSession, cancelAnalysis, subscribe, listActiveSessions } from "./session-manager.ts";
 import { generateCartoon } from "../../llm/cartoon.ts";
 import { generateSlides } from "../../llm/slides.ts";
@@ -493,6 +493,9 @@ $$
 		},
 
 		"GET /api/config": async () => {
+			const stored = await readStoredConfig();
+			const pluginList = getAllPlugins().map((p) => ({ id: p.id, name: p.name }));
+			const enabledPlugins = stored.enabled_plugins ?? pluginList.map((p) => p.id);
 			return json({
 				model: config.model,
 				agent: config.agent ?? null,
@@ -502,6 +505,8 @@ $$
 				concurrency: config.concurrency,
 				has_api_key: !!config.openrouter_api_key,
 				has_github_token: !!token,
+				enabled_plugins: enabledPlugins,
+				available_plugins: pluginList,
 				defaults: {
 					model: DEFAULT_CONFIG.model,
 					language: DEFAULT_CONFIG.language,
@@ -549,14 +554,20 @@ $$
 				update.concurrency = body.concurrency;
 				config.concurrency = body.concurrency;
 			}
+			if ((body as Record<string, unknown>).enabled_plugins !== undefined) {
+				update.enabled_plugins = (body as Record<string, unknown>).enabled_plugins as string[];
+			}
 
 			await writeStoredConfig(update);
 			return json({ ok: true });
 		},
 
-		"GET /api/features": () => {
+		"GET /api/features": async () => {
 			const { getVersion } = require("../../version.ts");
-			return json({ cartoon: !!options.cartoon, version: getVersion() });
+			const stored = await readStoredConfig();
+			const allPluginIds = getAllPlugins().map((p) => p.id);
+			const enabledPlugins = stored.enabled_plugins ?? allPluginIds;
+			return json({ cartoon: !!options.cartoon, version: getVersion(), enabledPlugins });
 		},
 
 		"POST /api/review": async (req: Request) => {

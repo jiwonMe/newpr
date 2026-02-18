@@ -10,6 +10,8 @@ interface ConfigData {
 	concurrency: number;
 	has_api_key: boolean;
 	has_github_token: boolean;
+	enabled_plugins: string[];
+	available_plugins: Array<{ id: string; name: string }>;
 	defaults: {
 		model: string;
 		language: string;
@@ -217,6 +219,34 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
 						<NumberInput value={config.concurrency} onChange={(v) => save({ concurrency: v })} />
 					</Row>
 				</Section>
+
+				{config.available_plugins.length > 0 && (
+					<Section title="Plugins">
+						{config.available_plugins.map((p) => {
+							const enabled = config.enabled_plugins.includes(p.id);
+							return (
+								<Row key={p.id} label={p.name}>
+									<button
+										type="button"
+										onClick={() => {
+											const next = enabled
+												? config.enabled_plugins.filter((id) => id !== p.id)
+												: [...config.enabled_plugins, p.id];
+											save({ enabled_plugins: next } as Record<string, unknown>);
+										}}
+										className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+											enabled ? "bg-foreground" : "bg-muted"
+										}`}
+									>
+										<span className={`inline-block h-3.5 w-3.5 rounded-full bg-background transition-transform ${
+											enabled ? "translate-x-4" : "translate-x-0.5"
+										}`} />
+									</button>
+								</Row>
+							);
+						})}
+					</Section>
+				)}
 			</div>
 		</div>
 	);

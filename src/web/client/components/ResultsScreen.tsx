@@ -49,6 +49,7 @@ export function ResultsScreen({
 	sessionId,
 	onTabChange,
 	onReanalyze,
+	enabledPlugins,
 }: {
 	data: NewprOutput;
 	onBack: () => void;
@@ -58,6 +59,7 @@ export function ResultsScreen({
 	sessionId?: string | null;
 	onTabChange?: (tab: string) => void;
 	onReanalyze?: (prUrl: string) => void;
+	enabledPlugins?: string[];
 }) {
 	const { meta, summary } = data;
 	const [tab, setTab] = useState<TabValue>(getInitialTab);
@@ -234,11 +236,13 @@ export function ResultsScreen({
 						<FolderTree className="h-3 w-3 shrink-0" />
 						Files
 					</TabsTrigger>
-					<TabsTrigger value="slides">
-						<Presentation className="h-3 w-3 shrink-0" />
-						Slides
-					</TabsTrigger>
-					{cartoonEnabled && (
+					{(!enabledPlugins || enabledPlugins.includes("slides")) && (
+						<TabsTrigger value="slides">
+							<Presentation className="h-3 w-3 shrink-0" />
+							Slides
+						</TabsTrigger>
+					)}
+					{cartoonEnabled && (!enabledPlugins || enabledPlugins.includes("cartoon")) && (
 						<TabsTrigger value="cartoon">
 							<Sparkles className="h-3 w-3 shrink-0" />
 							Comic

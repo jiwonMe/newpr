@@ -13,6 +13,7 @@ export interface StoredConfig {
 	concurrency?: number;
 	language?: string;
 	agent?: string;
+	enabled_plugins?: string[];
 }
 
 function ensureDir(): void {
