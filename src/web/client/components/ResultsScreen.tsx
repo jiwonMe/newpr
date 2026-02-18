@@ -242,7 +242,7 @@ export function ResultsScreen({
 							Slides
 						</TabsTrigger>
 					)}
-					{cartoonEnabled && (!enabledPlugins || enabledPlugins.includes("cartoon")) && (
+					{(!enabledPlugins || enabledPlugins.includes("cartoon")) && (
 						<TabsTrigger value="cartoon">
 							<Sparkles className="h-3 w-3 shrink-0" />
 							Comic

@@ -70,6 +70,9 @@ export async function startWebServer(options: WebServerOptions): Promise<void> {
 				GET: routes["GET /api/config"],
 				PUT: routes["PUT /api/config"],
 			},
+			"/api/models": {
+				GET: routes["GET /api/models"],
+			},
 		},
 		fetch(req) {
 			const url = new URL(req.url);

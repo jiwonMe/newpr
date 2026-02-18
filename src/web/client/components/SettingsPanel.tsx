@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
-import { X, Check, Loader2 } from "lucide-react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { X, Check, Loader2, Search, ChevronDown } from "lucide-react";
 
 interface ConfigData {
 	model: string;
@@ -21,13 +21,11 @@ interface ConfigData {
 	};
 }
 
-const MODELS = [
-	"anthropic/claude-sonnet-4.6",
-	"anthropic/claude-sonnet-4-20250514",
-	"openai/gpt-4.1",
-	"openai/o3",
-	"google/gemini-2.5-pro-preview-06-05",
-];
+interface ModelInfo {
+	id: string;
+	name: string;
+	contextLength?: number;
+}
 
 const AGENTS = [
 	{ value: "", label: "Auto" },
@@ -47,11 +45,20 @@ export function SettingsPanel({ onClose, onFeaturesChange }: { onClose: () => vo
 	const [saved, setSaved] = useState(false);
 	const [apiKeyInput, setApiKeyInput] = useState("");
 	const [showApiKeyField, setShowApiKeyField] = useState(false);
+	const [models, setModels] = useState<ModelInfo[]>([]);
 
 	useEffect(() => {
 		fetch("/api/config")
 			.then((r) => r.json())
-			.then((data) => setConfig(data as ConfigData))
+			.then((data) => {
+				setConfig(data as ConfigData);
+				if ((data as ConfigData).has_api_key) {
+					fetch("/api/models")
+						.then((r) => r.json())
+						.then((m) => setModels(m as ModelInfo[]))
+						.catch(() => {});
+				}
+			})
 			.catch(() => {});
 	}, []);
 
@@ -165,15 +172,15 @@ export function SettingsPanel({ onClose, onFeaturesChange }: { onClose: () => vo
 
 				<Section title="Model">
 					<Row label="LLM">
-						<select
-							value={config.model}
-							onChange={(e) => save({ model: e.target.value })}
-							className="h-7 rounded-md border bg-background px-2 text-[11px] font-mono focus:outline-none focus:border-foreground/20 cursor-pointer"
-						>
-							{MODELS.map((m) => (
-								<option key={m} value={m}>{m.split("/").pop()}</option>
-							))}
-						</select>
+						{config.has_api_key ? (
+							<ModelSelect
+								value={config.model}
+								models={models}
+								onChange={(id: string) => save({ model: id })}
+							/>
+						) : (
+							<span className="text-[11px] text-muted-foreground/40">Set API key first</span>
+						)}
 					</Row>
 					<Row label="Agent">
 						<div className="flex gap-px rounded-md border p-0.5">
@@ -255,6 +262,89 @@ export function SettingsPanel({ onClose, onFeaturesChange }: { onClose: () => vo
 					</Section>
 				)}
 			</div>
+		</div>
+	);
+}
+
+function ModelSelect({ value, models, onChange }: { value: string; models: ModelInfo[]; onChange: (id: string) => void }) {
+	const [open, setOpen] = useState(false);
+	const [search, setSearch] = useState("");
+	const ref = useRef<HTMLDivElement>(null);
+	const inputRef = useRef<HTMLInputElement>(null);
+
+	useEffect(() => {
+		if (!open) return;
+		const handler = (e: MouseEvent) => {
+			if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+		};
+		document.addEventListener("mousedown", handler);
+		return () => document.removeEventListener("mousedown", handler);
+	}, [open]);
+
+	useEffect(() => {
+		if (open) {
+			setSearch("");
+			setTimeout(() => inputRef.current?.focus(), 0);
+		}
+	}, [open]);
+
+	const filtered = search
+		? models.filter((m) => m.id.toLowerCase().includes(search.toLowerCase()) || m.name.toLowerCase().includes(search.toLowerCase()))
+		: models;
+
+	const displayName = value.split("/").pop() ?? value;
+
+	return (
+		<div ref={ref} className="relative">
+			<button
+				type="button"
+				onClick={() => setOpen(!open)}
+				className="flex items-center gap-1.5 h-7 rounded-md border bg-background px-2.5 text-[11px] font-mono hover:border-foreground/20 transition-colors max-w-[220px]"
+			>
+				<span className="truncate flex-1 text-left">{displayName}</span>
+				<ChevronDown className={`h-3 w-3 text-muted-foreground/40 shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
+			</button>
+			{open && (
+				<div className="absolute right-0 top-8 z-50 w-[320px] rounded-lg border bg-background shadow-lg">
+					<div className="p-1.5 border-b">
+						<div className="flex items-center gap-1.5 px-2 h-7 rounded-md bg-muted/50">
+							<Search className="h-3 w-3 text-muted-foreground/40 shrink-0" />
+							<input
+								ref={inputRef}
+								type="text"
+								value={search}
+								onChange={(e) => setSearch(e.target.value)}
+								placeholder="Search models..."
+								className="flex-1 bg-transparent text-[11px] focus:outline-none placeholder:text-muted-foreground/30"
+							/>
+						</div>
+					</div>
+					<div className="max-h-[240px] overflow-y-auto p-1">
+						{filtered.length === 0 && (
+							<div className="px-2 py-3 text-center text-[11px] text-muted-foreground/40">No models found</div>
+						)}
+						{filtered.slice(0, 50).map((m) => {
+							const isSelected = m.id === value;
+							const provider = m.id.split("/")[0] ?? "";
+							const name = m.id.split("/").slice(1).join("/");
+							return (
+								<button
+									key={m.id}
+									type="button"
+									onClick={() => { onChange(m.id); setOpen(false); }}
+									className={`w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${
+										isSelected ? "bg-accent" : "hover:bg-accent/50"
+									}`}
+								>
+									<span className="text-[10px] text-muted-foreground/40 w-[60px] shrink-0 truncate">{provider}</span>
+									<span className="text-[11px] font-mono truncate flex-1">{name}</span>
+									{isSelected && <Check className="h-3 w-3 text-foreground shrink-0" />}
+								</button>
+							);
+						})}
+					</div>
+				</div>
+			)}
 		</div>
 	);
 }

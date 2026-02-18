@@ -492,6 +492,28 @@ $$
 			}
 		},
 
+		"GET /api/models": async () => {
+			if (!config.openrouter_api_key) return json([]);
+			try {
+				const res = await fetch("https://openrouter.ai/api/v1/models", {
+					headers: { Authorization: `Bearer ${config.openrouter_api_key}` },
+				});
+				if (!res.ok) return json([]);
+				const data = await res.json() as { data?: Array<{ id: string; name: string; pricing?: { prompt?: string }; context_length?: number }> };
+				const models = (data.data ?? [])
+					.filter((m) => m.id && !m.id.includes(":free") && !m.id.includes(":extended"))
+					.map((m) => ({
+						id: m.id,
+						name: m.name ?? m.id,
+						contextLength: m.context_length,
+					}))
+					.sort((a, b) => a.id.localeCompare(b.id));
+				return json(models);
+			} catch {
+				return json([]);
+			}
+		},
+
 		"GET /api/config": async () => {
 			const stored = await readStoredConfig();
 			const pluginList = getAllPlugins().map((p) => ({ id: p.id, name: p.name }));
