@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Plus, Pencil, Trash2, ArrowRight, X, Loader2, AlertCircle } from "lucide-react";
 import type { FileGroup, FileChange, FileStatus } from "../../../types/output.ts";
 import { DiffViewer } from "./DiffViewer.tsx";
@@ -116,6 +116,7 @@ function FileDetail({
 }) {
 	const Icon = STATUS_ICON[file.status];
 	const { patch, loading, error, fetchPatch } = usePatchFetcher(sessionId, file.path);
+	const scrollContainerRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
 		if (sessionId && !patch && !loading && !error) {
@@ -141,7 +142,7 @@ function FileDetail({
 				</div>
 			</div>
 
-			<div className="flex-1 overflow-y-auto">
+			<div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
 				{loading && (
 					<div className="flex items-center justify-center py-16 gap-2">
 						<Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground/40" />
@@ -171,6 +172,7 @@ function FileDetail({
 						githubUrl={prUrl ? `${prUrl}/files` : undefined}
 						scrollToLine={scrollToLine}
 						scrollToLineEnd={scrollToLineEnd}
+						scrollContainerRef={scrollContainerRef}
 					/>
 				)}
 			</div>

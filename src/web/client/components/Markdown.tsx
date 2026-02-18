@@ -240,7 +240,7 @@ export function Markdown({ children, onAnchorClick, activeId }: MarkdownProps) {
 						className={`underline decoration-1 underline-offset-[3px] cursor-pointer transition-colors ${
 							isActive
 								? "decoration-blue-500 dark:decoration-blue-400 bg-blue-500/5 rounded-sm"
-								: "decoration-foreground/15 hover:decoration-foreground/40"
+								: "decoration-foreground/30 hover:decoration-foreground/60"
 						}`}
 					>
 						{children}
@@ -248,7 +248,7 @@ export function Markdown({ children, onAnchorClick, activeId }: MarkdownProps) {
 				);
 			}
 			if (lineRef) {
-				return <span className="underline decoration-foreground/10 decoration-1 underline-offset-[3px]">{children}</span>;
+				return <span className="underline decoration-foreground/25 decoration-1 underline-offset-[3px]">{children}</span>;
 			}
 			const { node, ...rest } = allProps as Record<string, unknown> & { node?: unknown };
 			return <span {...rest as React.HTMLAttributes<HTMLSpanElement>}>{children}</span>;

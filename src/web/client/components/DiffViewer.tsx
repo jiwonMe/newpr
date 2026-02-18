@@ -582,6 +582,7 @@ export function DiffViewer({
 	githubUrl,
 	scrollToLine,
 	scrollToLineEnd,
+	scrollContainerRef,
 }: {
 	patch: string;
 	filePath: string;
@@ -589,6 +590,7 @@ export function DiffViewer({
 	githubUrl?: string;
 	scrollToLine?: number;
 	scrollToLineEnd?: number;
+	scrollContainerRef?: React.RefObject<HTMLElement | null>;
 }) {
 	const [showAll, setShowAll] = useState(false);
 	const hl = useHighlighter();
@@ -632,11 +634,14 @@ export function DiffViewer({
 				}
 			}
 			if (scrollTarget) {
-				let scrollParent = scrollTarget.parentElement;
-				while (scrollParent) {
-					const style = getComputedStyle(scrollParent);
-					if (style.overflowY === "auto" || style.overflowY === "scroll") break;
-					scrollParent = scrollParent.parentElement;
+				let scrollParent: HTMLElement | null = scrollContainerRef?.current ?? null;
+				if (!scrollParent) {
+					scrollParent = scrollTarget.parentElement;
+					while (scrollParent) {
+						const style = getComputedStyle(scrollParent);
+						if (style.overflowY === "auto" || style.overflowY === "scroll") break;
+						scrollParent = scrollParent.parentElement;
+					}
 				}
 				if (scrollParent) {
 					const parentRect = scrollParent.getBoundingClientRect();
