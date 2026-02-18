@@ -328,14 +328,14 @@ export function Landing() {
 			</div>
 			<nav className="fixed top-8 left-0 right-0 z-50 bg-[#09090b]/80 backdrop-blur-xl border-b border-zinc-800/50">
 				<div className="max-w-[1080px] mx-auto px-6 h-14 flex items-center justify-between">
-					<a href="/" className="font-mono text-sm font-semibold tracking-tight">newpr</a>
+					<a href="/newpr/" className="font-mono text-sm font-semibold tracking-tight">newpr</a>
 					<div className="flex items-center gap-5">
 						<a href="#stacking" className="hidden sm:block text-[13px] text-zinc-500 hover:text-zinc-200 transition-colors">Stacking</a>
 						<a href="#features" className="hidden sm:block text-[13px] text-zinc-500 hover:text-zinc-200 transition-colors">Features</a>
 						<a href="#how" className="hidden sm:block text-[13px] text-zinc-500 hover:text-zinc-200 transition-colors">How it works</a>
 						<a href="#tools" className="hidden sm:block text-[13px] text-zinc-500 hover:text-zinc-200 transition-colors">Tools</a>
 						<a href="https://github.com/jiwonMe/newpr" target="_blank" rel="noopener" className="text-[13px] text-zinc-500 hover:text-zinc-200 transition-colors">GitHub</a>
-						<a href="/ko/" className="text-[13px] text-zinc-500 hover:text-zinc-200 transition-colors">KO</a>
+						<a href="/newpr/ko/" className="text-[13px] text-zinc-500 hover:text-zinc-200 transition-colors">KO</a>
 						<a href="https://www.npmjs.com/package/newpr" target="_blank" rel="noopener" className="h-8 px-3.5 bg-white text-black text-[13px] font-medium rounded-lg flex items-center hover:bg-zinc-200 transition-colors">Install</a>
 					</div>
 				</div>

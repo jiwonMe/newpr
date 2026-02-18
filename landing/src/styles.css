@@ -4,3 +4,7 @@
   --font-sans: 'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
 }
+
+h1, h2, h3, p {
+  text-wrap: balance;
+}

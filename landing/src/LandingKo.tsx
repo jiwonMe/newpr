@@ -327,14 +327,14 @@ export function LandingKo() {
 			</div>
 			<nav className="fixed top-8 left-0 right-0 z-50 bg-[#09090b]/80 backdrop-blur-xl border-b border-zinc-800/50">
 				<div className="max-w-[1080px] mx-auto px-6 h-14 flex items-center justify-between">
-					<a href="/ko/" className="font-mono text-sm font-semibold tracking-tight">newpr</a>
+					<a href="/newpr/ko/" className="font-mono text-sm font-semibold tracking-tight">newpr</a>
 					<div className="flex items-center gap-5">
 						<a href="#stacking" className="hidden sm:block text-[13px] text-zinc-500 hover:text-zinc-200 transition-colors">{"\uc2a4\ud0dc\ud0b9"}</a>
 						<a href="#features" className="hidden sm:block text-[13px] text-zinc-500 hover:text-zinc-200 transition-colors">{"\uae30\ub2a5"}</a>
 						<a href="#how" className="hidden sm:block text-[13px] text-zinc-500 hover:text-zinc-200 transition-colors">{"\uc791\ub3d9 \ubc29\uc2dd"}</a>
 						<a href="#tools" className="hidden sm:block text-[13px] text-zinc-500 hover:text-zinc-200 transition-colors">{"\ub3c4\uad6c"}</a>
 						<a href="https://github.com/jiwonMe/newpr" target="_blank" rel="noopener" className="text-[13px] text-zinc-500 hover:text-zinc-200 transition-colors">GitHub</a>
-						<a href="/" className="text-[13px] text-zinc-500 hover:text-zinc-200 transition-colors">EN</a>
+						<a href="/newpr/" className="text-[13px] text-zinc-500 hover:text-zinc-200 transition-colors">EN</a>
 						<a href="https://www.npmjs.com/package/newpr" target="_blank" rel="noopener" className="h-8 px-3.5 bg-white text-black text-[13px] font-medium rounded-lg flex items-center hover:bg-zinc-200 transition-colors">{"\uc124\uce58"}</a>
 					</div>
 				</div>
