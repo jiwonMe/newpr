@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { mkdirSync, rmSync, existsSync } from "node:fs";
 import { randomBytes } from "node:crypto";
-import type { NewprOutput, DiffComment, ChatMessage, CartoonImage } from "../types/output.ts";
+import type { NewprOutput, DiffComment, ChatMessage, CartoonImage, SlideDeck } from "../types/output.ts";
 import type { SessionRecord } from "./types.ts";
 
 const HISTORY_DIR = join(homedir(), ".newpr", "history");
@@ -192,6 +192,30 @@ export async function loadCartoonSidecar(
 		const file = Bun.file(filePath);
 		if (!(await file.exists())) return null;
 		return JSON.parse(await file.text()) as CartoonImage;
+	} catch {
+		return null;
+	}
+}
+
+export async function saveSlidesSidecar(
+	id: string,
+	deck: SlideDeck,
+): Promise<void> {
+	ensureDirs();
+	await Bun.write(
+		join(SESSIONS_DIR, `${id}.slides.json`),
+		JSON.stringify(deck),
+	);
+}
+
+export async function loadSlidesSidecar(
+	id: string,
+): Promise<SlideDeck | null> {
+	try {
+		const filePath = join(SESSIONS_DIR, `${id}.slides.json`);
+		const file = Bun.file(filePath);
+		if (!(await file.exists())) return null;
+		return JSON.parse(await file.text()) as SlideDeck;
 	} catch {
 		return null;
 	}

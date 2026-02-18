@@ -1,7 +1,7 @@
 import type { NewprConfig } from "../../types/config.ts";
 import type { NewprOutput, ChatMessage, ChatToolCall, ChatSegment } from "../../types/output.ts";
 import { DEFAULT_CONFIG } from "../../types/config.ts";
-import { listSessions, loadSession, loadSinglePatch, savePatchesSidecar, loadCommentsSidecar, saveCommentsSidecar, loadChatSidecar, saveChatSidecar, loadPatchesSidecar, saveCartoonSidecar, loadCartoonSidecar } from "../../history/store.ts";
+import { listSessions, loadSession, loadSinglePatch, savePatchesSidecar, loadCommentsSidecar, saveCommentsSidecar, loadChatSidecar, saveChatSidecar, loadPatchesSidecar, saveCartoonSidecar, loadCartoonSidecar, saveSlidesSidecar, loadSlidesSidecar } from "../../history/store.ts";
 import type { DiffComment } from "../../types/output.ts";
 import { fetchPrDiff } from "../../github/fetch-diff.ts";
 import { fetchPrBody, fetchPrComments } from "../../github/fetch-pr.ts";
@@ -10,6 +10,7 @@ import { parsePrInput } from "../../github/parse-pr.ts";
 import { writeStoredConfig, type StoredConfig } from "../../config/store.ts";
 import { startAnalysis, getSession, cancelAnalysis, subscribe, listActiveSessions } from "./session-manager.ts";
 import { generateCartoon } from "../../llm/cartoon.ts";
+import { generateSlides } from "../../llm/slides.ts";
 import { chatWithTools, type ChatTool, type ChatStreamEvent } from "../../llm/client.ts";
 import { detectAgents, runAgent } from "../../workspace/agent.ts";
 import { randomBytes } from "node:crypto";
@@ -1227,6 +1228,59 @@ $$
 			} catch (err) {
 				const msg = err instanceof Error ? err.message : String(err);
 				return json({ error: msg }, 500);
+			}
+		},
+		"GET /api/sessions/:id/slides": async (req: Request) => {
+			const url = new URL(req.url);
+			const segments = url.pathname.split("/");
+			const id = segments[3]!;
+			const deck = await loadSlidesSidecar(id);
+			if (!deck) return json(null);
+			return json(deck);
+		},
+
+		"POST /api/slides": async (req: Request) => {
+			if (!config.openrouter_api_key) return json({ error: "OpenRouter API key required" }, 400);
+
+			try {
+				const body = await req.json() as { sessionId?: string; language?: string };
+				const sessionId = body.sessionId;
+				if (!sessionId) return json({ error: "Missing sessionId" }, 400);
+
+				const data = await loadSession(sessionId);
+				if (!data) return json({ error: "Session not found" }, 404);
+
+				const encoder = new TextEncoder();
+				const stream = new ReadableStream({
+					async start(controller) {
+						const send = (eventType: string, payload: string) => {
+							controller.enqueue(encoder.encode(`event: ${eventType}\ndata: ${payload}\n\n`));
+						};
+						try {
+							const deck = await generateSlides(
+								config.openrouter_api_key,
+								data,
+								config.model,
+								body.language ?? config.language,
+								(msg, current, total) => {
+									send("progress", JSON.stringify({ message: msg, current, total }));
+								},
+							);
+							await saveSlidesSidecar(sessionId, deck);
+							send("done", JSON.stringify({ slideCount: deck.slides.length }));
+						} catch (err) {
+							send("error", JSON.stringify({ message: err instanceof Error ? err.message : String(err) }));
+						} finally {
+							controller.close();
+						}
+					},
+				});
+
+				return new Response(stream, {
+					headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
+				});
+			} catch (err) {
+				return json({ error: err instanceof Error ? err.message : String(err) }, 500);
 			}
 		},
 	};

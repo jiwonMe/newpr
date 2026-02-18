@@ -138,6 +138,12 @@ export async function startWebServer(options: WebServerOptions): Promise<void> {
 			if (path === "/api/cartoon" && req.method === "POST") {
 				return routes["POST /api/cartoon"](req);
 			}
+			if (path.match(/^\/api\/sessions\/[^/]+\/slides$/) && req.method === "GET") {
+				return routes["GET /api/sessions/:id/slides"](req);
+			}
+			if (path === "/api/slides" && req.method === "POST") {
+				return routes["POST /api/slides"](req);
+			}
 			if (path === "/api/review" && req.method === "POST") {
 				return routes["POST /api/review"](req);
 			}

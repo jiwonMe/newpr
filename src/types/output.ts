@@ -107,6 +107,18 @@ export interface ChatMessage {
 	timestamp: string;
 }
 
+export interface SlideImage {
+	index: number;
+	imageBase64: string;
+	mimeType: string;
+	title: string;
+}
+
+export interface SlideDeck {
+	slides: SlideImage[];
+	generatedAt: string;
+}
+
 export interface NewprOutput {
 	meta: PrMeta;
 	summary: PrSummary;

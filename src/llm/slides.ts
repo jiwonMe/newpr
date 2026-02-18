@@ -1,0 +1,224 @@
+import type { NewprOutput, SlideImage, SlideDeck } from "../types/output.ts";
+
+interface SlideSpec {
+	index: number;
+	title: string;
+	contentPrompt: string;
+}
+
+interface SlidePlan {
+	stylePrompt: string;
+	slides: SlideSpec[];
+}
+
+function getSystemLanguage(): string {
+	const env = process.env.LANG ?? process.env.LANGUAGE ?? process.env.LC_ALL ?? "";
+	if (env.startsWith("ko")) return "Korean";
+	if (env.startsWith("ja")) return "Japanese";
+	if (env.startsWith("zh")) return "Chinese";
+	if (env.startsWith("es")) return "Spanish";
+	if (env.startsWith("fr")) return "French";
+	if (env.startsWith("de")) return "German";
+	return "English";
+}
+
+function buildPlanPrompt(data: NewprOutput, language?: string): { system: string; user: string } {
+	const lang = language ?? getSystemLanguage();
+	const groupDetails = data.groups.map((g) => `- ${g.name} (${g.type}): ${g.description}\n  Files: ${g.files.join(", ")}${g.key_changes ? `\n  Key changes: ${g.key_changes.join("; ")}` : ""}${g.risk ? `\n  Risk: ${g.risk}` : ""}`).join("\n");
+	const fileSummaries = data.files.slice(0, 30).map((f) => `- ${f.path} (${f.status}, +${f.additions}/-${f.deletions}): ${f.summary}`).join("\n");
+
+	return {
+		system: `You are a presentation designer creating a slide deck that explains a Pull Request to a development team.
+
+You must output a JSON object with:
+1. "stylePrompt": A detailed visual style description for ALL slides. This should describe:
+   - Overall aesthetic (modern, minimal, dark/light theme)
+   - Typography style (font sizes, weights, hierarchy)
+   - Color palette (specific hex colors for background, text, accents)
+   - Layout principles (margins, alignment, spacing)
+   - Visual elements (code blocks style, diagrams style, icons usage)
+   - The style should be consistent across all slides
+   - Slides are 16:9 aspect ratio (1920x1080)
+
+2. "slides": An array of slide specifications. Each slide has:
+   - "index": slide number (0-based)
+   - "title": slide title text (in ${lang})
+   - "contentPrompt": A VERY detailed prompt describing exactly what should be on this slide — text content, layout, visual elements, code snippets if relevant. All text content must be in ${lang}. Be extremely specific about positioning and content.
+
+Decide the number of slides based on the PR complexity:
+- Small PR (1-3 groups, <10 files): 4-6 slides
+- Medium PR (3-6 groups, 10-30 files): 6-10 slides
+- Large PR (6+ groups, 30+ files): 8-14 slides
+
+Typical slide structure:
+- Slide 0: Title slide with PR name, author, repo, key stats
+- Slide 1: Overview/motivation — why this PR exists
+- Middle slides: One or more slides per major change group, showing key changes
+- Near-end: Architecture/dependency impact if relevant
+- Final slide: Summary with risk assessment and review notes
+
+Respond ONLY with the JSON object. No markdown, no explanation.`,
+		user: `PR: #${data.meta.pr_number} "${data.meta.pr_title}"
+Author: ${data.meta.author}
+Repo: ${data.meta.pr_url.split("/pull/")[0]?.split("github.com/")[1] ?? ""}
+Branches: ${data.meta.head_branch} → ${data.meta.base_branch}
+Stats: ${data.meta.total_files_changed} files, +${data.meta.total_additions} -${data.meta.total_deletions}
+Risk: ${data.summary.risk_level}
+State: ${data.meta.pr_state ?? "open"}
+
+Purpose: ${data.summary.purpose}
+Scope: ${data.summary.scope}
+Impact: ${data.summary.impact}
+
+Change Groups:
+${groupDetails}
+
+File Summaries:
+${fileSummaries}
+
+Narrative:
+${data.narrative.slice(0, 3000)}`,
+	};
+}
+
+function buildImagePrompt(stylePrompt: string, slide: SlideSpec): string {
+	return `Generate a presentation slide image. 16:9 aspect ratio (1920x1080 pixels).
+
+VISUAL STYLE (apply consistently):
+${stylePrompt}
+
+THIS SLIDE (slide ${slide.index + 1}):
+Title: "${slide.title}"
+
+CONTENT AND LAYOUT:
+${slide.contentPrompt}
+
+CRITICAL REQUIREMENTS:
+- This is a real presentation slide, not an illustration or diagram
+- All text must be clearly readable
+- Use proper text hierarchy (title, subtitle, body, captions)
+- Maintain consistent margins and alignment
+- The slide should look professional and polished
+- Render all text exactly as specified — do not paraphrase or translate`;
+}
+
+async function callGeminiImageGen(apiKey: string, prompt: string): Promise<{ base64: string; mimeType: string }> {
+	const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+		method: "POST",
+		headers: {
+			Authorization: `Bearer ${apiKey}`,
+			"Content-Type": "application/json",
+			"HTTP-Referer": "https://github.com/jiwonMe/newpr",
+			"X-Title": "newpr",
+		},
+		body: JSON.stringify({
+			model: "google/gemini-2.5-flash-preview-native-image-gen",
+			messages: [{ role: "user", content: prompt }],
+			provider: { require_parameters: true },
+			response_format: { type: "image" },
+		}),
+	});
+
+	if (!res.ok) {
+		const body = await res.text();
+		throw new Error(`Gemini API error ${res.status}: ${body.slice(0, 200)}`);
+	}
+
+	const json = await res.json() as {
+		choices?: Array<{
+			message?: {
+				content?: Array<{
+					type: string;
+					image_url?: { url: string };
+				}> | string;
+			};
+		}>;
+	};
+
+	const content = json.choices?.[0]?.message?.content;
+	if (typeof content === "string") {
+		const match = content.match(/data:([^;]+);base64,(.+)/s);
+		if (match) return { mimeType: match[1]!, base64: match[2]! };
+		throw new Error("Unexpected string response from Gemini");
+	}
+
+	if (Array.isArray(content)) {
+		for (const part of content) {
+			if (part.type === "image_url" && part.image_url?.url) {
+				const url = part.image_url.url;
+				const match = url.match(/data:([^;]+);base64,(.+)/s);
+				if (match) return { mimeType: match[1]!, base64: match[2]! };
+			}
+		}
+	}
+
+	throw new Error("No image data in Gemini response");
+}
+
+export async function generateSlides(
+	apiKey: string,
+	data: NewprOutput,
+	planModel: string,
+	language?: string,
+	onProgress?: (msg: string, current: number, total: number) => void,
+): Promise<SlideDeck> {
+	onProgress?.("Planning slide deck...", 0, 1);
+
+	const planPrompt = buildPlanPrompt(data, language);
+	const planRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+		method: "POST",
+		headers: {
+			Authorization: `Bearer ${apiKey}`,
+			"Content-Type": "application/json",
+			"HTTP-Referer": "https://github.com/jiwonMe/newpr",
+			"X-Title": "newpr",
+		},
+		body: JSON.stringify({
+			model: planModel,
+			messages: [
+				{ role: "system", content: planPrompt.system },
+				{ role: "user", content: planPrompt.user },
+			],
+			temperature: 0.4,
+			response_format: { type: "json_object" },
+		}),
+	});
+
+	if (!planRes.ok) {
+		throw new Error(`Plan API error: ${planRes.status}`);
+	}
+
+	const planJson = await planRes.json() as { choices: Array<{ message: { content: string } }> };
+	let rawContent = planJson.choices[0]?.message?.content ?? "";
+	rawContent = rawContent.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+	const plan = JSON.parse(rawContent) as SlidePlan;
+
+	if (!plan.slides || plan.slides.length === 0) throw new Error("Empty slide plan");
+
+	const total = plan.slides.length;
+	onProgress?.(`Generating ${total} slides...`, 0, total);
+
+	const results = await Promise.all(
+		plan.slides.map(async (spec) => {
+			const prompt = buildImagePrompt(plan.stylePrompt, spec);
+			try {
+				const img = await callGeminiImageGen(apiKey, prompt);
+				onProgress?.(`Slide ${spec.index + 1}/${total} done`, spec.index + 1, total);
+				return {
+					index: spec.index,
+					imageBase64: img.base64,
+					mimeType: img.mimeType,
+					title: spec.title,
+				} as SlideImage;
+			} catch (err) {
+				onProgress?.(`Slide ${spec.index + 1}/${total} failed: ${err instanceof Error ? err.message : String(err)}`, spec.index + 1, total);
+				return null;
+			}
+		}),
+	);
+
+	const slides = results.filter((r): r is SlideImage => r !== null).sort((a, b) => a.index - b.index);
+	if (slides.length === 0) throw new Error("All slide generations failed");
+
+	return { slides, generatedAt: new Date().toISOString() };
+}
