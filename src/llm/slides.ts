@@ -1,4 +1,5 @@
 import type { NewprOutput, SlideImage, SlideDeck, SlidePlan, SlideSpec } from "../types/output.ts";
+import { detectAgents, runAgent } from "../workspace/agent.ts";
 
 function getSystemLanguage(): string {
 	const env = process.env.LANG ?? process.env.LANGUAGE ?? process.env.LC_ALL ?? "";
@@ -151,8 +152,10 @@ async function renderSlides(
 	const completed: SlideImage[] = [];
 	const failed: number[] = [];
 
+	let doneCount = 0;
 	await Promise.all(
 		specsToRender.map(async (spec) => {
+			onProgress?.(`Rendering slide ${spec.index + 1}/${totalPlan}: "${spec.title}"`, doneCount, specsToRender.length);
 			const prompt = buildImagePrompt(plan.stylePrompt, spec);
 			try {
 				const img = await callGeminiImageGen(apiKey, prompt);
@@ -162,10 +165,12 @@ async function renderSlides(
 					mimeType: img.mimeType,
 					title: spec.title,
 				});
-				onProgress?.(`Slide ${spec.index + 1}/${totalPlan} done`, completed.length, specsToRender.length);
+				doneCount++;
+				onProgress?.(`Slide ${spec.index + 1}/${totalPlan} done (${doneCount}/${specsToRender.length})`, doneCount, specsToRender.length);
 			} catch (err) {
 				failed.push(spec.index);
-				onProgress?.(`Slide ${spec.index + 1}/${totalPlan} failed: ${err instanceof Error ? err.message : String(err)}`, completed.length, specsToRender.length);
+				doneCount++;
+				onProgress?.(`Slide ${spec.index + 1}/${totalPlan} failed: ${err instanceof Error ? err.message : String(err)}`, doneCount, specsToRender.length);
 			}
 		}),
 	);
@@ -189,31 +194,51 @@ export async function generateSlides(
 	} else {
 		onProgress?.("Planning slide deck...", 0, 1);
 		const planPrompt = buildPlanPrompt(data, language);
-		const planRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-			method: "POST",
-			headers: {
-				Authorization: `Bearer ${apiKey}`,
-				"Content-Type": "application/json",
-				"HTTP-Referer": "https://github.com/jiwonMe/newpr",
-				"X-Title": "newpr",
-			},
-			body: JSON.stringify({
-				model: planModel,
-				messages: [
-					{ role: "system", content: planPrompt.system },
-					{ role: "user", content: planPrompt.user },
-				],
-				temperature: 0.4,
-				response_format: { type: "json_object" },
-			}),
-		});
+		let rawContent = "";
 
-		if (!planRes.ok) throw new Error(`Plan API error: ${planRes.status}`);
-		const planJson = await planRes.json() as { choices: Array<{ message: { content: string } }> };
-		let rawContent = planJson.choices[0]?.message?.content ?? "";
+		const agents = await detectAgents();
+		if (agents.length > 0) {
+			onProgress?.(`Planning via ${agents[0]!.name}...`, 0, 1);
+			try {
+				const result = await runAgent(agents[0]!, process.cwd(), `${planPrompt.system}\n\n${planPrompt.user}\n\nRespond ONLY with the JSON object.`, { timeout: 120_000 });
+				rawContent = result.answer;
+			} catch {}
+		}
+
+		if (!rawContent.includes('"slides"')) {
+			onProgress?.("Planning via OpenRouter...", 0, 1);
+			const planRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					Authorization: `Bearer ${apiKey}`,
+					"Content-Type": "application/json",
+					"HTTP-Referer": "https://github.com/jiwonMe/newpr",
+					"X-Title": "newpr",
+				},
+				body: JSON.stringify({
+					model: planModel,
+					messages: [
+						{ role: "system", content: planPrompt.system },
+						{ role: "user", content: planPrompt.user },
+					],
+					temperature: 0.4,
+					response_format: { type: "json_object" },
+				}),
+			});
+			if (!planRes.ok) throw new Error(`Plan API error: ${planRes.status}`);
+			const planJson = await planRes.json() as { choices: Array<{ message: { content: string } }> };
+			rawContent = planJson.choices[0]?.message?.content ?? "";
+		}
+
 		rawContent = rawContent.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+		const jsonStart = rawContent.indexOf("{");
+		const jsonEnd = rawContent.lastIndexOf("}");
+		if (jsonStart >= 0 && jsonEnd > jsonStart) {
+			rawContent = rawContent.slice(jsonStart, jsonEnd + 1);
+		}
 		plan = JSON.parse(rawContent) as SlidePlan;
 		if (!plan.slides || plan.slides.length === 0) throw new Error("Empty slide plan");
+		onProgress?.(`Plan ready: ${plan.slides.length} slides`, 0, plan.slides.length);
 	}
 
 	const existingSlides = existingDeck?.slides ?? [];
