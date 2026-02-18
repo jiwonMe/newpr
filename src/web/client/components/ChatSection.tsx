@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext } from "react";
-import { Loader2, ChevronRight, CornerDownLeft } from "lucide-react";
+import { Loader2, ChevronRight, ChevronDown, CornerDownLeft, FoldVertical } from "lucide-react";
 import type { ChatMessage, ChatToolCall, ChatSegment } from "../../../types/output.ts";
 import { Markdown } from "./Markdown.tsx";
 import { TipTapEditor, getTextWithAnchors, type AnchorItem, type CommandItem } from "./TipTapEditor.tsx";
@@ -144,6 +144,34 @@ function AssistantMessage({ segments, activeToolName, isStreaming, onAnchorClick
 	);
 }
 
+function CompactSummary({ message }: { message: ChatMessage }) {
+	const [expanded, setExpanded] = useState(false);
+	return (
+		<div className="rounded-lg border border-dashed bg-muted/30 px-3 py-2">
+			<button
+				type="button"
+				onClick={() => setExpanded(!expanded)}
+				className="flex items-center gap-2 w-full text-left"
+			>
+				<FoldVertical className="h-3 w-3 text-muted-foreground/40 shrink-0" />
+				<span className="text-[10px] text-muted-foreground/50 flex-1">
+					{message.compactedCount ? `${message.compactedCount} messages compacted` : "Conversation compacted"}
+				</span>
+				{expanded ? (
+					<ChevronDown className="h-3 w-3 text-muted-foreground/30 shrink-0" />
+				) : (
+					<ChevronRight className="h-3 w-3 text-muted-foreground/30 shrink-0" />
+				)}
+			</button>
+			{expanded && (
+				<div className="mt-2 pt-2 border-t border-dashed text-[11px] text-muted-foreground/60 leading-relaxed">
+					<Markdown>{message.content}</Markdown>
+				</div>
+			)}
+		</div>
+	);
+}
+
 export function ChatMessages({ onAnchorClick, activeId }: {
 	onAnchorClick?: (kind: "group" | "file" | "line", id: string) => void;
 	activeId?: string | null;
@@ -202,6 +230,9 @@ export function ChatMessages({ onAnchorClick, activeId }: {
 		<div ref={containerRef} className="border-t mt-6 pt-5 space-y-5">
 			<div className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider">Chat</div>
 			{messages.map((msg, i) => {
+				if (msg.isCompactSummary) {
+					return <CompactSummary key={`compact-${i}`} message={msg} />;
+				}
 				const isFromPreviousAnalysis = analyzedAt && msg.timestamp && msg.timestamp < analyzedAt;
 				let divider = null;
 				if (isFromPreviousAnalysis && !shownOutdatedDivider) {

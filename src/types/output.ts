@@ -105,6 +105,8 @@ export interface ChatMessage {
 	segments?: ChatSegment[];
 	toolCallId?: string;
 	timestamp: string;
+	isCompactSummary?: boolean;
+	compactedCount?: number;
 }
 
 export interface SlideImage {

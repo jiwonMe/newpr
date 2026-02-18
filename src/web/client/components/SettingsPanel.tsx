@@ -268,16 +268,11 @@ export function SettingsPanel({ onClose, onFeaturesChange }: { onClose: () => vo
 	);
 }
 
-function ModelSelect({ value, models: initialModels, onChange }: { value: string; models: ModelInfo[]; onChange: (id: string) => void }) {
+function ModelSelect({ value, models: allModels, onChange }: { value: string; models: ModelInfo[]; onChange: (id: string) => void }) {
 	const [open, setOpen] = useState(false);
 	const [search, setSearch] = useState("");
-	const [models, setModels] = useState<ModelInfo[]>(initialModels);
-	const [loading, setLoading] = useState(false);
 	const ref = useRef<HTMLDivElement>(null);
 	const inputRef = useRef<HTMLInputElement>(null);
-	const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-	useEffect(() => { setModels(initialModels); }, [initialModels]);
 
 	useEffect(() => {
 		if (!open) return;
@@ -288,28 +283,17 @@ function ModelSelect({ value, models: initialModels, onChange }: { value: string
 		return () => document.removeEventListener("mousedown", handler);
 	}, [open]);
 
-	const fetchModels = useCallback((q: string) => {
-		setLoading(true);
-		fetch(`/api/models${q ? `?q=${encodeURIComponent(q)}` : ""}`)
-			.then((r) => r.json())
-			.then((data) => setModels(data as ModelInfo[]))
-			.catch(() => {})
-			.finally(() => setLoading(false));
-	}, []);
-
 	useEffect(() => {
 		if (open) {
 			setSearch("");
-			fetchModels("");
 			setTimeout(() => inputRef.current?.focus(), 0);
 		}
-	}, [open, fetchModels]);
+	}, [open]);
 
-	const handleSearch = useCallback((q: string) => {
-		setSearch(q);
-		if (debounceRef.current) clearTimeout(debounceRef.current);
-		debounceRef.current = setTimeout(() => fetchModels(q), 300);
-	}, [fetchModels]);
+	const q = search.toLowerCase();
+	const models = q
+		? allModels.filter((m) => m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q))
+		: allModels;
 
 	const displayName = value.split("/").pop() ?? value;
 
@@ -332,15 +316,14 @@ function ModelSelect({ value, models: initialModels, onChange }: { value: string
 								ref={inputRef}
 								type="text"
 								value={search}
-								onChange={(e) => handleSearch(e.target.value)}
+								onChange={(e) => setSearch(e.target.value)}
 								placeholder="Search models..."
 								className="flex-1 bg-transparent text-[11px] focus:outline-none placeholder:text-muted-foreground/30"
 							/>
-							{loading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/30 shrink-0" />}
-						</div>
 					</div>
-					<div className="max-h-[280px] overflow-y-auto p-1">
-						{models.length === 0 && !loading && (
+				</div>
+				<div className="max-h-[280px] overflow-y-auto p-1">
+					{models.length === 0 && (
 							<div className="px-2 py-3 text-center text-[11px] text-muted-foreground/40">No models found</div>
 						)}
 						{models.slice(0, 80).map((m, i) => {

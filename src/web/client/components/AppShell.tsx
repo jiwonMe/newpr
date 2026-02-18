@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
-import { Sun, Moon, Monitor, Plus, Settings, ArrowUp, Loader2, X, Check, AlertCircle, ChevronRight } from "lucide-react";
+import { Sun, Moon, Monitor, Plus, Settings, ArrowUp, Loader2, X, Check, AlertCircle, ChevronRight, Download } from "lucide-react";
+import { useUpdateCheck } from "../hooks/useUpdateCheck.ts";
 import type { BackgroundAnalysis } from "../hooks/useBackgroundAnalyses.ts";
 import { useChatLoadingIndicator } from "../hooks/useChatStore.ts";
 import type { SessionRecord } from "../../../history/types.ts";
@@ -192,6 +193,7 @@ export function AppShell({
 	const mainRef = useRef<HTMLElement>(null);
 	const prevDetailPanel = useRef(detailPanel);
 	const chatLoading = useChatLoadingIndicator();
+	const update = useUpdateCheck();
 
 	useEffect(() => {
 		const wasNull = prevDetailPanel.current == null;
@@ -253,6 +255,43 @@ export function AppShell({
 						<Plus className="h-3.5 w-3.5" />
 					</button>
 				</div>
+
+				{(update.needsUpdate || update.restarting) && (
+					<div className="shrink-0 mx-2 mt-2 rounded-lg border bg-blue-500/5 px-3 py-2.5">
+						{update.restarting ? (
+							<div className="flex items-center gap-2">
+								<Loader2 className="h-3 w-3 animate-spin text-blue-500 shrink-0" />
+								<span className="text-[11px] text-blue-600 dark:text-blue-400">
+									Restarting...
+								</span>
+							</div>
+						) : (
+							<>
+								<div className="flex items-center gap-2 mb-2">
+									<Download className="h-3 w-3 text-blue-500 shrink-0" />
+									<span className="text-[11px] font-medium text-blue-600 dark:text-blue-400">
+										v{update.latest} available
+									</span>
+								</div>
+								<button
+									type="button"
+									disabled={update.updating}
+									onClick={update.doUpdate}
+									className="w-full flex items-center justify-center gap-1.5 rounded-md bg-blue-500 hover:bg-blue-600 text-white text-[11px] font-medium py-1.5 transition-colors disabled:opacity-50"
+								>
+									{update.updating ? (
+										<><Loader2 className="h-3 w-3 animate-spin" /> Updating...</>
+									) : (
+										<><Download className="h-3 w-3" /> Update &amp; restart</>
+									)}
+								</button>
+								{update.error && (
+									<p className="text-[10px] text-red-500 mt-1.5">{update.error}</p>
+								)}
+							</>
+						)}
+					</div>
+				)}
 
 				<SessionList
 					sessions={sessions}

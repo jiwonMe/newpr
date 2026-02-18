@@ -73,6 +73,12 @@ export async function startWebServer(options: WebServerOptions): Promise<void> {
 			"/api/models": {
 				GET: routes["GET /api/models"],
 			},
+			"/api/update-check": {
+				GET: routes["GET /api/update-check"],
+			},
+			"/api/update": {
+				POST: routes["POST /api/update"],
+			},
 		},
 		fetch(req) {
 			const url = new URL(req.url);

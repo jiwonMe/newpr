@@ -146,6 +146,16 @@ $$
 f(x) = \\int_{a}^{b} g(t) \\, dt
 $$
 
+## Commenting on GitHub
+When the user asks you to leave a comment, post feedback, or write a review:
+1. **Inline code comment** → use \`create_review_comment\` with file path + line number. Use this when the feedback is about a specific piece of code (a function, a line, a block).
+2. **General discussion comment** → use \`create_discussion_comment\`. Use this for overall feedback, questions, design suggestions, or anything not tied to a specific code location.
+3. **Approve / Request changes** → use \`submit_review\`.
+
+ALWAYS use the appropriate tool to actually post the comment to GitHub. Do NOT just write the comment text in your response without calling the tool. When in doubt about whether feedback is code-specific or general, prefer \`create_review_comment\` if you can identify a relevant file and line, otherwise use \`create_discussion_comment\`.
+
+Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find the exact line numbers.
+
 ## Instructions
 - Answer questions about this PR thoroughly and precisely.
 - Use your tools to fetch additional context when needed (file diffs, comments, reviews).
@@ -252,6 +262,20 @@ $$
 							body: { type: "string", description: "Comment body in markdown" },
 						},
 						required: ["path", "line", "body"],
+					},
+				},
+			},
+			{
+				type: "function",
+				function: {
+					name: "create_discussion_comment",
+					description: "Post a general comment on the PR discussion thread (not on a specific line of code). Use this for overall feedback, questions, or comments that aren't about a specific code location.",
+					parameters: {
+						type: "object",
+						properties: {
+							body: { type: "string", description: "Comment body in markdown" },
+						},
+						required: ["body"],
 					},
 				},
 			},
@@ -630,6 +654,44 @@ $$
 			return json({ cartoon: !!options.cartoon, version: getVersion(), enabledPlugins });
 		},
 
+		"GET /api/update-check": async () => {
+			const { checkForUpdate } = require("../../cli/update-check.ts") as typeof import("../../cli/update-check.ts");
+			const { getVersion } = require("../../version.ts") as typeof import("../../version.ts");
+			const current = getVersion();
+			const info = await checkForUpdate(current);
+			return json({ current, latest: info?.latest ?? current, needsUpdate: !!info?.needsUpdate });
+		},
+
+		"POST /api/update": async () => {
+			try {
+				const proc = Bun.spawn(["bun", "add", "-g", "newpr"], {
+					cwd: "/tmp",
+					stdout: "pipe",
+					stderr: "pipe",
+				});
+				const exitCode = await proc.exited;
+				const stdout = await new Response(proc.stdout).text();
+				const stderr = await new Response(proc.stderr).text();
+				if (exitCode !== 0) {
+					return json({ ok: false, error: stderr.trim() || stdout.trim() }, 500);
+				}
+
+				setTimeout(() => {
+					Bun.spawn(["newpr", ...process.argv.slice(2)], {
+						cwd: process.cwd(),
+						stdin: "inherit",
+						stdout: "inherit",
+						stderr: "inherit",
+					});
+					setTimeout(() => process.exit(0), 500);
+				}, 1000);
+
+				return json({ ok: true, restarting: true });
+			} catch (err) {
+				return json({ ok: false, error: err instanceof Error ? err.message : String(err) }, 500);
+			}
+		},
+
 		"POST /api/review": async (req: Request) => {
 			const body = await req.json() as { pr_url: string; event: string; body?: string };
 			if (!body.pr_url || !body.event) return json({ error: "Missing pr_url or event" }, 400);
@@ -958,7 +1020,48 @@ $$
 			const sessionData = await loadSession(sessionId);
 			if (!sessionData) return json({ error: "Session not found" }, 404);
 
-			const chatHistory = await loadChatSidecar(sessionId) ?? [];
+			let chatHistory = await loadChatSidecar(sessionId) ?? [];
+
+			const COMPACT_THRESHOLD = 60;
+			const PROTECT_RECENT = 6;
+
+			if (chatHistory.length > COMPACT_THRESHOLD) {
+				const toCompact = chatHistory.slice(0, chatHistory.length - PROTECT_RECENT);
+				const recentMessages = chatHistory.slice(chatHistory.length - PROTECT_RECENT);
+
+				const summaryLines: string[] = [];
+				for (const msg of toCompact) {
+					if (msg.isCompactSummary) {
+						summaryLines.push(`[Previous summary]: ${msg.content.slice(0, 500)}`);
+						continue;
+					}
+					if (msg.role === "user") {
+						summaryLines.push(`User: ${msg.content.slice(0, 200)}`);
+					} else if (msg.role === "assistant") {
+						const toolNames = msg.toolCalls?.map((tc) => tc.name).join(", ");
+						const preview = msg.content.slice(0, 200);
+						summaryLines.push(`Assistant: ${preview}${toolNames ? ` [tools: ${toolNames}]` : ""}`);
+					}
+				}
+
+				try {
+					const compactPrompt = `Summarize the following conversation concisely for continuation. Focus on: what was discussed, key decisions made, actions taken (tool calls and their outcomes), and any unresolved topics. Be thorough but concise.\n\n${summaryLines.join("\n")}`;
+					const { createLlmClient } = require("../../llm/client.ts") as typeof import("../../llm/client.ts");
+					const llm = createLlmClient({ api_key: config.openrouter_api_key, model: config.model, timeout: config.timeout });
+					const result = await llm.complete("You are a conversation summarizer. Output a concise summary.", compactPrompt);
+
+					const compactMsg: ChatMessage = {
+						role: "assistant",
+						content: result.content,
+						timestamp: new Date().toISOString(),
+						isCompactSummary: true,
+						compactedCount: toCompact.length,
+					};
+
+					chatHistory = [compactMsg, ...recentMessages];
+					await saveChatSidecar(sessionId, chatHistory);
+				} catch {}
+			}
 
 			const userMsg: ChatMessage = {
 				role: "user",
@@ -1207,6 +1310,25 @@ $$
 							}
 							const data = await res.json() as { id?: number; html_url?: string };
 							return `Comment created on ${filePath}:${startLine && startLine !== line ? `${startLine}-` : ""}${line}. ${data.html_url ?? ""}`;
+						} catch (err) {
+							return `Error: ${err instanceof Error ? err.message : String(err)}`;
+						}
+					}
+					case "create_discussion_comment": {
+						const body = args.body as string;
+						if (!body) return "Error: body is required";
+						try {
+							const pr = parsePrInput(sessionData.meta.pr_url);
+							const res = await fetch(
+								`https://api.github.com/repos/${pr.owner}/${pr.repo}/issues/${pr.number}/comments`,
+								{ method: "POST", headers: ghHeaders, body: JSON.stringify({ body }) },
+							);
+							if (!res.ok) {
+								const errBody = await res.text();
+								return `GitHub API error ${res.status}: ${errBody.slice(0, 200)}`;
+							}
+							const data = await res.json() as { id?: number; html_url?: string };
+							return `Discussion comment posted. ${data.html_url ?? ""}`;
 						} catch (err) {
 							return `Error: ${err instanceof Error ? err.message : String(err)}`;
 						}
