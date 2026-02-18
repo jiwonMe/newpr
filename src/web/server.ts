@@ -84,6 +84,20 @@ export async function startWebServer(options: WebServerOptions): Promise<void> {
 			const url = new URL(req.url);
 			const path = url.pathname;
 
+			if (path.startsWith("/assets/")) {
+				const webDir = dirname(Bun.resolveSync("./src/web/index.html", process.cwd()));
+				const filePath = join(webDir, path);
+				const file = Bun.file(filePath);
+				return file.exists().then((exists) => {
+					if (exists) {
+						return new Response(file, {
+							headers: { "cache-control": "public, max-age=31536000, immutable" },
+						});
+					}
+					return new Response("Not Found", { status: 404 });
+				});
+			}
+
 			if (path.match(/^\/api\/analysis\/[^/]+\/events$/) && req.method === "GET") {
 				return routes["GET /api/analysis/:id/events"](req);
 			}

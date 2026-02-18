@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
-import { CornerDownLeft, Clock, GitPullRequest, Check, X, Minus } from "lucide-react";
+import { CornerDownLeft, Clock, GitPullRequest, Check, X, Minus, ExternalLink } from "lucide-react";
 import type { SessionRecord } from "../../../history/types.ts";
+import { analytics } from "../lib/analytics.ts";
 
 interface ToolStatus {
 	name: string;
@@ -111,85 +112,124 @@ export function InputScreen({
 	return (
 		<div className="flex flex-col items-center justify-center min-h-[60vh]">
 			<div className="w-full max-w-lg space-y-8">
+				<SponsorBanner />
+
 				<div className="space-y-2">
-					<div className="flex items-baseline gap-2">
-						<h1 className="text-sm font-semibold tracking-tight font-mono">newpr</h1>
-						{version && <span className="text-[10px] text-muted-foreground/30">v{version}</span>}
-						<span className="text-[10px] text-muted-foreground/40">AI code review</span>
-					</div>
-					<p className="text-xs text-muted-foreground">
-						Paste a GitHub PR URL to start analysis
-					</p>
-				</div>
-
-				<form onSubmit={handleSubmit}>
-					<div className={`flex items-center rounded-xl border bg-background transition-all ${
-						focused ? "ring-1 ring-ring border-foreground/15 shadow-sm" : "border-border"
-					}`}>
-						<GitPullRequest className="h-3.5 w-3.5 text-muted-foreground/40 ml-4 shrink-0" />
-						<input
-							type="text"
-							value={value}
-							onChange={(e) => setValue(e.target.value)}
-							onFocus={() => setFocused(true)}
-							onBlur={() => setFocused(false)}
-							placeholder="https://github.com/owner/repo/pull/123"
-							className="flex-1 h-11 bg-transparent px-3 text-xs font-mono placeholder:text-muted-foreground/40 focus:outline-none"
-							autoFocus
-						/>
-						<button
-							type="submit"
-							disabled={!value.trim()}
-							className="flex h-7 w-7 items-center justify-center rounded-lg bg-foreground text-background mr-2 transition-opacity disabled:opacity-20 hover:opacity-80"
-						>
-							<CornerDownLeft className="h-3.5 w-3.5" />
-						</button>
-					</div>
-					<div className="flex justify-end mt-2 pr-1">
-						<span className="text-[10px] text-muted-foreground/30">
-							Enter to analyze
-						</span>
-					</div>
-				</form>
-
-				{recents.length > 0 && (
-					<div className="space-y-2 pt-2">
-						<div className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider px-0.5">
-							Recent
+						<div className="flex items-baseline gap-2">
+							<h1 className="text-sm font-semibold tracking-tight font-mono">newpr</h1>
+							{version && <span className="text-[10px] text-muted-foreground/30">v{version}</span>}
+							<span className="text-[10px] text-muted-foreground/40">AI code review</span>
 						</div>
-						<div className="space-y-px">
-							{recents.map((s) => (
-								<button
-									key={s.id}
-									type="button"
-									onClick={() => onSessionSelect?.(s.id)}
-									className="w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-accent/50 transition-colors group"
-								>
-									<span className={`h-1.5 w-1.5 shrink-0 rounded-full ${RISK_DOT[s.risk_level] ?? RISK_DOT.medium}`} />
-									<div className="flex-1 min-w-0">
-										<div className="text-xs truncate group-hover:text-foreground transition-colors">
-											{s.pr_title}
-										</div>
-										<div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-muted-foreground/50">
-											<span className="font-mono truncate">{s.repo.split("/").pop()}</span>
-											<span className="font-mono">#{s.pr_number}</span>
-											<span className="text-muted-foreground/20">·</span>
-											<span className="text-green-600 dark:text-green-400">+{s.total_additions}</span>
-											<span className="text-red-600 dark:text-red-400">-{s.total_deletions}</span>
-										</div>
-									</div>
-									<div className="flex items-center gap-1 text-[10px] text-muted-foreground/30 shrink-0">
-										<Clock className="h-2.5 w-2.5" />
-										<span>{timeAgo(s.analyzed_at)}</span>
-									</div>
-								</button>
-							))}
-						</div>
+						<p className="text-xs text-muted-foreground">
+							Paste a GitHub PR URL to start analysis
+						</p>
 					</div>
-				)}
 
-				{preflight && <PreflightStatus data={preflight} />}
+					<form onSubmit={handleSubmit}>
+						<div className={`flex items-center rounded-xl border bg-background transition-all ${
+							focused ? "ring-1 ring-ring border-foreground/15 shadow-sm" : "border-border"
+						}`}>
+							<GitPullRequest className="h-3.5 w-3.5 text-muted-foreground/40 ml-4 shrink-0" />
+							<input
+								type="text"
+								value={value}
+								onChange={(e) => setValue(e.target.value)}
+								onFocus={() => setFocused(true)}
+								onBlur={() => setFocused(false)}
+								placeholder="https://github.com/owner/repo/pull/123"
+								className="flex-1 h-11 bg-transparent px-3 text-xs font-mono placeholder:text-muted-foreground/40 focus:outline-none"
+								autoFocus
+							/>
+							<button
+								type="submit"
+								disabled={!value.trim()}
+								className="flex h-7 w-7 items-center justify-center rounded-lg bg-foreground text-background mr-2 transition-opacity disabled:opacity-20 hover:opacity-80"
+							>
+								<CornerDownLeft className="h-3.5 w-3.5" />
+							</button>
+						</div>
+						<div className="flex justify-end mt-2 pr-1">
+							<span className="text-[10px] text-muted-foreground/30">
+								Enter to analyze
+							</span>
+						</div>
+					</form>
+
+					{recents.length > 0 && (
+						<div className="space-y-2">
+							<div className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider px-0.5">
+								Recent
+							</div>
+							<div className="space-y-px">
+								{recents.map((s) => (
+									<button
+										key={s.id}
+										type="button"
+										onClick={() => onSessionSelect?.(s.id)}
+										className="w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-accent/50 transition-colors group"
+									>
+										<span className={`h-1.5 w-1.5 shrink-0 rounded-full ${RISK_DOT[s.risk_level] ?? RISK_DOT.medium}`} />
+										<div className="flex-1 min-w-0">
+											<div className="text-xs truncate group-hover:text-foreground transition-colors">
+												{s.pr_title}
+											</div>
+											<div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-muted-foreground/50">
+												<span className="font-mono truncate">{s.repo.split("/").pop()}</span>
+												<span className="font-mono">#{s.pr_number}</span>
+												<span className="text-muted-foreground/20">·</span>
+												<span className="text-green-600 dark:text-green-400">+{s.total_additions}</span>
+												<span className="text-red-600 dark:text-red-400">-{s.total_deletions}</span>
+											</div>
+										</div>
+										<div className="flex items-center gap-1 text-[10px] text-muted-foreground/30 shrink-0">
+											<Clock className="h-2.5 w-2.5" />
+											<span>{timeAgo(s.analyzed_at)}</span>
+										</div>
+									</button>
+								))}
+							</div>
+						</div>
+					)}
+
+					{preflight && <PreflightStatus data={preflight} />}
 			</div>
 		</div>
+	);
+}
+
+const SIONIC_HERO_BG = "https://www.sionic.ai/_next/image?url=%2F_next%2Fstatic%2Fmedia%2Fmain-intro-bg.1455295d.png&w=1920&q=75";
+
+function SponsorBanner() {
+	return (
+		<a
+			href="https://www.sionic.ai"
+			target="_blank"
+			rel="noopener noreferrer"
+			onClick={() => analytics.sponsorClicked("sionic_ai")}
+			className="group relative flex items-center gap-3.5 rounded-xl overflow-hidden px-4 py-3 transition-all hover:shadow-md hover:shadow-blue-500/10"
+			style={{ background: "linear-gradient(135deg, #071121 0%, #0d1b33 50%, #1a2d54 100%)" }}
+		>
+			<img
+				src={SIONIC_HERO_BG}
+				alt=""
+				className="absolute inset-0 w-full h-full object-cover object-bottom opacity-30 group-hover:opacity-45 transition-opacity pointer-events-none"
+			/>
+			<div className="absolute inset-0 bg-gradient-to-r from-[#071121]/70 via-transparent to-transparent pointer-events-none" />
+			<div className="relative flex items-center gap-3 flex-1 min-w-0">
+				<img
+					src="/assets/sionic-logo.png"
+					alt="Sionic AI"
+					className="h-4 w-auto shrink-0 drop-shadow-sm"
+				/>
+				<div className="h-3 w-px bg-white/15 shrink-0" />
+				<span className="text-[10px] text-white/45 truncate">
+					The Power of AI for Every Business
+				</span>
+			</div>
+			<div className="relative flex items-center gap-1.5 shrink-0">
+				<span className="text-[8px] text-white/20 uppercase tracking-widest">Ad</span>
+				<ExternalLink className="h-2.5 w-2.5 text-white/15 group-hover:text-white/40 transition-colors" />
+			</div>
+		</a>
 	);
 }

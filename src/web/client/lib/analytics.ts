@@ -108,4 +108,7 @@ export const analytics = {
 
 	featureUsed: (feature: string) =>
 		trackEvent("feature_used", { feature }),
+
+	sponsorClicked: (sponsor: string) =>
+		trackEvent("sponsor_clicked", { sponsor }),
 };
