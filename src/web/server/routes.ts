@@ -2034,12 +2034,14 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 				const stored = await loadSession(body.sessionId);
 				if (!stored) return json({ error: "Session not found" }, 404);
 
-				const result = await publishStack({
-					repo_path: body.context.repo_path,
-					exec_result: body.exec_result,
-					pr_meta: stored.meta,
-					base_branch: body.context.base_branch,
-				});
+			const result = await publishStack({
+				repo_path: body.context.repo_path,
+				exec_result: body.exec_result,
+				pr_meta: stored.meta,
+				base_branch: body.context.base_branch,
+				owner: body.context.owner,
+				repo: body.context.repo,
+			});
 
 				return json({ publish_result: result });
 			} catch (err) {

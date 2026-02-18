@@ -6,10 +6,13 @@ export interface PublishInput {
 	exec_result: StackExecResult;
 	pr_meta: PrMeta;
 	base_branch: string;
+	owner: string;
+	repo: string;
 }
 
 export async function publishStack(input: PublishInput): Promise<StackPublishResult> {
-	const { repo_path, exec_result, pr_meta, base_branch } = input;
+	const { repo_path, exec_result, pr_meta, base_branch, owner, repo } = input;
+	const ghRepo = `${owner}/${repo}`;
 
 	const branches: BranchInfo[] = [];
 	const prs: PrInfo[] = [];
@@ -43,7 +46,7 @@ export async function publishStack(input: PublishInput): Promise<StackPublishRes
 
 		const body = buildPrBody(gc.group_id, order, total, exec_result, pr_meta);
 
-		const prResult = await Bun.$`gh pr create --base ${prBase} --head ${gc.branch_name} --title ${title} --body ${body} --draft`.quiet().nothrow();
+		const prResult = await Bun.$`gh pr create --repo ${ghRepo} --base ${prBase} --head ${gc.branch_name} --title ${title} --body ${body} --draft`.quiet().nothrow();
 
 		if (prResult.exitCode === 0) {
 			const prUrl = prResult.stdout.toString().trim();
@@ -57,6 +60,9 @@ export async function publishStack(input: PublishInput): Promise<StackPublishRes
 				base_branch: prBase,
 				head_branch: gc.branch_name,
 			});
+		} else {
+			const stderr = prResult.stderr.toString().trim();
+			console.error(`[publish] gh pr create failed for ${gc.group_id}: ${stderr}`);
 		}
 	}
 
