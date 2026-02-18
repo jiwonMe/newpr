@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback, type ReactNode } from "react";
 import { type Highlighter, type ThemedToken } from "shiki";
-import { MessageSquare, Trash2, ExternalLink, CornerDownLeft, Pencil, Check, X, Sparkles, Loader2 } from "lucide-react";
+import { Trash2, ExternalLink, CornerDownLeft, Pencil, Check, X, Sparkles, Loader2 } from "lucide-react";
 import { ensureHighlighter, getHighlighterSync, detectShikiLang, type ShikiLang } from "../lib/shiki.ts";
 import type { DiffComment } from "../../../types/output.ts";
 import { TipTapEditor } from "./TipTapEditor.tsx";
@@ -621,7 +621,6 @@ export function DiffViewer({
 	const tokenMap = useTokenizedLines(hl, allLines, lang, dark);
 	const isCapped = !showAll && allLines.length > TOTAL_CAP;
 	const lines = isCapped ? allLines.slice(0, RENDER_CAP) : allLines;
-	const fileName = filePath.split("/").pop() ?? filePath;
 
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const containerRef = useRef<HTMLDivElement>(null);
@@ -808,21 +807,8 @@ export function DiffViewer({
 			.join("\n");
 	}, [formRange, lines]);
 
-	const commentCount = comments.length;
-
 	return (
-		<div ref={containerRef} className="rounded-lg border overflow-hidden">
-			<div className="sticky top-0 z-10 bg-muted px-3 py-1.5 border-b flex items-center gap-2">
-				<span className="text-xs font-mono font-medium truncate flex-1" title={filePath}>
-					{fileName}
-				</span>
-				{commentCount > 0 && (
-					<span className="flex items-center gap-1 text-[10px] text-muted-foreground shrink-0">
-						<MessageSquare className="h-3 w-3" />
-						{commentCount}
-					</span>
-				)}
-			</div>
+		<div ref={containerRef} className="overflow-hidden">
 			<div ref={scrollRef} className="overflow-x-auto">
 				<div className="min-w-max font-mono text-xs leading-5 select-text">
 					{lines.map((line, i) => {
