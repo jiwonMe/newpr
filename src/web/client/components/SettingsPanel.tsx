@@ -20,7 +20,7 @@ interface ConfigData {
 }
 
 const MODELS = [
-	"anthropic/claude-sonnet-4.5",
+	"anthropic/claude-sonnet-4.6",
 	"anthropic/claude-sonnet-4-20250514",
 	"openai/gpt-4.1",
 	"openai/o3",

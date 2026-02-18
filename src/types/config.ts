@@ -11,7 +11,7 @@ export interface NewprConfig {
 }
 
 export const DEFAULT_CONFIG: Omit<NewprConfig, "openrouter_api_key"> = {
-	model: "anthropic/claude-sonnet-4.5",
+	model: "anthropic/claude-sonnet-4.6",
 	max_files: 100,
 	timeout: 120,
 	concurrency: 5,

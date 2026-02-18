@@ -46,7 +46,7 @@ Options:
 
 Options (review mode):
   --repo <owner/repo>   Repository (required when using PR number only)
-  --model <model>       Override LLM model (default: anthropic/claude-sonnet-4.5)
+  --model <model>       Override LLM model (default: anthropic/claude-sonnet-4.6)
   --agent <tool>        Preferred agent: claude | opencode | codex (default: auto)
   --no-clone            Skip git clone, diff-only analysis (faster, less context)
   --json                Output raw JSON (for piping/scripting)

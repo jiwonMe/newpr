@@ -28,7 +28,7 @@ describe("loadConfig", () => {
 		const config = await loadConfig(undefined, emptyStore);
 
 		expect(config.openrouter_api_key).toBe("sk-or-test-key");
-		expect(config.model).toBe("anthropic/claude-sonnet-4.5");
+		expect(config.model).toBe("anthropic/claude-sonnet-4.6");
 		expect(config.max_files).toBe(100);
 		expect(config.timeout).toBe(120);
 		expect(config.concurrency).toBe(5);
