@@ -93,53 +93,70 @@ CRITICAL REQUIREMENTS:
 }
 
 async function callGeminiImageGen(apiKey: string, prompt: string): Promise<{ base64: string; mimeType: string }> {
-	const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-		method: "POST",
-		headers: {
-			Authorization: `Bearer ${apiKey}`,
-			"Content-Type": "application/json",
-			"HTTP-Referer": "https://github.com/jiwonMe/newpr",
-			"X-Title": "newpr",
-		},
-		body: JSON.stringify({
-			model: "google/gemini-2.5-flash-preview-native-image-gen",
-			messages: [{ role: "user", content: prompt }],
-			provider: { require_parameters: true },
-			response_format: { type: "image" },
-		}),
-	});
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), 120_000);
 
-	if (!res.ok) {
-		const body = await res.text();
-		throw new Error(`Gemini API error ${res.status}: ${body.slice(0, 200)}`);
-	}
+	try {
+		const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+			method: "POST",
+			signal: controller.signal,
+			headers: {
+				Authorization: `Bearer ${apiKey}`,
+				"Content-Type": "application/json",
+				"HTTP-Referer": "https://github.com/jiwonMe/newpr",
+				"X-Title": "newpr",
+			},
+			body: JSON.stringify({
+				model: "google/gemini-3-pro-image-preview",
+				messages: [{ role: "user", content: prompt }],
+				modalities: ["image", "text"],
+			}),
+		});
 
-	const json = await res.json() as {
-		choices?: Array<{
-			message?: {
-				content?: Array<{ type: string; image_url?: { url: string } }> | string;
-			};
-		}>;
-	};
+		if (!res.ok) {
+			const body = await res.text();
+			throw new Error(`Gemini API ${res.status}: ${body.slice(0, 200)}`);
+		}
 
-	const content = json.choices?.[0]?.message?.content;
-	if (typeof content === "string") {
-		const match = content.match(/data:([^;]+);base64,(.+)/s);
-		if (match) return { mimeType: match[1]!, base64: match[2]! };
-		throw new Error("Unexpected string response from Gemini");
-	}
+		const json = await res.json() as {
+			choices?: Array<{
+				message?: {
+					content?: string | Array<{ type?: string; image_url?: { url?: string }; text?: string }>;
+					images?: Array<{ image_url?: { url?: string } }>;
+				};
+			}>;
+		};
 
-	if (Array.isArray(content)) {
-		for (const part of content) {
-			if (part.type === "image_url" && part.image_url?.url) {
-				const url = part.image_url.url;
-				const match = url.match(/data:([^;]+);base64,(.+)/s);
-				if (match) return { mimeType: match[1]!, base64: match[2]! };
+		const msg = json.choices?.[0]?.message;
+
+		if (msg?.images) {
+			for (const img of msg.images) {
+				if (img.image_url?.url) {
+					const match = img.image_url.url.match(/data:([^;]+);base64,(.+)/s);
+					if (match) return { mimeType: match[1]!, base64: match[2]! };
+				}
 			}
 		}
-	}
 
-	throw new Error("No image data in Gemini response");
+		const content = msg?.content;
+		if (typeof content === "string") {
+			const match = content.match(/data:([^;]+);base64,(.+)/s);
+			if (match) return { mimeType: match[1]!, base64: match[2]! };
+		}
+
+		if (Array.isArray(content)) {
+			for (const part of content) {
+				if (part.type === "image_url" && part.image_url?.url) {
+					const match = part.image_url.url.match(/data:([^;]+);base64,(.+)/s);
+					if (match) return { mimeType: match[1]!, base64: match[2]! };
+				}
+			}
+		}
+
+		throw new Error(`No image in response: ${JSON.stringify(msg).slice(0, 300)}`);
+	} finally {
+		clearTimeout(timeout);
+	}
 }
 
 async function renderSlides(
@@ -181,7 +198,7 @@ async function renderSlides(
 export async function generateSlides(
 	apiKey: string,
 	data: NewprOutput,
-	_planModel?: string,
+	planModel?: string,
 	language?: string,
 	onProgress?: (msg: string, current: number, total: number) => void,
 	existingDeck?: SlideDeck | null,
@@ -232,7 +249,7 @@ export async function generateSlides(
 						"X-Title": "newpr",
 					},
 					body: JSON.stringify({
-						model: "anthropic/claude-sonnet-4",
+						model: planModel ?? "anthropic/claude-sonnet-4",
 						messages: [
 							{ role: "system", content: planPrompt.system },
 							{ role: "user", content: planPrompt.user },
