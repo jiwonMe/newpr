@@ -144,6 +144,9 @@ export async function startWebServer(options: WebServerOptions): Promise<void> {
 			if (path === "/api/slides" && req.method === "POST") {
 				return routes["POST /api/slides"](req);
 			}
+			if (path === "/api/slides/status" && req.method === "GET") {
+				return routes["GET /api/slides/status"](req);
+			}
 			if (path === "/api/review" && req.method === "POST") {
 				return routes["POST /api/review"](req);
 			}

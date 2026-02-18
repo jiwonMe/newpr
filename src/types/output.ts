@@ -114,8 +114,21 @@ export interface SlideImage {
 	title: string;
 }
 
+export interface SlideSpec {
+	index: number;
+	title: string;
+	contentPrompt: string;
+}
+
+export interface SlidePlan {
+	stylePrompt: string;
+	slides: SlideSpec[];
+}
+
 export interface SlideDeck {
 	slides: SlideImage[];
+	plan?: SlidePlan;
+	failedIndices?: number[];
 	generatedAt: string;
 }
 

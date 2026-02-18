@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Loader2, Presentation, RefreshCw, Download, AlertCircle, ChevronLeft, ChevronRight } from "lucide-react";
 import type { NewprOutput, SlideDeck } from "../../../types/output.ts";
 
@@ -6,8 +6,16 @@ export function SlidesPanel({ data, sessionId }: { data: NewprOutput; sessionId?
 	const [state, setState] = useState<"idle" | "loading" | "done" | "error">("idle");
 	const [deck, setDeck] = useState<SlideDeck | null>(null);
 	const [error, setError] = useState<string | null>(null);
-	const [progress, setProgress] = useState<string>("");
+	const [progress, setProgress] = useState("");
 	const [currentSlide, setCurrentSlide] = useState(0);
+	const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+	const stopPolling = useCallback(() => {
+		if (pollRef.current) {
+			clearInterval(pollRef.current);
+			pollRef.current = null;
+		}
+	}, []);
 
 	useEffect(() => {
 		if (!sessionId) return;
@@ -20,65 +28,75 @@ export function SlidesPanel({ data, sessionId }: { data: NewprOutput; sessionId?
 				}
 			})
 			.catch(() => {});
-	}, [sessionId]);
+		return stopPolling;
+	}, [sessionId, stopPolling]);
 
-	const generate = useCallback(async () => {
+	const startPolling = useCallback(() => {
+		if (!sessionId || pollRef.current) return;
+		pollRef.current = setInterval(async () => {
+			try {
+				const res = await fetch(`/api/slides/status?sessionId=${sessionId}`);
+				const job = await res.json() as { status: string; message?: string; current?: number; total?: number };
+				setProgress(job.message ?? "");
+
+				if (job.status === "done") {
+					stopPolling();
+					const loaded = await fetch(`/api/sessions/${sessionId}/slides`).then((r) => r.json()) as SlideDeck | null;
+					if (loaded?.slides?.length) {
+						setDeck(loaded);
+						setState("done");
+					}
+				} else if (job.status === "error") {
+					stopPolling();
+					setError(job.message ?? "Generation failed");
+					const loaded = await fetch(`/api/sessions/${sessionId}/slides`).then((r) => r.ok ? r.json() : null).catch(() => null) as SlideDeck | null;
+					if (loaded?.slides?.length) {
+						setDeck(loaded);
+						setState("done");
+					} else {
+						setState("error");
+					}
+				}
+			} catch {}
+		}, 2000);
+	}, [sessionId, stopPolling]);
+
+	const generate = useCallback(async (resume = false) => {
 		if (!sessionId) return;
 		setState("loading");
 		setError(null);
-		setProgress("Planning slide deck...");
+		setProgress(resume ? "Resuming failed slides..." : "Starting...");
 
 		try {
 			const res = await fetch("/api/slides", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ sessionId }),
+				body: JSON.stringify({ sessionId, resume }),
 			});
 			if (!res.ok) {
 				const body = await res.json() as { error?: string };
 				throw new Error(body.error ?? `HTTP ${res.status}`);
 			}
-
-			const reader = res.body!.getReader();
-			const decoder = new TextDecoder();
-			let buffer = "";
-			let pendingEvent = "";
-
-			while (true) {
-				const { done, value } = await reader.read();
-				if (done) break;
-				buffer += decoder.decode(value, { stream: true });
-				const lines = buffer.split("\n");
-				buffer = lines.pop() ?? "";
-				for (const line of lines) {
-					const trimmed = line.trim();
-					if (!trimmed) { pendingEvent = ""; continue; }
-					if (trimmed.startsWith("event: ")) { pendingEvent = trimmed.slice(7); continue; }
-					if (!trimmed.startsWith("data: ")) continue;
-					try {
-						const d = JSON.parse(trimmed.slice(6));
-						if (pendingEvent === "progress") setProgress(d.message ?? "");
-						if (pendingEvent === "done") {
-							const loaded = await fetch(`/api/sessions/${sessionId}/slides`).then((r) => r.json()) as SlideDeck | null;
-							if (loaded?.slides) {
-								setDeck(loaded);
-								setState("done");
-								setCurrentSlide(0);
-							}
-						}
-						if (pendingEvent === "error") throw new Error(d.message ?? "Generation failed");
-					} catch (e) {
-						if (e instanceof Error && e.message !== "Generation failed") continue;
-						throw e;
-					}
-					pendingEvent = "";
-				}
-			}
+			startPolling();
 		} catch (err) {
 			setError(err instanceof Error ? err.message : String(err));
 			setState("error");
 		}
-	}, [sessionId]);
+	}, [sessionId, startPolling]);
+
+	useEffect(() => {
+		if (!sessionId || state !== "idle") return;
+		fetch(`/api/slides/status?sessionId=${sessionId}`)
+			.then((r) => r.json())
+			.then((job) => {
+				if ((job as { status: string }).status === "running") {
+					setState("loading");
+					setProgress((job as { message?: string }).message ?? "");
+					startPolling();
+				}
+			})
+			.catch(() => {});
+	}, [sessionId, state, startPolling]);
 
 	const downloadAll = useCallback(() => {
 		if (!deck) return;
@@ -102,7 +120,7 @@ export function SlidesPanel({ data, sessionId }: { data: NewprOutput; sessionId?
 					</div>
 					<button
 						type="button"
-						onClick={generate}
+						onClick={() => generate()}
 						className="w-full flex items-center justify-center gap-2 h-9 rounded-lg bg-foreground text-background text-xs font-medium hover:opacity-90 transition-opacity"
 					>
 						<Presentation className="h-3.5 w-3.5" />
@@ -142,7 +160,7 @@ export function SlidesPanel({ data, sessionId }: { data: NewprOutput; sessionId?
 					</div>
 					<button
 						type="button"
-						onClick={generate}
+						onClick={() => generate(true)}
 						className="w-full flex items-center justify-center gap-2 h-9 rounded-lg border text-xs text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors"
 					>
 						<RefreshCw className="h-3 w-3" />
@@ -157,9 +175,27 @@ export function SlidesPanel({ data, sessionId }: { data: NewprOutput; sessionId?
 	const slide = deck.slides[currentSlide];
 	if (!slide) return null;
 	const total = deck.slides.length;
+	const hasFailed = deck.failedIndices && deck.failedIndices.length > 0;
 
 	return (
 		<div className="pt-5 space-y-3">
+			{hasFailed && (
+				<div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-yellow-500/20 bg-yellow-500/5">
+					<AlertCircle className="h-3.5 w-3.5 text-yellow-600 dark:text-yellow-400 shrink-0" />
+					<span className="text-[11px] text-yellow-700 dark:text-yellow-300 flex-1">
+						{deck.failedIndices!.length} slide{deck.failedIndices!.length > 1 ? "s" : ""} failed to generate
+					</span>
+					<button
+						type="button"
+						onClick={() => generate(true)}
+						className="flex items-center gap-1 text-[11px] font-medium text-yellow-700 dark:text-yellow-300 hover:text-yellow-900 dark:hover:text-yellow-100 shrink-0 transition-colors"
+					>
+						<RefreshCw className="h-3 w-3" />
+						Retry failed
+					</button>
+				</div>
+			)}
+
 			<div className="rounded-lg border overflow-hidden bg-black">
 				<img
 					src={`data:${slide.mimeType};base64,${slide.imageBase64}`}
@@ -206,7 +242,7 @@ export function SlidesPanel({ data, sessionId }: { data: NewprOutput; sessionId?
 					</button>
 					<button
 						type="button"
-						onClick={generate}
+						onClick={() => generate()}
 						className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] text-muted-foreground/60 hover:text-foreground hover:bg-accent/50 transition-colors"
 					>
 						<RefreshCw className="h-3 w-3" />

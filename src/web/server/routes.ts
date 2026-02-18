@@ -71,6 +71,14 @@ export function createRoutes(token: string, config: NewprConfig, options: RouteO
 		return { login: "anonymous" };
 	}
 
+	interface SlideJob {
+		status: "running" | "done" | "error";
+		message: string;
+		current: number;
+		total: number;
+	}
+	const slideJobs = new Map<string, SlideJob>();
+
 	function buildChatSystemPrompt(data: NewprOutput): string {
 		const fileSummaries = data.files
 			.map((f) => `- ${f.path} (${f.status}, +${f.additions}/-${f.deletions}): ${f.summary}`)
@@ -1242,46 +1250,56 @@ $$
 		"POST /api/slides": async (req: Request) => {
 			if (!config.openrouter_api_key) return json({ error: "OpenRouter API key required" }, 400);
 
-			try {
-				const body = await req.json() as { sessionId?: string; language?: string };
-				const sessionId = body.sessionId;
-				if (!sessionId) return json({ error: "Missing sessionId" }, 400);
+			const body = await req.json() as { sessionId?: string; language?: string; resume?: boolean };
+			const sessionId = body.sessionId;
+			if (!sessionId) return json({ error: "Missing sessionId" }, 400);
 
-				const data = await loadSession(sessionId);
-				if (!data) return json({ error: "Session not found" }, 404);
+			const data = await loadSession(sessionId);
+			if (!data) return json({ error: "Session not found" }, 404);
 
-				const encoder = new TextEncoder();
-				const stream = new ReadableStream({
-					async start(controller) {
-						const send = (eventType: string, payload: string) => {
-							controller.enqueue(encoder.encode(`event: ${eventType}\ndata: ${payload}\n\n`));
-						};
-						try {
-							const deck = await generateSlides(
-								config.openrouter_api_key,
-								data,
-								config.model,
-								body.language ?? config.language,
-								(msg, current, total) => {
-									send("progress", JSON.stringify({ message: msg, current, total }));
-								},
-							);
-							await saveSlidesSidecar(sessionId, deck);
-							send("done", JSON.stringify({ slideCount: deck.slides.length }));
-						} catch (err) {
-							send("error", JSON.stringify({ message: err instanceof Error ? err.message : String(err) }));
-						} finally {
-							controller.close();
-						}
-					},
-				});
-
-				return new Response(stream, {
-					headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
-				});
-			} catch (err) {
-				return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+			if (slideJobs.has(sessionId) && slideJobs.get(sessionId)!.status === "running") {
+				return json({ status: "already_running" });
 			}
+
+			const existingDeck = body.resume ? await loadSlidesSidecar(sessionId) : null;
+			const job: SlideJob = { status: "running", message: "Planning slide deck...", current: 0, total: 0 };
+			slideJobs.set(sessionId, job);
+
+			(async () => {
+				try {
+					const deck = await generateSlides(
+						config.openrouter_api_key,
+						data,
+						config.model,
+						body.language ?? config.language,
+						(msg, current, total) => {
+							job.message = msg;
+							job.current = current;
+							job.total = total;
+						},
+						existingDeck,
+					);
+					await saveSlidesSidecar(sessionId, deck);
+					job.status = "done";
+					job.message = `Generated ${deck.slides.length} slides`;
+					job.total = deck.slides.length;
+					job.current = deck.slides.length;
+				} catch (err) {
+					job.status = "error";
+					job.message = err instanceof Error ? err.message : String(err);
+				}
+			})();
+
+			return json({ status: "started" });
+		},
+
+		"GET /api/slides/status": async (req: Request) => {
+			const url = new URL(req.url);
+			const sessionId = url.searchParams.get("sessionId");
+			if (!sessionId) return json({ error: "Missing sessionId" }, 400);
+			const job = slideJobs.get(sessionId);
+			if (!job) return json({ status: "idle" });
+			return json(job);
 		},
 	};
 }

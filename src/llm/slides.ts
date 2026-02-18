@@ -1,15 +1,4 @@
-import type { NewprOutput, SlideImage, SlideDeck } from "../types/output.ts";
-
-interface SlideSpec {
-	index: number;
-	title: string;
-	contentPrompt: string;
-}
-
-interface SlidePlan {
-	stylePrompt: string;
-	slides: SlideSpec[];
-}
+import type { NewprOutput, SlideImage, SlideDeck, SlidePlan, SlideSpec } from "../types/output.ts";
 
 function getSystemLanguage(): string {
 	const env = process.env.LANG ?? process.env.LANGUAGE ?? process.env.LC_ALL ?? "";
@@ -127,10 +116,7 @@ async function callGeminiImageGen(apiKey: string, prompt: string): Promise<{ bas
 	const json = await res.json() as {
 		choices?: Array<{
 			message?: {
-				content?: Array<{
-					type: string;
-					image_url?: { url: string };
-				}> | string;
+				content?: Array<{ type: string; image_url?: { url: string } }> | string;
 			};
 		}>;
 	};
@@ -155,70 +141,104 @@ async function callGeminiImageGen(apiKey: string, prompt: string): Promise<{ bas
 	throw new Error("No image data in Gemini response");
 }
 
+async function renderSlides(
+	apiKey: string,
+	plan: SlidePlan,
+	specsToRender: SlideSpec[],
+	onProgress?: (msg: string, current: number, total: number) => void,
+): Promise<{ completed: SlideImage[]; failed: number[] }> {
+	const totalPlan = plan.slides.length;
+	const completed: SlideImage[] = [];
+	const failed: number[] = [];
+
+	await Promise.all(
+		specsToRender.map(async (spec) => {
+			const prompt = buildImagePrompt(plan.stylePrompt, spec);
+			try {
+				const img = await callGeminiImageGen(apiKey, prompt);
+				completed.push({
+					index: spec.index,
+					imageBase64: img.base64,
+					mimeType: img.mimeType,
+					title: spec.title,
+				});
+				onProgress?.(`Slide ${spec.index + 1}/${totalPlan} done`, completed.length, specsToRender.length);
+			} catch (err) {
+				failed.push(spec.index);
+				onProgress?.(`Slide ${spec.index + 1}/${totalPlan} failed: ${err instanceof Error ? err.message : String(err)}`, completed.length, specsToRender.length);
+			}
+		}),
+	);
+
+	return { completed, failed };
+}
+
 export async function generateSlides(
 	apiKey: string,
 	data: NewprOutput,
 	planModel: string,
 	language?: string,
 	onProgress?: (msg: string, current: number, total: number) => void,
+	existingDeck?: SlideDeck | null,
 ): Promise<SlideDeck> {
-	onProgress?.("Planning slide deck...", 0, 1);
+	let plan: SlidePlan;
 
-	const planPrompt = buildPlanPrompt(data, language);
-	const planRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-		method: "POST",
-		headers: {
-			Authorization: `Bearer ${apiKey}`,
-			"Content-Type": "application/json",
-			"HTTP-Referer": "https://github.com/jiwonMe/newpr",
-			"X-Title": "newpr",
-		},
-		body: JSON.stringify({
-			model: planModel,
-			messages: [
-				{ role: "system", content: planPrompt.system },
-				{ role: "user", content: planPrompt.user },
-			],
-			temperature: 0.4,
-			response_format: { type: "json_object" },
-		}),
-	});
+	if (existingDeck?.plan && existingDeck.plan.slides.length > 0) {
+		plan = existingDeck.plan;
+		onProgress?.(`Resuming with existing plan (${plan.slides.length} slides)...`, 0, plan.slides.length);
+	} else {
+		onProgress?.("Planning slide deck...", 0, 1);
+		const planPrompt = buildPlanPrompt(data, language);
+		const planRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				Authorization: `Bearer ${apiKey}`,
+				"Content-Type": "application/json",
+				"HTTP-Referer": "https://github.com/jiwonMe/newpr",
+				"X-Title": "newpr",
+			},
+			body: JSON.stringify({
+				model: planModel,
+				messages: [
+					{ role: "system", content: planPrompt.system },
+					{ role: "user", content: planPrompt.user },
+				],
+				temperature: 0.4,
+				response_format: { type: "json_object" },
+			}),
+		});
 
-	if (!planRes.ok) {
-		throw new Error(`Plan API error: ${planRes.status}`);
+		if (!planRes.ok) throw new Error(`Plan API error: ${planRes.status}`);
+		const planJson = await planRes.json() as { choices: Array<{ message: { content: string } }> };
+		let rawContent = planJson.choices[0]?.message?.content ?? "";
+		rawContent = rawContent.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+		plan = JSON.parse(rawContent) as SlidePlan;
+		if (!plan.slides || plan.slides.length === 0) throw new Error("Empty slide plan");
 	}
 
-	const planJson = await planRes.json() as { choices: Array<{ message: { content: string } }> };
-	let rawContent = planJson.choices[0]?.message?.content ?? "";
-	rawContent = rawContent.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
-	const plan = JSON.parse(rawContent) as SlidePlan;
+	const existingSlides = existingDeck?.slides ?? [];
+	const existingIndices = new Set(existingSlides.map((s) => s.index));
+	const specsToRender = existingDeck?.failedIndices && existingDeck.failedIndices.length > 0
+		? plan.slides.filter((s) => existingDeck.failedIndices!.includes(s.index))
+		: plan.slides.filter((s) => !existingIndices.has(s.index));
 
-	if (!plan.slides || plan.slides.length === 0) throw new Error("Empty slide plan");
+	if (specsToRender.length === 0 && existingSlides.length > 0) {
+		onProgress?.("All slides already generated", existingSlides.length, existingSlides.length);
+		return { slides: existingSlides.sort((a, b) => a.index - b.index), plan, generatedAt: existingDeck?.generatedAt ?? new Date().toISOString() };
+	}
 
-	const total = plan.slides.length;
-	onProgress?.(`Generating ${total} slides...`, 0, total);
+	onProgress?.(`Generating ${specsToRender.length} slide${specsToRender.length > 1 ? "s" : ""}...`, 0, specsToRender.length);
+	const { completed, failed } = await renderSlides(apiKey, plan, specsToRender, onProgress);
 
-	const results = await Promise.all(
-		plan.slides.map(async (spec) => {
-			const prompt = buildImagePrompt(plan.stylePrompt, spec);
-			try {
-				const img = await callGeminiImageGen(apiKey, prompt);
-				onProgress?.(`Slide ${spec.index + 1}/${total} done`, spec.index + 1, total);
-				return {
-					index: spec.index,
-					imageBase64: img.base64,
-					mimeType: img.mimeType,
-					title: spec.title,
-				} as SlideImage;
-			} catch (err) {
-				onProgress?.(`Slide ${spec.index + 1}/${total} failed: ${err instanceof Error ? err.message : String(err)}`, spec.index + 1, total);
-				return null;
-			}
-		}),
-	);
+	const allSlides = [...existingSlides.filter((s) => !completed.some((c) => c.index === s.index)), ...completed]
+		.sort((a, b) => a.index - b.index);
 
-	const slides = results.filter((r): r is SlideImage => r !== null).sort((a, b) => a.index - b.index);
-	if (slides.length === 0) throw new Error("All slide generations failed");
+	if (allSlides.length === 0) throw new Error("All slide generations failed");
 
-	return { slides, generatedAt: new Date().toISOString() };
+	return {
+		slides: allSlides,
+		plan,
+		failedIndices: failed.length > 0 ? failed : undefined,
+		generatedAt: new Date().toISOString(),
+	};
 }
