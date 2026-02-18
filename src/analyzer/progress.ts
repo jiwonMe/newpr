@@ -17,6 +17,8 @@ export interface ProgressEvent {
 	total?: number;
 	partial_content?: string;
 	timestamp?: number;
+	pr_title?: string;
+	pr_number?: number;
 }
 
 export type ProgressCallback = (event: ProgressEvent) => void;

@@ -83,12 +83,20 @@ export function buildGroupingPrompt(fileSummaries: FileSummaryInput[], ctx?: Pro
 	const discussionCtx = formatDiscussion(ctx);
 
 	return {
-		system: `You are an expert code reviewer. Group the following changed files by their semantic purpose.
-Each group should have a descriptive name, a type (one of: feature, refactor, bugfix, chore, docs, test, config), a description, and a list of file paths.
-A file MAY appear in multiple groups if it serves multiple purposes (e.g., index.ts re-exporting for both a feature and a refactor).
+		system: `You are an expert code reviewer. Group the following changed files by their semantic purpose and provide detailed analysis for each group.
+Each group should have:
+- "name": descriptive group name
+- "type": one of: feature, refactor, bugfix, chore, docs, test, config
+- "description": what this group of changes does (1-2 sentences)
+- "files": list of file paths
+- "key_changes": 2-5 bullet points describing the most important specific changes (e.g. "Add JWT token validation middleware", "Replace REST calls with GraphQL queries")
+- "risk": a brief risk assessment for this group (e.g. "Low - cosmetic changes only", "Medium - modifies auth flow, needs careful review", "High - changes database schema")
+- "dependencies": list of other group names that this group depends on or interacts with (empty array if none)
+
+A file MAY appear in multiple groups if it serves multiple purposes.
 Use the commit history and PR discussion to understand which changes belong together logically.
-Respond ONLY with a JSON array. Each element: {"name": "group name", "type": "feature|refactor|bugfix|chore|docs|test|config", "description": "what this group of changes does", "files": ["path1", "path2"]}.
-The "name" and "description" values are human-readable text. The "type" value must be one of the English keywords listed above. File paths stay as-is.
+Respond ONLY with a JSON array. Each element: {"name": "...", "type": "...", "description": "...", "files": [...], "key_changes": [...], "risk": "...", "dependencies": [...]}.
+The "type" value must be one of the English keywords listed above. File paths stay as-is.
 Every file must appear in at least one group. No markdown, no explanation, just the JSON array.${langDirective(ctx?.language)}`,
 		user: `Changed files:\n${fileList}${commitCtx}${discussionCtx}`,
 	};
@@ -124,10 +132,21 @@ export function buildNarrativePrompt(
 	summary: PrSummary,
 	groups: FileGroup[],
 	ctx?: PromptContext,
+	fileDiffs?: Array<{ path: string; diff: string }>,
 ): PromptPair {
 	const groupDetails = groups
-		.map((g) => `### ${g.name} (${g.type})\n${g.description}\nFiles: ${g.files.join(", ")}`)
+		.map((g) => {
+			let detail = `### ${g.name} (${g.type})\n${g.description}\nFiles: ${g.files.join(", ")}`;
+			if (g.key_changes && g.key_changes.length > 0) {
+				detail += `\nKey changes:\n${g.key_changes.map((c) => `- ${c}`).join("\n")}`;
+			}
+			return detail;
+		})
 		.join("\n\n");
+
+	const diffContext = fileDiffs && fileDiffs.length > 0
+		? `\n\n--- FILE DIFFS (use these line numbers for [[line:...]] anchors) ---\n${fileDiffs.map((f) => `File: ${f.path}\n${f.diff}`).join("\n\n---\n\n")}`
+		: "";
 
 	const commitCtx = ctx?.commits ? formatCommitHistory(ctx.commits) : "";
 	const lang = ctx?.language && ctx.language !== "English" ? ctx.language : null;
@@ -141,10 +160,26 @@ Use the commit history and PR discussion to understand the development progressi
 Use markdown formatting. Write 2-5 paragraphs. Do NOT use JSON. Write natural prose.
 ${lang ? `CRITICAL: Write the ENTIRE narrative in ${lang}. Every sentence must be in ${lang}. Do NOT use English except for code identifiers, file paths, and [[group:...]]/[[file:...]] tokens.` : "If the PR title is in a non-English language, write the narrative in that same language."}
 
-IMPORTANT: When referencing a change group, wrap it as [[group:Group Name]]. When referencing a specific file, wrap it as [[file:path/to/file.ts]].
-Use the EXACT group names and file paths provided. Every group MUST be referenced at least once. Reference key files where relevant.
-Example: "The [[group:Auth Flow]] group introduces session management via [[file:src/auth/session.ts]] and [[file:src/auth/token.ts]]."`,
-		user: `PR Title: ${prTitle}\n\nSummary:\n- Purpose: ${summary.purpose}\n- Scope: ${summary.scope}\n- Impact: ${summary.impact}\n- Risk: ${summary.risk_level}\n\nChange Groups:\n${groupDetails}${commitCtx}${discussionCtx}`,
+IMPORTANT: Use these anchor formats — they become clickable links in the UI:
+
+1. Group: [[group:Group Name]] — renders as a clickable chip.
+2. File: [[file:path/to/file.ts]] — renders as a clickable chip.
+3. Line reference: [[line:path/to/file.ts#L42-L50]](descriptive text here) — the "descriptive text" becomes an underlined clickable link that opens the diff at that line. The line info itself is NOT shown to the user — only the descriptive text is visible.
+
+RULES:
+- Use EXACT group names and file paths from the context above.
+- Every group MUST be referenced at least once with [[group:...]].
+- For line references, ALWAYS use the form [[line:path#Lstart-Lend]](text). NEVER use bare [[line:...]] without (text).
+- The (text) should be a natural description of what the code does, NOT the file name or line numbers. The reader should not see any line numbers — they just see underlined text they can click.
+- Do NOT place [[file:...]] and [[line:...]] next to each other for the same file. Use [[line:...]] with descriptive text instead — it already opens the file.
+- Aim for most sentences about code to have at least one [[line:...]](...) reference.
+
+GOOD example:
+"The [[group:Auth Flow]] group introduces session management. [[line:src/auth/session.ts#L15-L30]](The new validateToken function) handles JWT parsing, and [[line:src/auth/middleware.ts#L8-L12]](the auth middleware) invokes it on every request."
+
+BAD example (DO NOT do this):
+"The new validateToken function [[line:src/auth/session.ts#L15-L30]] in [[file:src/auth/session.ts]] handles JWT parsing."`,
+		user: `PR Title: ${prTitle}\n\nSummary:\n- Purpose: ${summary.purpose}\n- Scope: ${summary.scope}\n- Impact: ${summary.impact}\n- Risk: ${summary.risk_level}\n\nChange Groups:\n${groupDetails}${commitCtx}${discussionCtx}${diffContext}`,
 	};
 }
 
@@ -187,15 +222,16 @@ export function buildEnrichedNarrativePrompt(
 	groups: FileGroup[],
 	exploration: ExplorationResult,
 	ctx?: PromptContext,
+	fileDiffs?: Array<{ path: string; diff: string }>,
 ): PromptPair {
-	const base = buildNarrativePrompt(prTitle, summary, groups, ctx);
+	const base = buildNarrativePrompt(prTitle, summary, groups, ctx, fileDiffs);
 	const context = formatCodebaseContext(exploration);
 
 	return {
 		system: `${base.system}
 You have access to full codebase analysis. Use it to explain HOW the changes relate to existing code, not just WHAT changed.
 Mention specific existing functions, modules, or patterns that are affected.
-Remember to use [[group:Name]] and [[file:path]] tokens as instructed.`,
+Use [[group:Name]], [[file:path]], and [[line:path#L42-L50]](descriptive text) as instructed above.`,
 		user: `${base.user}\n\n--- CODEBASE CONTEXT (from agentic exploration) ---\n${context}`,
 	};
 }

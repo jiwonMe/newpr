@@ -85,25 +85,25 @@ async function runExploration(
 ): Promise<ExplorationResult> {
 	const agent = await requireAgent(preferredAgent);
 
-	onProgress?.({ stage: "cloning", message: `${pr.owner}/${pr.repo}` });
+	onProgress?.({ stage: "cloning", message: `Cloning ${pr.owner}/${pr.repo}...` });
 	const bareRepoPath = await ensureRepo(pr.owner, pr.repo, token, (msg) => {
-		onProgress?.({ stage: "cloning", message: msg });
+		onProgress?.({ stage: "cloning", message: `📦 ${msg}` });
 	});
-	onProgress?.({ stage: "cloning", message: `${pr.owner}/${pr.repo} ready` });
+	onProgress?.({ stage: "cloning", message: `📦 ${pr.owner}/${pr.repo} cached` });
 
-	onProgress?.({ stage: "checkout", message: `${baseBranch} ← PR #${pr.number}` });
+	onProgress?.({ stage: "checkout", message: `🌿 Preparing worktrees: ${baseBranch} ← PR #${pr.number}` });
 	const worktrees = await createWorktrees(
 		bareRepoPath, baseBranch, pr.number, pr.owner, pr.repo,
-		(msg) => onProgress?.({ stage: "checkout", message: msg }),
+		(msg) => onProgress?.({ stage: "checkout", message: `🌿 ${msg}` }),
 	);
-	onProgress?.({ stage: "checkout", message: `${baseBranch} ← PR #${pr.number} worktrees ready` });
+	onProgress?.({ stage: "checkout", message: `🌿 Worktrees ready: ${baseBranch} ← PR #${pr.number}` });
 
-	onProgress?.({ stage: "exploring", message: `${agent.name}: analyzing ${changedFiles.length} files...` });
+	onProgress?.({ stage: "exploring", message: `🤖 ${agent.name}: exploring ${changedFiles.length} changed files...` });
 	const exploration = await exploreCodebase(
 		agent, worktrees.headPath, changedFiles, prTitle, rawDiff,
 		(msg, current, total) => onProgress?.({ stage: "exploring", message: msg, current, total }),
 	);
-	onProgress?.({ stage: "exploring", message: `${agent.name}: exploration complete` });
+	onProgress?.({ stage: "exploring", message: `🤖 ${agent.name}: exploration complete` });
 
 	await cleanupWorktrees(bareRepoPath, pr.number, pr.owner, pr.repo).catch(() => {});
 
@@ -165,7 +165,7 @@ export async function analyzePr(options: PipelineOptions): Promise<NewprOutput> 
 		fetchPrDiff(pr, token),
 		fetchPrComments(pr, token).catch(() => []),
 	]);
-	progress({ stage: "fetching", message: `#${prData.number} "${prData.title}" by ${prData.author} · +${prData.additions} −${prData.deletions} · ${prComments.length} comments` });
+	progress({ stage: "fetching", message: `#${prData.number} "${prData.title}" by ${prData.author} · +${prData.additions} −${prData.deletions} · ${prComments.length} comments`, pr_title: prData.title, pr_number: prData.number });
 
 	progress({ stage: "parsing", message: "Parsing diff..." });
 	const parsed = parseDiff(rawDiff);
@@ -259,9 +259,13 @@ export async function analyzePr(options: PipelineOptions): Promise<NewprOutput> 
 	progress({ stage: "summarizing", message: `${summary.risk_level} risk · ${summary.purpose.slice(0, 60)}` });
 
 	progress({ stage: "narrating", message: `Writing narrative${enrichedTag}...` });
+	const fileDiffs = chunks.slice(0, 30).map((c) => ({
+		path: c.file_path,
+		diff: c.diff_content.length > 3000 ? `${c.diff_content.slice(0, 3000)}\n... (truncated)` : c.diff_content,
+	}));
 	const narrativePrompt = exploration
-		? buildEnrichedNarrativePrompt(prData.title, summary, groups, exploration, promptCtx)
-		: buildNarrativePrompt(prData.title, summary, groups, promptCtx);
+		? buildEnrichedNarrativePrompt(prData.title, summary, groups, exploration, promptCtx, fileDiffs)
+		: buildNarrativePrompt(prData.title, summary, groups, promptCtx, fileDiffs);
 	const narrativeResponse = await streamLlmCall(
 		client, narrativePrompt.system, narrativePrompt.user, "narrating", "Writing narrative...", progress,
 	);
@@ -297,6 +301,7 @@ export async function analyzePr(options: PipelineOptions): Promise<NewprOutput> 
 			pr_title: prData.title,
 			pr_body: prData.body || undefined,
 			pr_url: prData.url,
+			pr_state: prData.state,
 			base_branch: prData.base_branch,
 			head_branch: prData.head_branch,
 			author: prData.author,
