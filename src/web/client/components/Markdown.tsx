@@ -120,19 +120,55 @@ function inlineMarkdownToHtml(text: string): string {
 }
 
 function replaceLineAnchors(text: string): string {
-	return text.replace(
-		/\[\[line:([\w/.#\-]+)\](?:\]\(([^)\]]+)\)|\(([^)\]]+)\)\]|\(([^)\]]+)\])|\[\[line:([\w/.#\-]+)\]\]/g,
-		(match, id1, text1, text2, text3, bareId) => {
-			const id = id1 ?? bareId;
-			const label = text1 ?? text2 ?? text3;
-			if (!id) return match;
-			const encoded = encodeURIComponent(id);
-			if (label) {
-				return `<span data-line-ref="${encoded}">${inlineMarkdownToHtml(label)}</span>`;
+	const OPEN = "[[line:";
+	let result = "";
+	let i = 0;
+	while (i < text.length) {
+		const start = text.indexOf(OPEN, i);
+		if (start === -1) {
+			result += text.slice(i);
+			break;
+		}
+		result += text.slice(i, start);
+
+		const idStart = start + OPEN.length;
+		const closeBracket = text.indexOf("]", idStart);
+		if (closeBracket === -1) {
+			result += text.slice(start);
+			break;
+		}
+
+		const id = text.slice(idStart, closeBracket);
+		let afterClose = closeBracket + 1;
+
+		if (text[afterClose] === "]") afterClose++;
+
+		let label: string | null = null;
+		if (text[afterClose] === "(") {
+			let depth = 1;
+			let end = afterClose + 1;
+			while (end < text.length && depth > 0) {
+				if (text[end] === "(") depth++;
+				else if (text[end] === ")") depth--;
+				end++;
 			}
-			return `<span data-line-ref="${encoded}">${formatLineLabel(id)}</span>`;
-		},
-	);
+			if (depth === 0) {
+				label = text.slice(afterClose + 1, end - 1);
+				afterClose = end;
+			}
+		}
+
+		if (text[afterClose] === "]") afterClose++;
+
+		const encoded = encodeURIComponent(id);
+		if (label) {
+			result += `<span data-line-ref="${encoded}">${inlineMarkdownToHtml(label)}</span>`;
+		} else {
+			result += `<span data-line-ref="${encoded}">${formatLineLabel(id)}</span>`;
+		}
+		i = afterClose;
+	}
+	return result;
 }
 
 function preprocess(text: string): string {

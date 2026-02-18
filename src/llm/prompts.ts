@@ -167,7 +167,7 @@ Write a narrative that tells the "story" of this PR — what was changed, why, a
 - Use tables only when comparing structured data (e.g., before/after schemas, flag mappings).
 - Keep paragraphs short (3-5 sentences). Human working memory holds ~4 chunks — each paragraph should be one coherent idea.
 - Lead each paragraph with a topic sentence that states the key point. Supporting details follow.
-- Use transition phrases to connect paragraphs ("Building on this...", "To support this...").
+- Use transition phrases to connect paragraphs naturally. If writing in a non-English language, use idiomatic transitions in THAT language — never insert English phrases like "Building on this" into non-English text.
 - Use commit history and PR discussion to understand the development progression.
 
 ## Anchor Syntax (CRITICAL — this is how readers navigate from your text to the actual code)
