@@ -22,8 +22,13 @@ export interface ExecuteInput {
 	head_branch: string;
 }
 
-function slugify(name: string): string {
-	return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+function generateAlphanumericId(length = 6): string {
+	const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+	let result = "";
+	for (let i = 0; i < length; i++) {
+		result += chars[Math.floor(Math.random() * chars.length)];
+	}
+	return result;
 }
 
 export async function executeStack(input: ExecuteInput): Promise<StackExecResult> {
@@ -129,7 +134,7 @@ export async function executeStack(input: ExecuteInput): Promise<StackExecResult
 				);
 			}
 
-			const commitMessage = `${group.type}(${slugify(group.name)}): ${group.description}`;
+			const commitMessage = group.pr_title ?? `${group.type}(${group.name}): ${group.description}`;
 
 			const commitTree = await Bun.$`git -C ${repo_path} commit-tree ${treeSha} -p ${prevCommitSha} -m ${commitMessage}`.env({
 				GIT_AUTHOR_NAME: pr_author.name,
@@ -145,7 +150,7 @@ export async function executeStack(input: ExecuteInput): Promise<StackExecResult
 			}
 			const commitSha = commitTree.stdout.toString().trim();
 
-			const branchName = `newpr-stack/pr-${pr_number}/${group.order}-${slugify(group.name)}`;
+			const branchName = `newpr-stack/pr-${pr_number}/${group.order}-${generateAlphanumericId()}`;
 
 			const updateRef = await Bun.$`git -C ${repo_path} update-ref refs/heads/${branchName} ${commitSha}`.quiet().nothrow();
 			if (updateRef.exitCode !== 0) {
@@ -160,6 +165,7 @@ export async function executeStack(input: ExecuteInput): Promise<StackExecResult
 				commit_sha: commitSha,
 				tree_sha: treeSha,
 				branch_name: branchName,
+				pr_title: group.pr_title,
 			});
 
 			prevCommitSha = commitSha;

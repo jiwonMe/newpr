@@ -42,7 +42,9 @@ export async function publishStack(input: PublishInput): Promise<StackPublishRes
 		if (!prBase) continue;
 
 		const order = i + 1;
-		const title = `[Stack ${order}/${total}] ${gc.group_id}`;
+		const title = gc.pr_title
+			? `[${order}/${total}] ${gc.pr_title}`
+			: `[Stack ${order}/${total}] ${gc.group_id}`;
 
 		const body = buildPrBody(gc.group_id, order, total, exec_result, pr_meta);
 

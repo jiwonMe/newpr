@@ -98,6 +98,14 @@ export interface FeasibilityResult {
 // Plan Types
 // ============================================================================
 
+export interface StackGroupStats {
+	additions: number;
+	deletions: number;
+	files_added: number;
+	files_modified: number;
+	files_deleted: number;
+}
+
 export interface StackGroup {
 	id: string;
 	name: string;
@@ -106,6 +114,8 @@ export interface StackGroup {
 	files: string[];
 	deps: string[]; // groupIds
 	order: number;
+	stats?: StackGroupStats;
+	pr_title?: string;
 }
 
 export interface StackPlan {
@@ -124,6 +134,7 @@ export interface GroupCommitInfo {
 	commit_sha: string;
 	tree_sha: string;
 	branch_name: string;
+	pr_title?: string;
 }
 
 export interface StackExecResult {

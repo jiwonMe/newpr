@@ -1,4 +1,4 @@
-import type { DeltaEntry, DeltaFileChange, DeltaStatus } from "./types.ts";
+import type { DeltaEntry, DeltaFileChange, DeltaStatus, StackGroupStats } from "./types.ts";
 
 export class DeltaExtractionError extends Error {
 	constructor(message: string) {
@@ -181,6 +181,72 @@ function checkForUnsupportedModes(
 			);
 		}
 	}
+}
+
+export async function computeGroupStats(
+	repoPath: string,
+	baseSha: string,
+	orderedGroupIds: string[],
+	expectedTrees: Map<string, string>,
+): Promise<Map<string, StackGroupStats>> {
+	const stats = new Map<string, StackGroupStats>();
+
+	for (let i = 0; i < orderedGroupIds.length; i++) {
+		const gid = orderedGroupIds[i]!;
+		const tree = expectedTrees.get(gid);
+		if (!tree) continue;
+
+		const prevTree = i === 0
+			? await resolveTree(repoPath, baseSha)
+			: expectedTrees.get(orderedGroupIds[i - 1]!);
+		if (!prevTree) continue;
+
+		const numstatResult = await Bun.$`git -C ${repoPath} diff-tree --numstat -r ${prevTree} ${tree}`.quiet().nothrow();
+		const rawResult = await Bun.$`git -C ${repoPath} diff-tree --raw --no-commit-id -r -z ${prevTree} ${tree}`.quiet().nothrow();
+
+		let additions = 0;
+		let deletions = 0;
+		let filesAdded = 0;
+		let filesModified = 0;
+		let filesDeleted = 0;
+
+		if (numstatResult.exitCode === 0) {
+			const lines = numstatResult.stdout.toString().trim().split("\n").filter(Boolean);
+			for (const line of lines) {
+				const parts = line.split("\t");
+				if (parts.length < 3) continue;
+				const [addStr, delStr] = parts;
+				if (addStr === "-" || delStr === "-") continue;
+				additions += parseInt(addStr!, 10);
+				deletions += parseInt(delStr!, 10);
+			}
+		}
+
+		if (rawResult.exitCode === 0) {
+			const entries = rawResult.stdout.toString("utf-8").split("\0").filter(Boolean);
+			for (const entry of entries) {
+				if (!entry.startsWith(":")) continue;
+				const match = entry.match(/^:\d+ \d+ [0-9a-f]+ [0-9a-f]+ ([AMDRC])/);
+				if (!match) continue;
+				const status = match[1];
+				if (status === "A") filesAdded++;
+				else if (status === "D") filesDeleted++;
+				else filesModified++;
+			}
+		}
+
+		stats.set(gid, { additions, deletions, files_added: filesAdded, files_modified: filesModified, files_deleted: filesDeleted });
+	}
+
+	return stats;
+}
+
+async function resolveTree(repoPath: string, commitSha: string): Promise<string> {
+	const result = await Bun.$`git -C ${repoPath} rev-parse ${commitSha}^{tree}`.quiet().nothrow();
+	if (result.exitCode !== 0) {
+		throw new DeltaExtractionError(`Failed to resolve tree for ${commitSha}: ${result.stderr.toString().trim()}`);
+	}
+	return result.stdout.toString().trim();
 }
 
 export function buildRenameMap(deltas: DeltaEntry[]): Map<string, string> {

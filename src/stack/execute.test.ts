@@ -87,8 +87,8 @@ describe("executeStack", () => {
 		expect(commit0?.group_id).toBe("Auth");
 		expect(commit1?.group_id).toBe("UI");
 
-		expect(commit0?.branch_name).toBe("newpr-stack/pr-42/0-auth");
-		expect(commit1?.branch_name).toBe("newpr-stack/pr-42/1-ui");
+		expect(commit0?.branch_name).toMatch(/^newpr-stack\/pr-42\/0-[a-z0-9]{6}$/);
+		expect(commit1?.branch_name).toMatch(/^newpr-stack\/pr-42\/1-[a-z0-9]{6}$/);
 
 		if (commit0) {
 			const parent0 = (await Bun.$`git -C ${testRepoPath} rev-parse ${commit0.commit_sha}^`.quiet()).stdout.toString().trim();
