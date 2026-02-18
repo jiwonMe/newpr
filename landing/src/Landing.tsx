@@ -42,7 +42,7 @@ function TypewriterCode() {
 		{ text: "  ✓ claude 1.0.3", color: "text-emerald-400", delay: 1400 },
 		{ text: "  ✓ OpenRouter API key", color: "text-emerald-400", delay: 1600 },
 		{ text: "", color: "", delay: 1800 },
-		{ text: "  newpr v0.5", color: "text-white", delay: 2000 },
+		{ text: "  newpr v1.0", color: "text-white", delay: 2000 },
 		{ text: "  → Local    http://localhost:3456", color: "text-blue-400", delay: 2200 },
 		{ text: "  → Model    claude-sonnet-4.6", color: "text-zinc-500", delay: 2400 },
 	];
@@ -108,7 +108,7 @@ function AppMockup() {
 				<div className="w-[180px] border-r border-zinc-800 flex flex-col shrink-0 hidden sm:flex">
 					<div className="h-10 px-3 flex items-center border-b border-zinc-800">
 						<span className="font-mono text-[11px] font-semibold text-zinc-300">newpr</span>
-						<span className="text-[9px] text-zinc-600 ml-1.5">v0.5</span>
+						<span className="text-[9px] text-zinc-600 ml-1.5">v1.0</span>
 					</div>
 					<div className="flex-1 px-2 py-2 space-y-0.5 overflow-hidden">
 						<div className="text-[9px] text-zinc-600 px-2 py-1 font-mono">tldraw/tldraw</div>
@@ -217,7 +217,71 @@ function AppMockup() {
 	);
 }
 
+function StackMockup() {
+	const stacks = [
+		{ order: 1, type: "feat", color: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30", title: "add loop node schema", plus: 247, minus: 12 },
+		{ order: 2, type: "feat", color: "bg-blue-500/15 text-blue-400 border-blue-500/30", title: "implement state management", plus: 189, minus: 34 },
+		{ order: 3, type: "refactor", color: "bg-amber-500/15 text-amber-400 border-amber-500/30", title: "update canvas rendering", plus: 156, minus: 87 },
+		{ order: 4, type: "test", color: "bg-purple-500/15 text-purple-400 border-purple-500/30", title: "add integration tests", plus: 312, minus: 0 },
+	];
+	return (
+		<div className="bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden shadow-2xl shadow-black/50 p-6 sm:p-8">
+			<div className="flex flex-col lg:flex-row items-center gap-6 lg:gap-8">
+				<div className="flex-shrink-0 w-full lg:w-auto">
+					<div className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-5 w-full lg:w-[200px]">
+						<div className="flex items-center gap-2 mb-3">
+							<GitPullRequest className="w-4 h-4 text-red-400" />
+							<span className="text-[11px] text-zinc-400 font-medium">Original PR</span>
+						</div>
+						<p className="text-[13px] font-semibold text-zinc-200 mb-3 leading-snug">Add loop node support for workflow editor</p>
+						<div className="flex items-center gap-3 text-[10px] text-zinc-500 mb-3">
+							<span className="text-green-500">+904</span>
+							<span className="text-red-500">-133</span>
+						</div>
+						<div className="text-[10px] text-zinc-600">48 files changed</div>
+					</div>
+				</div>
+
+				<div className="flex-shrink-0 flex flex-col items-center gap-1">
+					<div className="w-8 h-8 rounded-full bg-blue-500/20 border border-blue-500/30 flex items-center justify-center">
+						<Layers className="w-4 h-4 text-blue-400" />
+					</div>
+					<ArrowRight className="w-4 h-4 text-zinc-600 hidden lg:block" />
+					<ChevronRight className="w-4 h-4 text-zinc-600 rotate-90 lg:hidden" />
+				</div>
+
+				<div className="flex-1 space-y-2 w-full">
+					{stacks.map((s, i) => (
+						<div key={i} className="flex items-center gap-3 bg-zinc-900/60 border border-zinc-800 rounded-lg px-4 py-2.5 hover:border-zinc-700 transition-colors group">
+							<div className="flex items-center gap-2 shrink-0">
+								<span className="text-[10px] text-zinc-600 w-4 text-right">{s.order}</span>
+								<div className="w-px h-4 bg-zinc-800" />
+								<span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium ${s.color}`}>{s.type}</span>
+							</div>
+							<span className="text-[12px] text-zinc-300 truncate flex-1 group-hover:text-white transition-colors">{s.title}</span>
+							<div className="flex items-center gap-2 text-[10px] shrink-0">
+								<span className="text-green-500">+{s.plus}</span>
+								<span className="text-red-500">-{s.minus}</span>
+							</div>
+							{i < stacks.length - 1 && (
+								<div className="absolute right-0 bottom-0 hidden" />
+							)}
+						</div>
+					))}
+					<div className="flex items-center gap-2 pt-1">
+						<div className="h-px flex-1 bg-gradient-to-r from-zinc-800 to-transparent" />
+						<span className="text-[10px] text-zinc-600">Each PR is independently reviewable</span>
+						<div className="h-px flex-1 bg-gradient-to-l from-zinc-800 to-transparent" />
+					</div>
+				</div>
+			</div>
+		</div>
+	);
+}
+
 const FEATURES = [
+	{ icon: Layers, title: "PR Stacking", desc: "Split massive PRs into small, reviewable stacked PRs. AI groups files by concern, creates branch hierarchy, and publishes as linked draft PRs." },
+	{ icon: Play, title: "Background Processing", desc: "Stack pipeline runs server-side with SSE progress streaming. Resume from any device — state persists across sessions." },
 	{ icon: BookOpen, title: "Narrative Walkthrough", desc: "Prose-first story with clickable code references. Every sentence links to exact lines in the diff." },
 	{ icon: Link, title: "Line-Level Anchors", desc: "Three anchor types — group chips, file chips, and inline underlined links that scroll to exact line ranges." },
 	{ icon: MessageSquare, title: "Interactive Chat", desc: "Ask follow-up questions with agentic tool execution. Post review comments directly from chat." },
@@ -246,10 +310,10 @@ const TOOLS = [
 ];
 
 const STATS = [
-	{ value: "1000+", label: "Lines handled" },
-	{ value: "10+", label: "Chat tools" },
-	{ value: "3", label: "Anchor types" },
+	{ value: "10k+", label: "Lines handled per PR" },
+	{ value: "10+", label: "Chat & review tools" },
 	{ value: "<2min", label: "Full analysis" },
+	{ value: "1 to N", label: "PRs from one" },
 ];
 
 export function Landing() {
@@ -266,6 +330,7 @@ export function Landing() {
 				<div className="max-w-[1080px] mx-auto px-6 h-14 flex items-center justify-between">
 					<a href="/" className="font-mono text-sm font-semibold tracking-tight">newpr</a>
 					<div className="flex items-center gap-5">
+						<a href="#stacking" className="hidden sm:block text-[13px] text-zinc-500 hover:text-zinc-200 transition-colors">Stacking</a>
 						<a href="#features" className="hidden sm:block text-[13px] text-zinc-500 hover:text-zinc-200 transition-colors">Features</a>
 						<a href="#how" className="hidden sm:block text-[13px] text-zinc-500 hover:text-zinc-200 transition-colors">How it works</a>
 						<a href="#tools" className="hidden sm:block text-[13px] text-zinc-500 hover:text-zinc-200 transition-colors">Tools</a>
@@ -285,14 +350,14 @@ export function Landing() {
 					</FadeIn>
 					<FadeIn delay={100}>
 						<h1 className="text-4xl sm:text-5xl lg:text-[64px] font-bold tracking-[-0.04em] leading-[1.08] mb-6">
-							<span className="bg-gradient-to-b from-white via-white to-zinc-500 bg-clip-text text-transparent">Turn large PRs into</span>
+							<span className="bg-gradient-to-b from-white via-white to-zinc-500 bg-clip-text text-transparent">Review, understand, and split</span>
 							<br />
-							<span className="bg-gradient-to-b from-blue-400 to-blue-600 bg-clip-text text-transparent">readable stories</span>
+							<span className="bg-gradient-to-b from-blue-400 to-blue-600 bg-clip-text text-transparent">large PRs into stacks</span>
 						</h1>
 					</FadeIn>
 					<FadeIn delay={200}>
-						<p className="text-base sm:text-lg text-zinc-400 max-w-[520px] mx-auto mb-10 leading-relaxed">
-							AI-powered review tool with clickable code references, interactive chat, slide generation, and one-click review actions.
+						<p className="text-base sm:text-lg text-zinc-400 max-w-[560px] mx-auto mb-10 leading-relaxed">
+							AI-powered tool that turns massive PRs into narrative walkthroughs and splits them into small, reviewable stacked PRs — all from one command.
 						</p>
 					</FadeIn>
 					<FadeIn delay={300}>
@@ -330,6 +395,41 @@ export function Landing() {
 								<div key={s.label} className="bg-[#09090b] p-6 sm:p-8 text-center">
 									<div className="text-2xl sm:text-3xl font-bold tracking-tight mb-1">{s.value}</div>
 									<div className="text-[12px] text-zinc-500">{s.label}</div>
+								</div>
+							))}
+						</div>
+					</FadeIn>
+				</div>
+			</section>
+
+			<section id="stacking" className="py-20 px-6">
+				<div className="max-w-[1080px] mx-auto">
+					<FadeIn>
+						<div className="text-center mb-12">
+							<div className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-full text-[12px] text-emerald-400 font-medium mb-4">
+								New in v1.0
+							</div>
+							<h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-4">Split one PR into a reviewable stack</h2>
+							<p className="text-[15px] text-zinc-400 max-w-[560px] mx-auto leading-relaxed">
+								AI analyzes file dependencies, groups changes by concern, and creates a chain of small, focused PRs — each building on the last.
+							</p>
+						</div>
+					</FadeIn>
+					<FadeIn delay={200}>
+						<div className="max-w-[860px] mx-auto">
+							<StackMockup />
+						</div>
+					</FadeIn>
+					<FadeIn delay={400}>
+						<div className="grid sm:grid-cols-3 gap-4 mt-10 max-w-[860px] mx-auto">
+							{[
+								{ title: "Dependency-aware ordering", desc: "Topological sort ensures each PR builds cleanly on its parent. No broken intermediate states." },
+								{ title: "Git plumbing only", desc: "No cherry-picks, no patches. Pure tree manipulation with index-only operations for perfect accuracy." },
+								{ title: "Linked draft PRs", desc: "Publishes as connected draft PRs on GitHub. Each one references its parent in the stack." },
+							].map((item, i) => (
+								<div key={i} className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-5">
+									<h3 className="text-[14px] font-semibold mb-2">{item.title}</h3>
+									<p className="text-[12px] text-zinc-500 leading-relaxed">{item.desc}</p>
 								</div>
 							))}
 						</div>
@@ -393,7 +493,7 @@ export function Landing() {
 				<div className="max-w-[1080px] mx-auto">
 					<FadeIn>
 						<p className="text-[12px] font-semibold uppercase tracking-widest text-zinc-500 mb-3">Features</p>
-						<h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-12">Everything you need to review large PRs</h2>
+						<h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-12">Everything you need to review and split large PRs</h2>
 					</FadeIn>
 					<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-zinc-800 border border-zinc-800 rounded-2xl overflow-hidden">
 						{FEATURES.map((f, i) => {
@@ -507,8 +607,8 @@ export function Landing() {
 				<div className="max-w-[1080px] mx-auto">
 					<FadeIn>
 						<Sparkles className="w-8 h-8 text-blue-400 mx-auto mb-6" />
-						<h2 className="text-3xl sm:text-4xl font-bold tracking-tight mb-4">Start reviewing smarter</h2>
-						<p className="text-[15px] text-zinc-400 mb-8 max-w-[440px] mx-auto">One command to understand any PR. No configuration needed with Claude Code.</p>
+						<h2 className="text-3xl sm:text-4xl font-bold tracking-tight mb-4">Start reviewing and stacking smarter</h2>
+						<p className="text-[15px] text-zinc-400 mb-8 max-w-[480px] mx-auto">One command to understand any PR and split it into reviewable stacks. No configuration needed.</p>
 						<div className="flex items-center justify-center gap-3 flex-wrap">
 							<a href="https://github.com/jiwonMe/newpr" target="_blank" rel="noopener" className="group h-11 px-6 bg-white text-black text-sm font-semibold rounded-xl flex items-center gap-2 hover:bg-zinc-200 transition-colors">
 								Get Started <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
