@@ -1,5 +1,5 @@
-import { useState, useCallback, useEffect, useRef } from "react";
-import { Sun, Moon, Monitor, Plus, Settings, ArrowUp, Loader2, X, Check, AlertCircle } from "lucide-react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import { Sun, Moon, Monitor, Plus, Settings, ArrowUp, Loader2, X, Check, AlertCircle, ChevronRight } from "lucide-react";
 import type { BackgroundAnalysis } from "../hooks/useBackgroundAnalyses.ts";
 import type { SessionRecord } from "../../../history/types.ts";
 import type { GithubUser } from "../hooks/useGithubUser.ts";
@@ -41,6 +41,114 @@ function formatTimeAgo(isoDate: string): string {
 	if (hours < 24) return `${hours}h`;
 	const days = Math.floor(hours / 24);
 	return `${days}d`;
+}
+
+interface RepoGroup {
+	repo: string;
+	repoShort: string;
+	sessions: SessionRecord[];
+	latestAt: number;
+}
+
+function groupByRepo(sessions: SessionRecord[]): RepoGroup[] {
+	const map = new Map<string, SessionRecord[]>();
+	for (const s of sessions) {
+		const list = map.get(s.repo) ?? [];
+		list.push(s);
+		map.set(s.repo, list);
+	}
+	const groups: RepoGroup[] = [];
+	for (const [repo, list] of map) {
+		const latestAt = Math.max(...list.map((s) => new Date(s.analyzed_at).getTime()));
+		groups.push({ repo, repoShort: repo.split("/").pop() ?? repo, sessions: list, latestAt });
+	}
+	groups.sort((a, b) => b.latestAt - a.latestAt);
+	return groups;
+}
+
+function SessionList({
+	sessions,
+	activeSessionId,
+	onSessionSelect,
+}: {
+	sessions: SessionRecord[];
+	activeSessionId?: string | null;
+	onSessionSelect: (id: string) => void;
+}) {
+	const groups = useMemo(() => groupByRepo(sessions), [sessions]);
+	const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+
+	const toggle = useCallback((repo: string) => {
+		setCollapsed((prev) => {
+			const next = new Set(prev);
+			next.has(repo) ? next.delete(repo) : next.add(repo);
+			return next;
+		});
+	}, []);
+
+	if (sessions.length === 0) {
+		return (
+			<div className="flex-1 overflow-y-auto px-2 flex flex-col items-center justify-center text-center gap-2 opacity-40">
+				<p className="text-[11px] text-muted-foreground">No analyses yet</p>
+			</div>
+		);
+	}
+
+	return (
+		<div className="flex-1 overflow-y-auto px-2 py-1">
+			{groups.map((g) => {
+				const isCollapsed = collapsed.has(g.repo);
+				return (
+					<div key={g.repo} className="mb-1">
+						<button
+							type="button"
+							onClick={() => toggle(g.repo)}
+							className="w-full flex items-center gap-1.5 px-1.5 py-1 rounded-md hover:bg-accent/30 transition-colors"
+						>
+							<ChevronRight className={`h-2.5 w-2.5 text-muted-foreground/30 shrink-0 transition-transform ${isCollapsed ? "" : "rotate-90"}`} />
+							<span className="text-[11px] font-mono text-muted-foreground/60 truncate">{g.repoShort}</span>
+							<span className="text-[10px] text-muted-foreground/25 shrink-0">{g.sessions.length}</span>
+						</button>
+						{!isCollapsed && (
+							<div className="space-y-px mt-px">
+								{g.sessions.map((s) => {
+									const isActive = activeSessionId === s.id;
+									return (
+										<button
+											key={s.id}
+											type="button"
+											onClick={() => onSessionSelect(s.id)}
+											className={`w-full flex items-start gap-2 rounded-md pl-5 pr-2.5 py-1.5 text-left transition-colors group ${
+												isActive ? "bg-accent text-foreground" : "hover:bg-accent/40"
+											}`}
+										>
+											<span className={`mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full ${RISK_DOT[s.risk_level] ?? RISK_DOT.medium}`} />
+											<div className="flex-1 min-w-0">
+												<div className={`text-[11px] truncate leading-tight ${isActive ? "font-medium" : "text-foreground/80 group-hover:text-foreground"} transition-colors`}>
+													{s.pr_title}
+												</div>
+												<div className="flex items-center gap-1 mt-0.5 text-[10px] text-muted-foreground/40">
+													<span className="font-mono">#{s.pr_number}</span>
+													{s.pr_state && STATE_LABEL[s.pr_state] && (
+														<>
+															<span className="text-muted-foreground/15">·</span>
+															<span className={STATE_LABEL[s.pr_state]!.class}>{STATE_LABEL[s.pr_state]!.text}</span>
+														</>
+													)}
+													<span className="text-muted-foreground/15">·</span>
+													<span>{formatTimeAgo(s.analyzed_at)}</span>
+												</div>
+											</div>
+										</button>
+									);
+								})}
+							</div>
+						)}
+					</div>
+				);
+			})}
+		</div>
+	);
 }
 
 export function AppShell({
@@ -142,50 +250,11 @@ export function AppShell({
 					</button>
 				</div>
 
-				<div className="flex-1 overflow-y-auto px-2">
-					{sessions.length > 0 ? (
-						<div className="space-y-px">
-							{sessions.map((s) => {
-								const isActive = activeSessionId === s.id;
-								return (
-									<button
-										key={s.id}
-										type="button"
-										onClick={() => onSessionSelect(s.id)}
-										className={`w-full flex items-start gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors group ${
-											isActive
-												? "bg-accent text-foreground"
-												: "hover:bg-accent/40"
-										}`}
-									>
-										<span className={`mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full ${RISK_DOT[s.risk_level] ?? RISK_DOT.medium}`} />
-										<div className="flex-1 min-w-0">
-											<div className={`text-xs truncate leading-tight ${isActive ? "font-medium" : "text-foreground/80 group-hover:text-foreground"} transition-colors`}>
-												{s.pr_title}
-											</div>
-											<div className="flex items-center gap-1 mt-1 text-[10px] text-muted-foreground/50">
-												<span className="font-mono truncate">{s.repo.split("/").pop()}</span>
-												<span className="font-mono">#{s.pr_number}</span>
-												{s.pr_state && STATE_LABEL[s.pr_state] && (
-													<>
-														<span className="text-muted-foreground/20 mx-0.5">·</span>
-														<span className={STATE_LABEL[s.pr_state]!.class}>{STATE_LABEL[s.pr_state]!.text}</span>
-													</>
-												)}
-												<span className="text-muted-foreground/20 mx-0.5">·</span>
-												<span>{formatTimeAgo(s.analyzed_at)}</span>
-											</div>
-										</div>
-									</button>
-								);
-							})}
-						</div>
-					) : (
-						<div className="flex flex-col items-center justify-center h-full text-center px-4 gap-2 opacity-40">
-							<p className="text-[11px] text-muted-foreground">No analyses yet</p>
-						</div>
-					)}
-				</div>
+				<SessionList
+					sessions={sessions}
+					activeSessionId={activeSessionId}
+					onSessionSelect={onSessionSelect}
+				/>
 
 				{bgAnalyses && bgAnalyses.length > 0 && (
 					<div className="shrink-0 border-t px-2 py-2 space-y-px">
