@@ -312,6 +312,13 @@ export function Landing() {
 							<AppMockup />
 						</div>
 					</FadeIn>
+					<FadeIn delay={600}>
+						<a href="https://www.sionic.ai" target="_blank" rel="noopener noreferrer" className="mt-8 flex items-center justify-center gap-2 opacity-25 hover:opacity-50 transition-opacity">
+							<span className="text-[10px] text-zinc-500 uppercase tracking-widest">Sponsored by</span>
+							<img src="https://www.sionic.ai/favicon.ico" alt="Sionic AI" className="h-4 w-4" />
+							<span className="text-[11px] text-zinc-400 font-medium">Sionic AI</span>
+						</a>
+					</FadeIn>
 				</div>
 			</section>
 
@@ -511,35 +518,6 @@ export function Landing() {
 							</a>
 						</div>
 					</FadeIn>
-				</div>
-			</section>
-
-			<section className="py-10 px-6">
-				<div className="max-w-[480px] mx-auto">
-					<a
-						href="https://www.sionic.ai"
-						target="_blank"
-						rel="noopener noreferrer"
-						className="group relative flex items-center gap-3.5 rounded-xl overflow-hidden px-5 py-4 transition-all hover:shadow-lg hover:shadow-blue-500/10"
-						style={{ background: "linear-gradient(135deg, #071121 0%, #0d1b33 50%, #1a2d54 100%)" }}
-					>
-						<img
-							src="https://www.sionic.ai/_next/image?url=%2F_next%2Fstatic%2Fmedia%2Fmain-intro-bg.1455295d.png&w=1920&q=75"
-							alt=""
-							className="absolute inset-0 w-full h-full object-cover object-bottom opacity-25 group-hover:opacity-40 transition-opacity pointer-events-none"
-						/>
-						<div className="absolute inset-0 bg-gradient-to-r from-[#071121]/70 via-transparent to-transparent pointer-events-none" />
-						<div className="relative flex items-center gap-3 flex-1 min-w-0">
-							<img src="https://www.sionic.ai/favicon.ico" alt="Sionic AI" className="h-5 w-5 shrink-0" />
-							<div className="flex flex-col min-w-0">
-								<span className="text-[12px] font-semibold text-white/80">Sionic AI</span>
-								<span className="text-[10px] text-white/35">The Power of AI for Every Business</span>
-							</div>
-						</div>
-						<div className="relative flex items-center gap-1.5 shrink-0">
-							<span className="text-[9px] text-white/20 uppercase tracking-widest">Sponsor</span>
-						</div>
-					</a>
 				</div>
 			</section>
 
