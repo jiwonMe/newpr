@@ -9,6 +9,7 @@ type SessionStatus = "running" | "done" | "error" | "canceled";
 
 interface AnalysisSession {
 	id: string;
+	prInput: string;
 	status: SessionStatus;
 	events: ProgressEvent[];
 	result?: NewprOutput;
@@ -16,6 +17,8 @@ interface AnalysisSession {
 	error?: string;
 	startedAt: number;
 	finishedAt?: number;
+	prTitle?: string;
+	prNumber?: number;
 	abortController: AbortController;
 	subscribers: Set<(event: ProgressEvent | { type: "done" | "error"; data?: string }) => void>;
 }
@@ -53,6 +56,7 @@ export function startAnalysis(
 
 	const session: AnalysisSession = {
 		id,
+		prInput,
 		status: "running",
 		events: [],
 		startedAt: Date.now(),
@@ -84,6 +88,8 @@ async function runPipeline(
 			onProgress: (event: ProgressEvent) => {
 				const stamped = { ...event, timestamp: event.timestamp ?? Date.now() };
 				session.events.push(stamped);
+				if (event.pr_title) session.prTitle = event.pr_title;
+				if (event.pr_number) session.prNumber = event.pr_number;
 				for (const sub of session.subscribers) {
 					sub(stamped);
 				}
@@ -127,6 +133,34 @@ export function cancelAnalysis(id: string): boolean {
 	session.finishedAt = Date.now();
 	session.subscribers.clear();
 	return true;
+}
+
+export function listActiveSessions(): Array<{
+	id: string;
+	prInput: string;
+	status: SessionStatus;
+	startedAt: number;
+	prTitle?: string;
+	prNumber?: number;
+	lastStage?: string;
+	lastMessage?: string;
+}> {
+	const result: ReturnType<typeof listActiveSessions> = [];
+	for (const s of sessions.values()) {
+		if (s.status !== "running") continue;
+		const lastEvent = s.events[s.events.length - 1];
+		result.push({
+			id: s.id,
+			prInput: s.prInput,
+			status: s.status,
+			startedAt: s.startedAt,
+			prTitle: s.prTitle,
+			prNumber: s.prNumber,
+			lastStage: lastEvent?.stage,
+			lastMessage: lastEvent?.message,
+		});
+	}
+	return result;
 }
 
 export function subscribe(

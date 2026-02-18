@@ -8,7 +8,7 @@ import { fetchPrBody, fetchPrComments } from "../../github/fetch-pr.ts";
 import { parseDiff } from "../../diff/parser.ts";
 import { parsePrInput } from "../../github/parse-pr.ts";
 import { writeStoredConfig, type StoredConfig } from "../../config/store.ts";
-import { startAnalysis, getSession, cancelAnalysis, subscribe } from "./session-manager.ts";
+import { startAnalysis, getSession, cancelAnalysis, subscribe, listActiveSessions } from "./session-manager.ts";
 import { generateCartoon } from "../../llm/cartoon.ts";
 import { chatWithTools, type ChatTool, type ChatStreamEvent } from "../../llm/client.ts";
 import { detectAgents, runAgent } from "../../workspace/agent.ts";
@@ -571,6 +571,10 @@ $$
 
 		"GET /api/preflight": () => {
 			return json(options.preflight ?? null);
+		},
+
+		"GET /api/active-analyses": () => {
+			return json(listActiveSessions());
 		},
 
 		"GET /api/sessions/:id/comments": async (req: Request) => {

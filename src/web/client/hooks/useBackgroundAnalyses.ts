@@ -21,8 +21,34 @@ export interface BackgroundAnalysis {
 export function useBackgroundAnalyses() {
 	const [analyses, setAnalyses] = useState<BackgroundAnalysis[]>([]);
 	const eventSourcesRef = useRef<Map<string, EventSource>>(new Map());
+	const restoredRef = useRef(false);
 
-	const track = useCallback((sessionId: string, prInput: string) => {
+	useEffect(() => {
+		if (restoredRef.current) return;
+		restoredRef.current = true;
+		fetch("/api/active-analyses")
+			.then((r) => r.json())
+			.then((data) => {
+				const active = data as Array<{
+					id: string;
+					prInput: string;
+					status: string;
+					startedAt: number;
+					prTitle?: string;
+					prNumber?: number;
+					lastStage?: string;
+					lastMessage?: string;
+				}>;
+				for (const a of active) {
+					if (!eventSourcesRef.current.has(a.id)) {
+						trackInternal(a.id, a.prInput, a.prTitle, a.prNumber, a.lastMessage);
+					}
+				}
+			})
+			.catch(() => {});
+	}, []);
+
+	const trackInternal = useCallback((sessionId: string, prInput: string, initTitle?: string, initNumber?: number, initMessage?: string) => {
 		if (eventSourcesRef.current.has(sessionId)) return;
 
 		const entry: BackgroundAnalysis = {
@@ -30,6 +56,9 @@ export function useBackgroundAnalyses() {
 			prInput,
 			status: "running",
 			startedAt: Date.now(),
+			prTitle: initTitle,
+			prNumber: initNumber,
+			lastMessage: initMessage,
 		};
 
 		setAnalyses((prev) => [...prev.filter((a) => a.sessionId !== sessionId), entry]);
@@ -109,6 +138,10 @@ export function useBackgroundAnalyses() {
 			for (const es of eventSourcesRef.current.values()) es.close();
 		};
 	}, []);
+
+	const track = useCallback((sessionId: string, prInput: string) => {
+		trackInternal(sessionId, prInput);
+	}, [trackInternal]);
 
 	return { analyses, track, dismiss };
 }

@@ -126,6 +126,9 @@ export async function startWebServer(options: WebServerOptions): Promise<void> {
 			if (path === "/api/preflight" && req.method === "GET") {
 				return routes["GET /api/preflight"]();
 			}
+			if (path === "/api/active-analyses" && req.method === "GET") {
+				return routes["GET /api/active-analyses"]();
+			}
 			if (path === "/api/cartoon" && req.method === "POST") {
 				return routes["POST /api/cartoon"](req);
 			}
