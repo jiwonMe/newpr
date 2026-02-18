@@ -48,3 +48,4 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # Config (may contain API keys)
 .newpr/
+landing/src/built.css
