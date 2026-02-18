@@ -499,15 +499,21 @@ $$
 					headers: { Authorization: `Bearer ${config.openrouter_api_key}` },
 				});
 				if (!res.ok) return json([]);
-				const data = await res.json() as { data?: Array<{ id: string; name: string; pricing?: { prompt?: string }; context_length?: number }> };
+				const data = await res.json() as { data?: Array<{ id: string; name: string; created?: number; context_length?: number }> };
 				const models = (data.data ?? [])
 					.filter((m) => m.id && !m.id.includes(":free") && !m.id.includes(":extended"))
 					.map((m) => ({
 						id: m.id,
 						name: m.name ?? m.id,
+						provider: m.id.split("/")[0] ?? "",
+						created: m.created ?? 0,
 						contextLength: m.context_length,
 					}))
-					.sort((a, b) => a.id.localeCompare(b.id));
+					.sort((a, b) => {
+						const provCmp = a.provider.localeCompare(b.provider);
+						if (provCmp !== 0) return provCmp;
+						return b.created - a.created;
+					});
 				return json(models);
 			} catch {
 				return json([]);

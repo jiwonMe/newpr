@@ -24,6 +24,8 @@ interface ConfigData {
 interface ModelInfo {
 	id: string;
 	name: string;
+	provider?: string;
+	created?: number;
 	contextLength?: number;
 }
 
@@ -266,11 +268,16 @@ export function SettingsPanel({ onClose, onFeaturesChange }: { onClose: () => vo
 	);
 }
 
-function ModelSelect({ value, models, onChange }: { value: string; models: ModelInfo[]; onChange: (id: string) => void }) {
+function ModelSelect({ value, models: initialModels, onChange }: { value: string; models: ModelInfo[]; onChange: (id: string) => void }) {
 	const [open, setOpen] = useState(false);
 	const [search, setSearch] = useState("");
+	const [models, setModels] = useState<ModelInfo[]>(initialModels);
+	const [loading, setLoading] = useState(false);
 	const ref = useRef<HTMLDivElement>(null);
 	const inputRef = useRef<HTMLInputElement>(null);
+	const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+	useEffect(() => { setModels(initialModels); }, [initialModels]);
 
 	useEffect(() => {
 		if (!open) return;
@@ -281,16 +288,28 @@ function ModelSelect({ value, models, onChange }: { value: string; models: Model
 		return () => document.removeEventListener("mousedown", handler);
 	}, [open]);
 
+	const fetchModels = useCallback((q: string) => {
+		setLoading(true);
+		fetch(`/api/models${q ? `?q=${encodeURIComponent(q)}` : ""}`)
+			.then((r) => r.json())
+			.then((data) => setModels(data as ModelInfo[]))
+			.catch(() => {})
+			.finally(() => setLoading(false));
+	}, []);
+
 	useEffect(() => {
 		if (open) {
 			setSearch("");
+			fetchModels("");
 			setTimeout(() => inputRef.current?.focus(), 0);
 		}
-	}, [open]);
+	}, [open, fetchModels]);
 
-	const filtered = search
-		? models.filter((m) => m.id.toLowerCase().includes(search.toLowerCase()) || m.name.toLowerCase().includes(search.toLowerCase()))
-		: models;
+	const handleSearch = useCallback((q: string) => {
+		setSearch(q);
+		if (debounceRef.current) clearTimeout(debounceRef.current);
+		debounceRef.current = setTimeout(() => fetchModels(q), 300);
+	}, [fetchModels]);
 
 	const displayName = value.split("/").pop() ?? value;
 
@@ -313,33 +332,39 @@ function ModelSelect({ value, models, onChange }: { value: string; models: Model
 								ref={inputRef}
 								type="text"
 								value={search}
-								onChange={(e) => setSearch(e.target.value)}
+								onChange={(e) => handleSearch(e.target.value)}
 								placeholder="Search models..."
 								className="flex-1 bg-transparent text-[11px] focus:outline-none placeholder:text-muted-foreground/30"
 							/>
+							{loading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/30 shrink-0" />}
 						</div>
 					</div>
-					<div className="max-h-[240px] overflow-y-auto p-1">
-						{filtered.length === 0 && (
+					<div className="max-h-[280px] overflow-y-auto p-1">
+						{models.length === 0 && !loading && (
 							<div className="px-2 py-3 text-center text-[11px] text-muted-foreground/40">No models found</div>
 						)}
-						{filtered.slice(0, 50).map((m) => {
+						{models.slice(0, 80).map((m, i) => {
 							const isSelected = m.id === value;
 							const provider = m.id.split("/")[0] ?? "";
 							const name = m.id.split("/").slice(1).join("/");
+							const prevProvider = i > 0 ? models[i - 1]!.id.split("/")[0] : null;
+							const showHeader = provider !== prevProvider;
 							return (
-								<button
-									key={m.id}
-									type="button"
-									onClick={() => { onChange(m.id); setOpen(false); }}
-									className={`w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${
-										isSelected ? "bg-accent" : "hover:bg-accent/50"
-									}`}
-								>
-									<span className="text-[10px] text-muted-foreground/40 w-[60px] shrink-0 truncate">{provider}</span>
-									<span className="text-[11px] font-mono truncate flex-1">{name}</span>
-									{isSelected && <Check className="h-3 w-3 text-foreground shrink-0" />}
-								</button>
+								<div key={m.id}>
+									{showHeader && (
+										<div className="px-2 pt-2 pb-1 text-[10px] font-medium text-muted-foreground/30 uppercase tracking-wider">{provider}</div>
+									)}
+									<button
+										type="button"
+										onClick={() => { onChange(m.id); setOpen(false); }}
+										className={`w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${
+											isSelected ? "bg-accent" : "hover:bg-accent/50"
+										}`}
+									>
+										<span className="text-[11px] font-mono truncate flex-1">{name}</span>
+										{isSelected && <Check className="h-3 w-3 text-foreground shrink-0" />}
+									</button>
+								</div>
 							);
 						})}
 					</div>

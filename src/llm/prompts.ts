@@ -196,24 +196,37 @@ There are THREE anchor types. You MUST use ALL of them.
 ### Usage Rules:
 - ALWAYS use [[line:path#Lstart-Lend]](text) with BOTH start and end lines. Single lines: [[line:path#L42-L42]](text).
 - The (text) must describe WHAT the code does, not WHERE it is. Bad: "lines 42-50". Good: "the new rate limiter middleware".
-- Wrap EVERY specific code mention in a line anchor. If you mention a function, class, type, constant, config change, or import — anchor it.
-- Interleave anchors naturally within sentences. They should feel like hyperlinks in a wiki article.
 - Do NOT pair [[file:...]] with [[line:...]] for the same file. The line anchor already opens the file.
 - Use the diff context provided to find accurate line numbers. If unsure of exact lines, use [[file:...]] instead.
 
-### Anchor Density — TWO levels:
-When describing a function or class, use anchors at TWO granularity levels:
+### ANCHOR DENSITY — THIS IS THE MOST IMPORTANT RULE
 
-**Level 1 — Declaration**: Anchor the function/class name itself to its full definition range.
-**Level 2 — Implementation details**: When explaining what the code does, anchor EACH distinct piece of logic to its specific lines within the function.
+Every sentence that describes code MUST contain at least one [[line:...]](...) anchor. A sentence without an anchor is a FAILURE.
 
-Example with two levels:
+Think of this like writing a Wikipedia article: almost every claim links to its source. In your narrative, the "source" is the specific line range in the diff.
+
+**What MUST be anchored:**
+- Every function, method, or class mentioned → anchor its declaration
+- Every implementation detail (what a function does) → anchor the specific lines
+- Every type, interface, or schema → anchor its definition
+- Every config change, constant, or environment variable → anchor it
+- Every import, export, or wiring between modules → anchor it
+- Every conditional logic, error handling, or edge case → anchor the specific branch
+- Every before/after comparison → anchor both the old and new code
+
+**Two-level anchoring for functions:**
+- Level 1: Anchor the function/class NAME to its full range (e.g., L15-L50)
+- Level 2: Inside the same paragraph, anchor EACH logical step to its sub-range (e.g., L18-L22, L24-L30, L32-L40)
+- A function description without Level 2 sub-anchors is TOO SPARSE
+
+**Target density: 3-6 line anchors per paragraph.** If a paragraph has fewer than 2 line anchors, you are not anchoring enough.
+
+Example (CORRECT density — 5 anchors in one paragraph):
 "[[line:src/auth/session.ts#L15-L50]](The validateToken function) handles the full JWT lifecycle. It [[line:src/auth/session.ts#L18-L22]](extracts the token from the Authorization header), [[line:src/auth/session.ts#L24-L30]](verifies the signature against the configured secret), and [[line:src/auth/session.ts#L32-L40]](checks the expiration timestamp). If validation fails, [[line:src/auth/session.ts#L42-L48]](it throws a typed AuthError with a specific error code)."
 
-Key principles:
-- The first anchor covers the entire function (L15-L50). Subsequent anchors zoom into specific parts within it.
-- Each sub-anchor should cover 2-10 lines — one logical step.
-- Descriptive text for sub-anchors should explain the step, not name the function again.
+Example (TOO SPARSE — only 1 anchor, rest is unlinked prose):
+"[[line:src/auth/session.ts#L15-L50]](The validateToken function) handles JWT parsing. It extracts the token, verifies the signature, and checks expiration. If validation fails, it throws an error."
+→ This is BAD because "extracts the token", "verifies the signature", "checks expiration", and "throws an error" should ALL be separate line anchors.
 
 ### Line Anchor Granularity:
 - Anchor individual functions, not entire files: [[line:auth.ts#L15-L30]](validateToken) not [[line:auth.ts#L1-L200]](auth module)
@@ -222,14 +235,15 @@ Key principles:
 - Anchor imports and exports that wire things together: [[line:index.ts#L3-L3]](re-exported from the barrel file)
 - For multi-part changes, anchor each part separately
 
-GOOD example (uses all 3 anchor types + two-level density):
+GOOD example (all 3 anchor types + high density):
 "The [[group:Auth Flow]] group introduces session management. [[line:src/auth/session.ts#L15-L50]](The new validateToken function) handles JWT parsing: [[line:src/auth/session.ts#L18-L22]](it extracts the token from the header), then [[line:src/auth/session.ts#L24-L35]](verifies the signature and checks expiration). [[line:src/auth/middleware.ts#L8-L20]](The auth middleware) invokes it on every request, [[line:src/auth/middleware.ts#L15-L18]](rejecting invalid tokens with a 401). Supporting configuration lives in [[file:src/auth/constants.ts]]."
 
 BAD examples:
-- No group anchors: "The auth changes introduce session management." (MUST use [[group:Auth Flow]])
-- No anchors in implementation details: "The validateToken function extracts the token, verifies the signature, and checks expiration." (MUST anchor each step separately)
-- One big anchor for everything: "[[line:session.ts#L15-L50]](The function extracts tokens, verifies signatures, and checks expiration)" (MUST split into sub-anchors)
-- Bare line anchor: "[[line:src/auth/session.ts#L15-L30]]" (MUST have (text) after it)
+- Unanchored prose: "The function extracts the token, verifies the signature, and checks expiration." → MUST anchor EACH action
+- No group anchors: "The auth changes introduce session management." → MUST use [[group:Auth Flow]]
+- One big anchor: "[[line:session.ts#L15-L50]](The function extracts tokens, verifies signatures, and checks expiration)" → MUST split into sub-anchors
+- Bare line anchor: "[[line:src/auth/session.ts#L15-L30]]" → MUST have (text) after it
+- Low density paragraph: A paragraph with only 1 line anchor and 4+ sentences of plain text → MUST add more anchors
 
 ${lang ? `CRITICAL: Write the ENTIRE narrative in ${lang}. Every sentence must be in ${lang}. Do NOT use English except for code identifiers, file paths, and anchor tokens.` : "If the PR title is in a non-English language, write the narrative in that same language."}`,
 		user: `PR Title: ${prTitle}\n\nSummary:\n- Purpose: ${summary.purpose}\n- Scope: ${summary.scope}\n- Impact: ${summary.impact}\n- Risk: ${summary.risk_level}\n\nChange Groups:\n${groupDetails}${commitCtx}${discussionCtx}${diffContext}`,
