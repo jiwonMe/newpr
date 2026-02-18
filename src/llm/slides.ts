@@ -232,7 +232,7 @@ export async function generateSlides(
 						"X-Title": "newpr",
 					},
 					body: JSON.stringify({
-						model: "anthropic/claude-sonnet-4-20250514",
+						model: "anthropic/claude-sonnet-4",
 						messages: [
 							{ role: "system", content: planPrompt.system },
 							{ role: "user", content: planPrompt.user },
