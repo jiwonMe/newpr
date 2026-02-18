@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { ArrowLeft, Layers, FolderTree, BookOpen, MessageSquare, GitBranch, Sparkles } from "lucide-react";
+import { ArrowLeft, Layers, FolderTree, BookOpen, MessageSquare, GitBranch, Sparkles, Check, ChevronDown } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../components/ui/tabs.tsx";
 import type { NewprOutput } from "../../../types/output.ts";
 import { GroupsPanel } from "../panels/GroupsPanel.tsx";
@@ -7,6 +7,7 @@ import { FilesPanel } from "../panels/FilesPanel.tsx";
 import { StoryPanel } from "../panels/StoryPanel.tsx";
 import { DiscussionPanel } from "../panels/DiscussionPanel.tsx";
 import { CartoonPanel } from "../panels/CartoonPanel.tsx";
+import { ReviewModal } from "./ReviewModal.tsx";
 
 const VALID_TABS = ["story", "discussion", "groups", "files", "cartoon"] as const;
 type TabValue = typeof VALID_TABS[number];
@@ -30,6 +31,13 @@ const RISK_DOT: Record<string, string> = {
 	critical: "bg-red-600",
 };
 
+const STATE_STYLES: Record<string, { bg: string; text: string; label: string }> = {
+	open: { bg: "bg-green-500/10", text: "text-green-600 dark:text-green-400", label: "Open" },
+	merged: { bg: "bg-purple-500/10", text: "text-purple-600 dark:text-purple-400", label: "Merged" },
+	closed: { bg: "bg-red-500/10", text: "text-red-600 dark:text-red-400", label: "Closed" },
+	draft: { bg: "bg-neutral-500/10", text: "text-neutral-500", label: "Draft" },
+};
+
 export function ResultsScreen({
 	data,
 	onBack,
@@ -42,13 +50,14 @@ export function ResultsScreen({
 	data: NewprOutput;
 	onBack: () => void;
 	activeId: string | null;
-	onAnchorClick: (kind: "group" | "file", id: string) => void;
+	onAnchorClick: (kind: "group" | "file" | "line", id: string) => void;
 	cartoonEnabled?: boolean;
 	sessionId?: string | null;
 	onTabChange?: (tab: string) => void;
 }) {
 	const { meta, summary } = data;
 	const [tab, setTab] = useState<TabValue>(getInitialTab);
+	const [reviewOpen, setReviewOpen] = useState(false);
 
 	const stickyRef = useRef<HTMLDivElement>(null);
 	const collapsibleRef = useRef<HTMLDivElement>(null);
@@ -90,6 +99,7 @@ export function ResultsScreen({
 	const repoSlug = meta.pr_url.replace(/^https?:\/\/github\.com\//, "").replace(/\/pull\//, "#");
 
 	return (
+		<>
 		<Tabs value={tab} onValueChange={handleTabChange} className="flex flex-col">
 			<div ref={stickyRef} className="sticky top-0 z-10 bg-background -mx-10 px-10">
 				<div ref={collapsibleRef} className="overflow-hidden transition-[max-height,opacity] duration-200">
@@ -110,7 +120,27 @@ export function ResultsScreen({
 							>
 								{repoSlug}
 							</a>
+							{meta.pr_state && (() => {
+								const s = STATE_STYLES[meta.pr_state] ?? STATE_STYLES.open!;
+								return (
+									<span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-md ${s!.bg} ${s!.text}`}>
+										{s!.label}
+									</span>
+								);
+							})()}
 							<span className={`h-1.5 w-1.5 rounded-full shrink-0 ${RISK_DOT[summary.risk_level] ?? RISK_DOT.medium}`} />
+							<div className="flex-1" />
+							{meta.pr_state !== "merged" && meta.pr_state !== "closed" && (
+								<button
+									type="button"
+									onClick={() => setReviewOpen(true)}
+									className="flex items-center gap-1.5 h-7 px-3 rounded-md border text-[11px] font-medium text-foreground hover:bg-accent/40 transition-colors shrink-0"
+								>
+									<Check className="h-3 w-3" />
+									Review
+									<ChevronDown className="h-3 w-3 text-muted-foreground/40" />
+								</button>
+							)}
 						</div>
 
 						<h1 className="text-sm font-semibold tracking-tight mb-3 line-clamp-2">{meta.pr_title}</h1>
@@ -155,6 +185,10 @@ export function ResultsScreen({
 							<ArrowLeft className="h-3.5 w-3.5" />
 						</button>
 						<span className={`h-1.5 w-1.5 rounded-full shrink-0 ${RISK_DOT[summary.risk_level] ?? RISK_DOT.medium}`} />
+						{meta.pr_state && (() => {
+							const s = STATE_STYLES[meta.pr_state]!;
+							return <span className={`text-[9px] font-medium px-1 py-px rounded ${s.bg} ${s.text} shrink-0`}>{s.label}</span>;
+						})()}
 						<span className="text-xs font-medium truncate flex-1">{meta.pr_title}</span>
 						<span className="text-[10px] text-muted-foreground/30 font-mono shrink-0">{repoSlug}</span>
 					</div>
@@ -209,5 +243,9 @@ export function ResultsScreen({
 				</TabsContent>
 			)}
 		</Tabs>
+		{reviewOpen && (
+			<ReviewModal prUrl={meta.pr_url} onClose={() => setReviewOpen(false)} />
+		)}
+		</>
 	);
 }

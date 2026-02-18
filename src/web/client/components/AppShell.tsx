@@ -24,6 +24,13 @@ const RISK_DOT: Record<string, string> = {
 	critical: "bg-red-600",
 };
 
+const STATE_LABEL: Record<string, { text: string; class: string }> = {
+	open: { text: "Open", class: "text-green-600 dark:text-green-400" },
+	merged: { text: "Merged", class: "text-purple-600 dark:text-purple-400" },
+	closed: { text: "Closed", class: "text-red-600 dark:text-red-400" },
+	draft: { text: "Draft", class: "text-neutral-500" },
+};
+
 function formatTimeAgo(isoDate: string): string {
 	const diff = Date.now() - new Date(isoDate).getTime();
 	const minutes = Math.floor(diff / 60000);
@@ -149,6 +156,12 @@ export function AppShell({
 											<div className="flex items-center gap-1 mt-1 text-[10px] text-muted-foreground/50">
 												<span className="font-mono truncate">{s.repo.split("/").pop()}</span>
 												<span className="font-mono">#{s.pr_number}</span>
+												{s.pr_state && STATE_LABEL[s.pr_state] && (
+													<>
+														<span className="text-muted-foreground/20 mx-0.5">·</span>
+														<span className={STATE_LABEL[s.pr_state]!.class}>{STATE_LABEL[s.pr_state]!.text}</span>
+													</>
+												)}
 												<span className="text-muted-foreground/20 mx-0.5">·</span>
 												<span>{formatTimeAgo(s.analyzed_at)}</span>
 											</div>

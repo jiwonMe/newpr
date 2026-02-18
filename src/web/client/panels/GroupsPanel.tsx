@@ -47,8 +47,21 @@ export function GroupsPanel({ groups }: { groups: FileGroup[] }) {
 								<span className="text-[10px] text-muted-foreground/30 shrink-0 tabular-nums">{group.files.length}</span>
 							</button>
 							{isOpen && (
-								<div className="pl-[34px] pr-2 pb-3 pt-1">
-									<p className="text-[11px] text-muted-foreground/60 leading-relaxed mb-2.5">{group.description}</p>
+								<div className="pl-[34px] pr-2 pb-3 pt-1 space-y-2.5">
+									<p className="text-[11px] text-muted-foreground/60 leading-relaxed">{group.description}</p>
+									{group.key_changes && group.key_changes.length > 0 && (
+										<ul className="space-y-1">
+											{group.key_changes.map((change, ci) => (
+												<li key={ci} className="flex gap-1.5 text-[11px] text-muted-foreground/50 leading-relaxed">
+													<span className="text-muted-foreground/25 shrink-0">·</span>
+													<span>{change}</span>
+												</li>
+											))}
+										</ul>
+									)}
+									{group.risk && (
+										<p className="text-[10px] text-muted-foreground/40 leading-relaxed">{group.risk}</p>
+									)}
 									<div className="space-y-0.5">
 										{group.files.map((f) => (
 											<div

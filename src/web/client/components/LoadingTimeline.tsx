@@ -110,15 +110,28 @@ export function LoadingTimeline({
 	const steps = buildSteps(events);
 	const seconds = Math.floor(elapsed / 1000);
 
+	const prInfo = events.find((e) => e.pr_title);
+	const title = prInfo?.pr_title;
+	const prNum = prInfo?.pr_number;
+
 	return (
 		<div className="flex flex-col items-center py-16">
 			<div className="w-full max-w-lg">
-				<div className="flex items-center gap-2 mb-8">
-					<span className="text-lg font-bold">newpr</span>
-					<span className="text-muted-foreground">·</span>
-					<span className="text-sm text-muted-foreground">
-						{seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`}
-					</span>
+				<div className="mb-8">
+					<div className="flex items-center gap-2">
+						{title ? (
+							<span className="text-sm font-semibold truncate">{title}</span>
+						) : (
+							<span className="text-sm font-semibold font-mono">newpr</span>
+						)}
+						<span className="text-muted-foreground/30">·</span>
+						<span className="text-xs text-muted-foreground/50 tabular-nums shrink-0">
+							{seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`}
+						</span>
+					</div>
+					{prNum && (
+						<span className="text-[11px] text-muted-foreground/40 font-mono">#{prNum}</span>
+					)}
 				</div>
 
 				<div className="space-y-3">

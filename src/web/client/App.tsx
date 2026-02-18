@@ -59,7 +59,7 @@ export function App() {
 		}
 	}, [analysis.phase, analysis.sessionId]);
 
-	const handleAnchorClick = useCallback((kind: "group" | "file", id: string) => {
+	const handleAnchorClick = useCallback((kind: "group" | "file" | "line", id: string) => {
 		const key = `${kind}:${id}`;
 		setActiveId((prev) => prev === key ? null : key);
 	}, []);
@@ -68,7 +68,7 @@ export function App() {
 		if (!activeId || !analysis.result) return null;
 		const [kind, ...rest] = activeId.split(":");
 		const id = rest.join(":");
-		return resolveDetail(kind as "group" | "file", id, analysis.result.groups, analysis.result.files);
+		return resolveDetail(kind as "group" | "file" | "line", id, analysis.result.groups, analysis.result.files);
 	}, [activeId, analysis.result]);
 
 	function handleSessionSelect(id: string) {
