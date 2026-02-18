@@ -384,13 +384,11 @@ $$
 			if (!allowed) return json({ error: "URL not allowed" }, 403);
 
 			try {
-				const res = await fetch(target, {
-					headers: {
-						"User-Agent": "newpr-cli",
-						Authorization: `token ${token}`,
-					},
-					redirect: "follow",
-				});
+				const headers: Record<string, string> = { "User-Agent": "newpr-cli" };
+				if (token && target.startsWith("https://github.com/")) {
+					headers.Authorization = `token ${token}`;
+				}
+				const res = await fetch(target, { headers, redirect: "follow" });
 				if (!res.ok) return new Response(null, { status: res.status });
 
 				const contentType = res.headers.get("content-type") ?? "application/octet-stream";

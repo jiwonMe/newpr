@@ -131,6 +131,26 @@ export async function startWebServer(options: WebServerOptions): Promise<void> {
 		},
 	});
 
-	console.log(`\n  newpr web UI`);
-	console.log(`  Local:   http://localhost:${server.port}\n`);
+	const url = `http://localhost:${server.port}`;
+
+	const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
+	const bold = (s: string) => `\x1b[1m${s}\x1b[0m`;
+	const cyan = (s: string) => `\x1b[36m${s}\x1b[0m`;
+	const green = (s: string) => `\x1b[32m${s}\x1b[0m`;
+
+	console.log("");
+	console.log(`  ${bold("newpr")} ${dim("v0.2.0")}`);
+	console.log("");
+	console.log(`  ${dim("→")} Local    ${cyan(url)}`);
+	console.log(`  ${dim("→")} Model    ${dim(config.model)}`);
+	if (cartoon) console.log(`  ${dim("→")} Comic    ${green("enabled")}`);
+	console.log("");
+	console.log(`  ${dim("press")} ${bold("ctrl+c")} ${dim("to stop")}`);
+	console.log("");
+
+	try {
+		const { platform } = process;
+		const cmd = platform === "darwin" ? "open" : platform === "win32" ? "start" : "xdg-open";
+		Bun.spawn([cmd, url], { stdout: "ignore", stderr: "ignore" });
+	} catch {}
 }

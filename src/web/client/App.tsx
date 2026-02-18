@@ -88,6 +88,7 @@ export function App() {
 		<DetailPane target={detailTarget} sessionId={diffSessionId} prUrl={prUrl} onClose={() => setActiveId(null)} />
 	) : null;
 
+	const [activeTab, setActiveTab] = useState(() => getUrlParam("tab") ?? "story");
 	const chatState = useChatState(analysis.phase === "done" ? diffSessionId : null);
 
 	const anchorItems = useMemo<AnchorItem[]>(() => {
@@ -112,7 +113,7 @@ export function App() {
 			onSessionSelect={handleSessionSelect}
 			onNewAnalysis={handleNewAnalysis}
 			detailPanel={detailPanel}
-			bottomBar={analysis.phase === "done" ? <ChatInput /> : undefined}
+			bottomBar={analysis.phase === "done" && activeTab === "story" ? <ChatInput /> : undefined}
 			activeSessionId={diffSessionId}
 		>
 			{analysis.phase === "idle" && (
@@ -136,6 +137,7 @@ export function App() {
 					onAnchorClick={handleAnchorClick}
 					cartoonEnabled={features.cartoon}
 					sessionId={diffSessionId}
+					onTabChange={setActiveTab}
 				/>
 			)}
 			{analysis.phase === "error" && (

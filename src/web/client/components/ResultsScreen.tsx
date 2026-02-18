@@ -37,6 +37,7 @@ export function ResultsScreen({
 	onAnchorClick,
 	cartoonEnabled,
 	sessionId,
+	onTabChange,
 }: {
 	data: NewprOutput;
 	onBack: () => void;
@@ -44,6 +45,7 @@ export function ResultsScreen({
 	onAnchorClick: (kind: "group" | "file", id: string) => void;
 	cartoonEnabled?: boolean;
 	sessionId?: string | null;
+	onTabChange?: (tab: string) => void;
 }) {
 	const { meta, summary } = data;
 	const [tab, setTab] = useState<TabValue>(getInitialTab);
@@ -82,7 +84,8 @@ export function ResultsScreen({
 	const handleTabChange = useCallback((value: string) => {
 		setTab(value as TabValue);
 		setTabParam(value);
-	}, []);
+		onTabChange?.(value);
+	}, [onTabChange]);
 
 	const repoSlug = meta.pr_url.replace(/^https?:\/\/github\.com\//, "").replace(/\/pull\//, "#");
 
