@@ -163,6 +163,7 @@ export function App() {
 			bgAnalyses={bgAnalyses.analyses}
 			onBgClick={handleBgClick}
 			onBgDismiss={bgAnalyses.dismiss}
+			onFeaturesChange={features.refresh}
 		>
 			{analysis.phase === "idle" && (
 				<InputScreen

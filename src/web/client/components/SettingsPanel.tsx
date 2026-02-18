@@ -41,7 +41,7 @@ const LANGUAGES = [
 	"Spanish", "French", "German", "Portuguese",
 ];
 
-export function SettingsPanel({ onClose }: { onClose: () => void }) {
+export function SettingsPanel({ onClose, onFeaturesChange }: { onClose: () => void; onFeaturesChange?: () => void }) {
 	const [config, setConfig] = useState<ConfigData | null>(null);
 	const [saving, setSaving] = useState(false);
 	const [saved, setSaved] = useState(false);
@@ -69,10 +69,11 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
 			setConfig(data as ConfigData);
 			setSaved(true);
 			setTimeout(() => setSaved(false), 2000);
+			if (update.enabled_plugins !== undefined) onFeaturesChange?.();
 		} finally {
 			setSaving(false);
 		}
-	}, []);
+	}, [onFeaturesChange]);
 
 	if (!config) {
 		return (
@@ -222,29 +223,35 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
 
 				{config.available_plugins.length > 0 && (
 					<Section title="Plugins">
-						{config.available_plugins.map((p) => {
-							const enabled = config.enabled_plugins.includes(p.id);
-							return (
-								<Row key={p.id} label={p.name}>
-									<button
-										type="button"
-										onClick={() => {
-											const next = enabled
-												? config.enabled_plugins.filter((id) => id !== p.id)
-												: [...config.enabled_plugins, p.id];
-											save({ enabled_plugins: next } as Record<string, unknown>);
-										}}
-										className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-											enabled ? "bg-foreground" : "bg-muted"
-										}`}
-									>
-										<span className={`inline-block h-3.5 w-3.5 rounded-full bg-background transition-transform ${
-											enabled ? "translate-x-4" : "translate-x-0.5"
-										}`} />
-									</button>
-								</Row>
-							);
-						})}
+						<div className="space-y-1">
+							{config.available_plugins.map((p) => {
+								const enabled = config.enabled_plugins.includes(p.id);
+								return (
+									<div key={p.id} className="flex items-center justify-between gap-3 py-1.5">
+										<div className="flex items-center gap-2 min-w-0">
+											<span className={`h-1.5 w-1.5 rounded-full shrink-0 ${enabled ? "bg-green-500" : "bg-muted-foreground/20"}`} />
+											<span className="text-[11px] truncate">{p.name}</span>
+										</div>
+										<button
+											type="button"
+											onClick={() => {
+												const next = enabled
+													? config.enabled_plugins.filter((id) => id !== p.id)
+													: [...config.enabled_plugins, p.id];
+												save({ enabled_plugins: next });
+											}}
+											className={`relative inline-flex h-4 w-7 items-center rounded-full shrink-0 transition-colors ${
+												enabled ? "bg-foreground" : "bg-muted"
+											}`}
+										>
+											<span className={`inline-block h-3 w-3 rounded-full bg-background transition-transform ${
+												enabled ? "translate-x-3.5" : "translate-x-0.5"
+											}`} />
+										</button>
+									</div>
+								);
+							})}
+						</div>
 					</Section>
 				)}
 			</div>

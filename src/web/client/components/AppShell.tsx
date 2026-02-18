@@ -166,6 +166,7 @@ export function AppShell({
 	bgAnalyses,
 	onBgClick,
 	onBgDismiss,
+	onFeaturesChange,
 	children,
 }: {
 	theme: Theme;
@@ -181,6 +182,7 @@ export function AppShell({
 	bgAnalyses?: BackgroundAnalysis[];
 	onBgClick?: (sessionId: string) => void;
 	onBgDismiss?: (sessionId: string) => void;
+	onFeaturesChange?: () => void;
 	children: React.ReactNode;
 }) {
 	const [settingsOpen, setSettingsOpen] = useState(false);
@@ -382,7 +384,7 @@ export function AppShell({
 						onKeyDown={(e) => { if (e.key === "Escape") setSettingsOpen(false); }}
 					/>
 					<div className="relative z-10 w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-xl border bg-background p-6 shadow-lg">
-						<SettingsPanel onClose={() => setSettingsOpen(false)} />
+						<SettingsPanel onClose={() => setSettingsOpen(false)} onFeaturesChange={onFeaturesChange} />
 					</div>
 				</div>
 			)}

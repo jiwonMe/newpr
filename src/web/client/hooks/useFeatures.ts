@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 
 interface Features {
 	cartoon: boolean;
@@ -6,15 +6,17 @@ interface Features {
 	enabledPlugins: string[];
 }
 
-export function useFeatures(): Features {
+export function useFeatures(): Features & { refresh: () => void } {
 	const [features, setFeatures] = useState<Features>({ cartoon: false, version: "", enabledPlugins: [] });
 
-	useEffect(() => {
+	const refresh = useCallback(() => {
 		fetch("/api/features")
 			.then((r) => r.json())
 			.then((data) => setFeatures(data as Features))
 			.catch(() => {});
 	}, []);
 
-	return features;
+	useEffect(() => { refresh(); }, [refresh]);
+
+	return { ...features, refresh };
 }
