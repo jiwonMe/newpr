@@ -24,6 +24,12 @@ class ChatStore {
 		return s;
 	}
 
+	private update(sessionId: string, patch: Partial<ChatSessionState>) {
+		const s = this.getOrCreate(sessionId);
+		this.sessions.set(sessionId, { ...s, ...patch });
+		this.notify();
+	}
+
 	private notify() {
 		for (const l of this.listeners) l();
 	}
@@ -55,12 +61,10 @@ class ChatStore {
 		try {
 			const res = await fetch(`/api/sessions/${sessionId}/chat`);
 			const data = await res.json() as ChatMessage[];
-			s.messages = data;
-			s.loaded = true;
+			this.update(sessionId, { messages: data, loaded: true });
 		} catch {
-			s.loaded = true;
+			this.update(sessionId, { loaded: true });
 		}
-		this.notify();
 	}
 
 	async sendMessage(sessionId: string, text: string): Promise<void> {
@@ -68,10 +72,7 @@ class ChatStore {
 		if (s.loading) return;
 
 		const userMsg: ChatMessage = { role: "user", content: text, timestamp: new Date().toISOString() };
-		s.messages = [...s.messages, userMsg];
-		s.loading = true;
-		s.streaming = { segments: [] };
-		this.notify();
+		this.update(sessionId, { messages: [...s.messages, userMsg], loading: true, streaming: { segments: [] } });
 
 		const controller = new AbortController();
 		this.abortControllers.set(sessionId, controller);
@@ -122,23 +123,20 @@ class ChatStore {
 								} else {
 									orderedSegments.push({ type: "text", content: data.content ?? "" });
 								}
-								s.streaming = { segments: [...orderedSegments] };
-								this.notify();
+								this.update(sessionId, { streaming: { segments: [...orderedSegments] } });
 								break;
 							}
 							case "tool_call": {
 								const tc: ChatToolCall = { id: data.id, name: data.name, arguments: data.arguments ?? {} };
 								allToolCalls.push(tc);
 								orderedSegments.push({ type: "tool_call", toolCall: tc });
-								s.streaming = { segments: [...orderedSegments], activeToolName: data.name };
-								this.notify();
+								this.update(sessionId, { streaming: { segments: [...orderedSegments], activeToolName: data.name } });
 								break;
 							}
 							case "tool_result": {
 								const tc = allToolCalls.find((c) => c.id === data.id);
 								if (tc) tc.result = data.result;
-								s.streaming = { segments: [...orderedSegments] };
-								this.notify();
+								this.update(sessionId, { streaming: { segments: [...orderedSegments] } });
 								break;
 							}
 							case "done": break;
@@ -151,26 +149,30 @@ class ChatStore {
 				}
 			}
 
-			s.messages = [...s.messages, {
-				role: "assistant",
-				content: fullText,
-				toolCalls: allToolCalls.length > 0 ? allToolCalls : undefined,
-				segments: orderedSegments.length > 0 ? orderedSegments : undefined,
-				timestamp: new Date().toISOString(),
-			}];
+			const cur = this.getOrCreate(sessionId);
+			this.update(sessionId, {
+				messages: [...cur.messages, {
+					role: "assistant",
+					content: fullText,
+					toolCalls: allToolCalls.length > 0 ? allToolCalls : undefined,
+					segments: orderedSegments.length > 0 ? orderedSegments : undefined,
+					timestamp: new Date().toISOString(),
+				}],
+			});
 		} catch (err) {
 			if ((err as Error).name !== "AbortError") {
-				s.messages = [...s.messages, {
-					role: "assistant",
-					content: `Error: ${err instanceof Error ? err.message : String(err)}`,
-					timestamp: new Date().toISOString(),
-				}];
+				const cur = this.getOrCreate(sessionId);
+				this.update(sessionId, {
+					messages: [...cur.messages, {
+						role: "assistant",
+						content: `Error: ${err instanceof Error ? err.message : String(err)}`,
+						timestamp: new Date().toISOString(),
+					}],
+				});
 			}
 		} finally {
-			s.loading = false;
-			s.streaming = null;
+			this.update(sessionId, { loading: false, streaming: null });
 			this.abortControllers.delete(sessionId);
-			this.notify();
 		}
 	}
 
@@ -180,8 +182,7 @@ class ChatStore {
 		if (lastAssistantIdx === -1) return;
 		const lastUserIdx = s.messages.slice(0, lastAssistantIdx).findLastIndex((m) => m.role === "user");
 		const removeFrom = lastUserIdx >= 0 ? lastUserIdx : lastAssistantIdx;
-		s.messages = s.messages.slice(0, removeFrom);
-		this.notify();
+		this.update(sessionId, { messages: s.messages.slice(0, removeFrom) });
 		await fetch(`/api/sessions/${sessionId}/chat/undo`, { method: "POST" }).catch(() => {});
 	}
 }
