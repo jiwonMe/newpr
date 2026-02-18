@@ -4,14 +4,13 @@ import type { ChatMessage, ChatToolCall, ChatSegment } from "../../../types/outp
 import { Markdown } from "./Markdown.tsx";
 import { TipTapEditor, getTextWithAnchors, type AnchorItem, type CommandItem } from "./TipTapEditor.tsx";
 import type { useEditor } from "@tiptap/react";
+import { useChatStore } from "../hooks/useChatStore.ts";
 
 export interface ChatState {
 	messages: ChatMessage[];
-	input: string;
 	loading: boolean;
 	streaming: { segments: ChatSegment[]; activeToolName?: string } | null;
 	loaded: boolean;
-	setInput: (v: string) => void;
 	sendMessage: (text?: string) => void;
 }
 
@@ -22,174 +21,7 @@ interface ChatContextValue {
 
 const ChatContext = createContext<ChatContextValue | null>(null);
 
-export function useChatState(sessionId?: string | null): ChatState {
-	const [messages, setMessages] = useState<ChatMessage[]>([]);
-	const [input, setInput] = useState("");
-	const [loading, setLoading] = useState(false);
-	const [streaming, setStreaming] = useState<ChatState["streaming"]>(null);
-	const [loaded, setLoaded] = useState(false);
-	const prevSessionId = useRef(sessionId);
-
-	useEffect(() => {
-		if (prevSessionId.current !== sessionId) {
-			setMessages([]);
-			setInput("");
-			setLoading(false);
-			setStreaming(null);
-			setLoaded(false);
-			prevSessionId.current = sessionId;
-		}
-		if (!sessionId) return;
-		fetch(`/api/sessions/${sessionId}/chat`)
-			.then((r) => r.json())
-			.then((data) => {
-				setMessages(data as ChatMessage[]);
-				setLoaded(true);
-			})
-			.catch(() => setLoaded(true));
-	}, [sessionId]);
-
-	const undoLast = useCallback(async () => {
-		if (!sessionId) return;
-		setMessages((prev) => {
-			const lastAssistantIdx = prev.findLastIndex((m) => m.role === "assistant");
-			if (lastAssistantIdx === -1) return prev;
-			const lastUserIdx = prev.slice(0, lastAssistantIdx).findLastIndex((m) => m.role === "user");
-			const removeFrom = lastUserIdx >= 0 ? lastUserIdx : lastAssistantIdx;
-			return prev.slice(0, removeFrom);
-		});
-		await fetch(`/api/sessions/${sessionId}/chat/undo`, { method: "POST" }).catch(() => {});
-	}, [sessionId]);
-
-	const sendMessage = useCallback(async (text?: string) => {
-		const messageText = text?.trim() || input.trim();
-		if (!sessionId || !messageText || loading) return;
-
-		if (messageText.replace(/\n/g, "").trim() === "/undo") {
-			setInput("");
-			await undoLast();
-			return;
-		}
-
-		const userMessage = messageText;
-		setInput("");
-		setLoading(true);
-		setStreaming({ segments: [] });
-
-		setMessages((prev) => [...prev, {
-			role: "user",
-			content: userMessage,
-			timestamp: new Date().toISOString(),
-		}]);
-
-		try {
-			const res = await fetch(`/api/sessions/${sessionId}/chat`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ message: userMessage }),
-			});
-
-			if (!res.ok) {
-				const err = await res.json() as { error?: string };
-				throw new Error(err.error ?? `HTTP ${res.status}`);
-			}
-
-			const reader = res.body!.getReader();
-			const decoder = new TextDecoder();
-			let buffer = "";
-			let fullText = "";
-			const orderedSegments: ChatSegment[] = [];
-			const allToolCalls: ChatToolCall[] = [];
-			let pendingEvent = "";
-
-			while (true) {
-				const { done, value } = await reader.read();
-				if (done) break;
-
-				buffer += decoder.decode(value, { stream: true });
-				const lines = buffer.split("\n");
-				buffer = lines.pop() ?? "";
-
-				for (const line of lines) {
-					const trimmed = line.trim();
-					if (!trimmed) {
-						pendingEvent = "";
-						continue;
-					}
-
-					if (trimmed.startsWith("event: ")) {
-						pendingEvent = trimmed.slice(7);
-						continue;
-					}
-					if (!trimmed.startsWith("data: ")) continue;
-
-					try {
-						const data = JSON.parse(trimmed.slice(6));
-
-						switch (pendingEvent) {
-							case "text": {
-								fullText += data.content ?? "";
-								const lastSeg = orderedSegments[orderedSegments.length - 1];
-								if (lastSeg && lastSeg.type === "text") {
-									lastSeg.content += data.content ?? "";
-								} else {
-									orderedSegments.push({ type: "text", content: data.content ?? "" });
-								}
-								setStreaming({ segments: [...orderedSegments] });
-								break;
-							}
-							case "tool_call": {
-								const tc: ChatToolCall = {
-									id: data.id,
-									name: data.name,
-									arguments: data.arguments ?? {},
-								};
-								allToolCalls.push(tc);
-								orderedSegments.push({ type: "tool_call", toolCall: tc });
-								setStreaming({ segments: [...orderedSegments], activeToolName: data.name });
-								break;
-							}
-							case "tool_result": {
-								const tc = allToolCalls.find((c) => c.id === data.id);
-								if (tc) tc.result = data.result;
-								setStreaming({ segments: [...orderedSegments] });
-								break;
-							}
-							case "done":
-								break;
-							case "chat_error":
-								throw new Error(data.message ?? "Chat error");
-						}
-					} catch (parseErr) {
-						if (parseErr instanceof Error && parseErr.message === "Chat error") {
-							throw parseErr;
-						}
-					}
-					pendingEvent = "";
-				}
-			}
-
-			setMessages((prev) => [...prev, {
-				role: "assistant",
-				content: fullText,
-				toolCalls: allToolCalls.length > 0 ? allToolCalls : undefined,
-				segments: orderedSegments.length > 0 ? orderedSegments : undefined,
-				timestamp: new Date().toISOString(),
-			}]);
-		} catch (err) {
-			setMessages((prev) => [...prev, {
-				role: "assistant",
-				content: `Error: ${err instanceof Error ? err.message : String(err)}`,
-				timestamp: new Date().toISOString(),
-			}]);
-		} finally {
-			setLoading(false);
-			setStreaming(null);
-		}
-	}, [sessionId, input, loading, undoLast]);
-
-	return { messages, input, loading, streaming, loaded, setInput, sendMessage };
-}
+export { useChatStore as useChatState };
 
 export function ChatProvider({ state, anchorItems, children }: { state: ChatState; anchorItems?: AnchorItem[]; children: React.ReactNode }) {
 	const value = useMemo(() => ({ state, anchorItems }), [state, anchorItems]);

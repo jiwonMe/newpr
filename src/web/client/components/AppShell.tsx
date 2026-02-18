@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { Sun, Moon, Monitor, Plus, Settings, ArrowUp, Loader2, X, Check, AlertCircle, ChevronRight } from "lucide-react";
 import type { BackgroundAnalysis } from "../hooks/useBackgroundAnalyses.ts";
+import { useChatLoadingIndicator } from "../hooks/useChatStore.ts";
 import type { SessionRecord } from "../../../history/types.ts";
 import type { GithubUser } from "../hooks/useGithubUser.ts";
 import { SettingsPanel } from "./SettingsPanel.tsx";
@@ -188,6 +189,7 @@ export function AppShell({
 	const [showScrollTop, setShowScrollTop] = useState(false);
 	const mainRef = useRef<HTMLElement>(null);
 	const prevDetailPanel = useRef(detailPanel);
+	const chatLoading = useChatLoadingIndicator();
 
 	useEffect(() => {
 		const wasNull = prevDetailPanel.current == null;
@@ -287,6 +289,17 @@ export function AppShell({
 								>
 									<X className="h-2.5 w-2.5" />
 								</button>
+							</div>
+						))}
+					</div>
+				)}
+
+				{chatLoading.length > 0 && (
+					<div className="shrink-0 border-t px-2 py-2 space-y-px">
+						{chatLoading.map(({ sessionId: sid }) => (
+							<div key={sid} className="flex items-center gap-2 rounded-md px-2.5 py-1.5">
+								<Loader2 className="h-3 w-3 animate-spin text-blue-500/60 shrink-0" />
+								<span className="text-[11px] text-muted-foreground/50 truncate">Chat responding...</span>
 							</div>
 						))}
 					</div>
