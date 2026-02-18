@@ -213,6 +213,9 @@ function formatCodebaseContext(exploration: ExplorationResult): string {
 	if (exploration.potential_issues) {
 		sections.push(`=== Potential Issues (from codebase analysis) ===\n${exploration.potential_issues}`);
 	}
+	if (exploration.react_doctor) {
+		sections.push(`=== React Doctor Analysis (react-doctor) ===\n${exploration.react_doctor}`);
+	}
 	return sections.join("\n\n");
 }
 

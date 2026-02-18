@@ -185,6 +185,14 @@ $$
 			{
 				type: "function",
 				function: {
+					name: "run_react_doctor",
+					description: "Run react-doctor on the PR's codebase to get a React code quality score (0-100) and diagnostics for security, performance, correctness, and architecture issues. Only useful for React/JSX/TSX projects.",
+					parameters: { type: "object", properties: {} },
+				},
+			},
+			{
+				type: "function",
+				function: {
 					name: "web_search",
 					description: "Search the web for documentation, library references, best practices, or any technical question. Returns top search results with snippets.",
 					parameters: {
@@ -874,6 +882,32 @@ $$
 							}, null, 2);
 						} catch (err) {
 							return `Error: ${err instanceof Error ? err.message : String(err)}`;
+						}
+					}
+					case "run_react_doctor": {
+						const agents = await detectAgents();
+						if (agents.length > 0) {
+							try {
+								const result = await runAgent(
+									agents[0]!,
+									process.cwd(),
+									"Run react-doctor on this project:\n\nnpx -y react-doctor@latest . --verbose\n\nReturn the FULL output including the score and all diagnostics.",
+									{ timeout: 60_000 },
+								);
+								if (result.answer.trim()) return result.answer;
+							} catch {}
+						}
+						try {
+							const proc = Bun.spawn(["npx", "-y", "react-doctor@latest", ".", "--verbose"], {
+								cwd: process.cwd(),
+								stdout: "pipe",
+								stderr: "pipe",
+							});
+							const output = await new Response(proc.stdout).text();
+							const stderr = await new Response(proc.stderr).text();
+							return output.trim() || stderr.trim() || "react-doctor produced no output";
+						} catch (err) {
+							return `Error running react-doctor: ${err instanceof Error ? err.message : String(err)}`;
 						}
 					}
 					case "web_search": {

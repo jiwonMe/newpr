@@ -21,6 +21,7 @@ export interface ExplorationResult {
 	project_structure: string;
 	related_code: string;
 	potential_issues: string;
+	react_doctor?: string;
 }
 
 export const INSTALL_INSTRUCTIONS: Record<AgentToolName, string> = {

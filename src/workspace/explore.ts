@@ -52,12 +52,30 @@ const PHASES: PhaseConfig[] = [
 	{ label: "Project structure", emoji: "🏗", step: 1 },
 	{ label: "Related code & dependencies", emoji: "🔗", step: 2 },
 	{ label: "Potential issues", emoji: "🔍", step: 3 },
+	{ label: "React Doctor analysis", emoji: "⚕️", step: 4 },
 ];
 
 function fmtDuration(ms: number): string {
 	const s = Math.round(ms / 1000);
 	return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${s % 60}s`;
 }
+
+function hasReactFiles(changedFiles: string[]): boolean {
+	return changedFiles.some((f) => f.endsWith(".tsx") || f.endsWith(".jsx"));
+}
+
+const REACT_DOCTOR_PROMPT = `Run react-doctor on this project to analyze React code quality.
+
+Execute this command:
+npx -y react-doctor@latest . --verbose
+
+Return the FULL output including:
+1. The overall score (0-100)
+2. All diagnostics (errors, warnings)
+3. File paths and line numbers for each issue
+
+If npx is not available or the command fails, report the error.
+Do NOT attempt to fix any issues — only report the results.`;
 
 export async function exploreCodebase(
 	agent: AgentTool,
@@ -69,22 +87,24 @@ export async function exploreCodebase(
 ): Promise<ExplorationResult> {
 	const timeout = 90_000;
 	const totalStart = Date.now();
+	const isReact = hasReactFiles(changedFiles);
+	const totalPhases = isReact ? 4 : 3;
 
-	onProgress?.(`${agent.name}: starting exploration of ${changedFiles.length} files`, 0, 3);
+	onProgress?.(`${agent.name}: starting exploration of ${changedFiles.length} files`, 0, totalPhases);
 
-	const runPhase = async (phase: PhaseConfig, prompt: string) => {
+	const runPhase = async (phase: PhaseConfig, prompt: string, total = totalPhases) => {
 		const phaseStart = Date.now();
 		let toolCount = 0;
-		onProgress?.(`${phase.emoji} ${phase.label}...`, phase.step, 3);
+		onProgress?.(`${phase.emoji} ${phase.label}...`, phase.step, total);
 		const result = await runAgent(agent, headPath, prompt, {
 			timeout,
 			onOutput: (line) => {
 				toolCount++;
-				onProgress?.(`[${phase.step}/3] ${line}`, phase.step, 3);
+				onProgress?.(`[${phase.step}/${total}] ${line}`, phase.step, total);
 			},
 		});
 		const elapsed = fmtDuration(Date.now() - phaseStart);
-		onProgress?.(`${phase.emoji} ${phase.label} done (${elapsed}, ${toolCount} tool calls)`, phase.step, 3);
+		onProgress?.(`${phase.emoji} ${phase.label} done (${elapsed}, ${toolCount} tool calls)`, phase.step, total);
 		return result;
 	};
 
@@ -96,12 +116,25 @@ export async function exploreCodebase(
 	const issuesPrompt = buildIssuesPrompt(changedFiles, diff);
 	const issuesResult = await runPhase(PHASES[2]!, issuesPrompt);
 
+	let reactDoctorResult: string | undefined;
+	if (isReact) {
+		try {
+			const result = await runPhase(PHASES[3]!, REACT_DOCTOR_PROMPT);
+			if (result.answer.trim()) {
+				reactDoctorResult = result.answer;
+			}
+		} catch {
+			onProgress?.("⚕️ React Doctor skipped (agent error)", 4, totalPhases);
+		}
+	}
+
 	const totalElapsed = fmtDuration(Date.now() - totalStart);
-	onProgress?.(`${agent.name}: exploration complete (${totalElapsed})`, 3, 3);
+	onProgress?.(`${agent.name}: exploration complete (${totalElapsed})`, totalPhases, totalPhases);
 
 	return {
 		project_structure: structureResult.answer,
 		related_code: relatedResult.answer,
 		potential_issues: issuesResult.answer,
+		react_doctor: reactDoctorResult,
 	};
 }
