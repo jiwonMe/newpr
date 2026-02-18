@@ -71,9 +71,15 @@ describe("executeStack", () => {
 			ownership,
 			pr_author: { name: "Test Author", email: "author@test.com" },
 			pr_number: 42,
+			head_branch: "feature-branch",
 		});
 
 		expect(result.group_commits.length).toBe(2);
+		expect(result.source_copy_branch).toBe("newpr/stack-source/pr-42");
+
+		const copyRef = await Bun.$`git -C ${testRepoPath} rev-parse refs/heads/newpr/stack-source/pr-42`.quiet().nothrow();
+		expect(copyRef.exitCode).toBe(0);
+		expect(copyRef.stdout.toString().trim()).toBe(headSha);
 
 		const commit0 = result.group_commits[0];
 		const commit1 = result.group_commits[1];
@@ -123,6 +129,7 @@ describe("executeStack", () => {
 			ownership,
 			pr_author: { name: "Test", email: "t@t.com" },
 			pr_number: 42,
+			head_branch: "feature-branch",
 		});
 
 		const headTree = (await Bun.$`git -C ${testRepoPath} rev-parse ${headSha}^{tree}`.quiet()).stdout.toString().trim();
@@ -157,6 +164,7 @@ describe("executeStack", () => {
 			ownership,
 			pr_author: { name: "Test", email: "t@t.com" },
 			pr_number: 99,
+			head_branch: "feature-branch",
 		});
 
 		for (const gc of result.group_commits) {

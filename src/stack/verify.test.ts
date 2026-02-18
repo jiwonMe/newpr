@@ -70,6 +70,7 @@ describe("verifyStack", () => {
 			ownership,
 			pr_author: { name: "Test", email: "t@t.com" },
 			pr_number: 1,
+			head_branch: "test-branch",
 		});
 
 		const verifyResult = await verifyStack({
@@ -82,6 +83,7 @@ describe("verifyStack", () => {
 
 		expect(verifyResult.verified).toBe(true);
 		expect(verifyResult.errors).toEqual([]);
+		expect(verifyResult.warnings).toBeDefined();
 	});
 
 	test("detects tree mismatch when final_tree_sha is wrong", async () => {
@@ -112,6 +114,7 @@ describe("verifyStack", () => {
 			ownership,
 			pr_author: { name: "Test", email: "t@t.com" },
 			pr_number: 2,
+			head_branch: "test-branch",
 		});
 
 		const tamperedResult = {
@@ -129,5 +132,6 @@ describe("verifyStack", () => {
 
 		expect(verifyResult.verified).toBe(false);
 		expect(verifyResult.errors.some((e) => e.includes("Final tree mismatch"))).toBe(true);
+		expect(verifyResult.warnings).toBeDefined();
 	});
 });

@@ -194,5 +194,40 @@ describe("partitionGroups", () => {
 		);
 
 		expect(result.warnings.some((w) => w.includes("Unknown group"))).toBe(true);
+		expect(result.ownership.get("src/shared.ts")).toBe("UI");
+		expect(result.warnings.some((w) => w.includes("force-assigned"))).toBe(true);
+	});
+
+	test("force-assigns unassigned files to last group when LLM omits them", async () => {
+		const mockResponse: LlmResponse = {
+			content: JSON.stringify({
+				assignments: [],
+				shared_foundation: null,
+			}),
+			model: "test",
+			usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+		};
+
+		const mockClient: LlmClient = {
+			complete: async () => mockResponse,
+			completeStream: async () => mockResponse,
+		};
+
+		const groups: FileGroup[] = [
+			{ name: "Auth", type: "feature", description: "Auth", files: ["src/auth.ts"] },
+			{ name: "UI", type: "feature", description: "UI", files: ["src/ui.tsx"] },
+		];
+
+		const result = await partitionGroups(
+			mockClient,
+			groups,
+			["src/auth.ts", "src/ui.tsx", "src/orphan.ts"],
+			[],
+			[],
+		);
+
+		expect(result.ownership.get("src/orphan.ts")).toBe("UI");
+		expect(result.reattributed.some((r) => r.path === "src/orphan.ts")).toBe(true);
+		expect(result.warnings.some((w) => w.includes("force-assigned"))).toBe(true);
 	});
 });

@@ -19,6 +19,7 @@ export interface ExecuteInput {
 	ownership: Map<string, string>;
 	pr_author: { name: string; email: string };
 	pr_number: number;
+	head_branch: string;
 }
 
 function slugify(name: string): string {
@@ -26,11 +27,21 @@ function slugify(name: string): string {
 }
 
 export async function executeStack(input: ExecuteInput): Promise<StackExecResult> {
-	const { repo_path, plan, deltas, ownership, pr_author, pr_number } = input;
+	const { repo_path, plan, deltas, ownership, pr_author, pr_number, head_branch: _head_branch } = input;
 
 	const runId = `newpr-stack-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 	const tmpIndexFiles: string[] = [];
 	const createdRefs: string[] = [];
+
+	const copyBranch = `newpr/stack-source/pr-${pr_number}`;
+	const copyRef = `refs/heads/${copyBranch}`;
+	const createCopy = await Bun.$`git -C ${repo_path} update-ref ${copyRef} ${plan.head_sha}`.quiet().nothrow();
+	if (createCopy.exitCode !== 0) {
+		throw new StackExecutionError(
+			`Failed to create source copy branch ${copyBranch}: ${createCopy.stderr.toString().trim()}`,
+		);
+	}
+	createdRefs.push(copyRef);
 
 	const groupOrder = plan.groups.map((g) => g.id);
 	const groupRank = new Map<string, number>();
@@ -159,6 +170,7 @@ export async function executeStack(input: ExecuteInput): Promise<StackExecResult
 
 		return {
 			run_id: runId,
+			source_copy_branch: copyBranch,
 			group_commits: groupCommits,
 			final_tree_sha: finalTreeSha,
 			verified: false,

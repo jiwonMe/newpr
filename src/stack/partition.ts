@@ -205,11 +205,21 @@ function parsePartitionResponse(
 	const stillUnassigned = report.unassigned.filter((p) => !ownership.has(p));
 	const stillAmbiguous = report.ambiguous.filter((a) => !ownership.has(a.path));
 
-	if (stillUnassigned.length > 0) {
-		warnings.push(`Files still unassigned after LLM: ${stillUnassigned.join(", ")}`);
+	const fallbackGroup = groups[groups.length - 1]?.name;
+
+	if (stillUnassigned.length > 0 && fallbackGroup) {
+		for (const path of stillUnassigned) {
+			ownership.set(path, fallbackGroup);
+			reattributed.push({ path, from_groups: [], to_group: fallbackGroup, reason: "LLM did not assign; fallback to last group" });
+		}
+		warnings.push(`Files force-assigned to "${fallbackGroup}" (LLM missed): ${stillUnassigned.join(", ")}`);
 	}
-	if (stillAmbiguous.length > 0) {
-		warnings.push(`Files still ambiguous after LLM: ${stillAmbiguous.map((a) => a.path).join(", ")}`);
+	if (stillAmbiguous.length > 0 && fallbackGroup) {
+		for (const a of stillAmbiguous) {
+			ownership.set(a.path, fallbackGroup);
+			reattributed.push({ path: a.path, from_groups: a.groups, to_group: fallbackGroup, reason: "LLM did not resolve ambiguity; fallback to last group" });
+		}
+		warnings.push(`Files force-assigned to "${fallbackGroup}" (LLM missed): ${stillAmbiguous.map((a) => a.path).join(", ")}`);
 	}
 
 	let sharedFoundation: FileGroup | undefined;

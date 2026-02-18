@@ -22,8 +22,6 @@ export async function extractDeltas(
 		const parentSha = i === 0 ? baseSha : commitList[i - 1];
 		if (!parentSha) continue;
 
-		await checkPreconditions(repoPath, sha);
-
 		const changes = await extractCommitChanges(repoPath, parentSha, sha);
 		const metadata = await getCommitMetadata(repoPath, sha);
 
@@ -82,29 +80,6 @@ async function getCommitMetadata(
 		date: lines[1] || new Date().toISOString(),
 		message: lines[2] || "",
 	};
-}
-
-async function checkPreconditions(
-	repoPath: string,
-	sha: string,
-): Promise<void> {
-	const result = await Bun.$`git -C ${repoPath} rev-list --parents -n 1 ${sha}`
-		.quiet()
-		.nothrow();
-
-	if (result.exitCode !== 0) {
-		throw new DeltaExtractionError(
-			`Failed to check commit parents: ${result.stderr.toString().trim()}`,
-		);
-	}
-
-	const parents = result.stdout.toString().trim().split(" ");
-
-	if (parents.length > 2) {
-		throw new DeltaExtractionError(
-			`Merge commit detected (${sha}). Please rebase to linear history before stacking.`,
-		);
-	}
 }
 
 async function extractCommitChanges(

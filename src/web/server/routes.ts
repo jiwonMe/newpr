@@ -17,6 +17,7 @@ import { detectAgents, runAgent } from "../../workspace/agent.ts";
 import { randomBytes } from "node:crypto";
 import { partitionGroups } from "../../stack/partition.ts";
 import { applyCouplingRules } from "../../stack/coupling.ts";
+import { mergeGroups } from "../../stack/merge-groups.ts";
 import { checkFeasibility } from "../../stack/feasibility.ts";
 import { extractDeltas } from "../../stack/delta.ts";
 import { createStackPlan } from "../../stack/plan.ts";
@@ -26,6 +27,7 @@ import { publishStack } from "../../stack/publish.ts";
 import { ensureRepo } from "../../workspace/repo-cache.ts";
 import { fetchPrData } from "../../github/fetch-pr.ts";
 import type { StackPlan, StackExecResult, FeasibilityResult } from "../../stack/types.ts";
+import type { FileGroup } from "../../types/output.ts";
 
 function json(data: unknown, status = 200): Response {
 	return new Response(JSON.stringify(data), {
@@ -1717,7 +1719,7 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 
 		"POST /api/stack/partition": async (req: Request) => {
 			try {
-				const body = await req.json() as { sessionId: string };
+				const body = await req.json() as { sessionId: string; maxGroups?: number };
 				if (!body.sessionId) return json({ error: "Missing sessionId" }, 400);
 
 				const stored = await loadSession(body.sessionId);
@@ -1738,6 +1740,7 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 				const baseSha = baseObj.sha as string;
 				const headSha = headObj.sha as string;
 				const baseBranch = baseObj.ref as string;
+				const headBranch = headObj.ref as string;
 
 				const repoPath = await ensureRepo(parsed.owner, parsed.repo, token);
 				const changedFiles = stored.files.map((f) => f.path);
@@ -1767,6 +1770,39 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 				const allWarnings = [...partition.warnings, ...coupled.warnings];
 
 				const deltas = await extractDeltas(repoPath, baseSha, headSha);
+
+				const lastGroup = groupOrder[groupOrder.length - 1];
+				if (lastGroup) {
+					const backfilled: string[] = [];
+					for (const delta of deltas) {
+						for (const change of delta.changes) {
+							if (!mergedOwnership.has(change.path)) {
+								mergedOwnership.set(change.path, lastGroup);
+								backfilled.push(change.path);
+							}
+							if (change.old_path && !mergedOwnership.has(change.old_path)) {
+								mergedOwnership.set(change.old_path, lastGroup);
+								backfilled.push(change.old_path);
+							}
+						}
+					}
+					if (backfilled.length > 0) {
+						allWarnings.push(`Files from git diff not in analysis, assigned to "${lastGroup}": ${backfilled.join(", ")}`);
+					}
+				}
+
+				let finalGroups = stored.groups;
+				if (body.maxGroups && body.maxGroups > 0 && stored.groups.length > body.maxGroups) {
+					const merged = mergeGroups(stored.groups, mergedOwnership, body.maxGroups);
+					finalGroups = merged.groups;
+					for (const [path, groupId] of merged.ownership) {
+						mergedOwnership.set(path, groupId);
+					}
+					for (const m of merged.merges) {
+						allWarnings.push(`Merged group "${m.absorbed}" into "${m.into}"`);
+					}
+				}
+
 				const feasibility = checkFeasibility({
 					deltas,
 					ownership: mergedOwnership,
@@ -1780,6 +1816,7 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 						reattributed: partition.reattributed,
 						warnings: allWarnings,
 						forced_merges: coupled.forced_merges,
+						groups: finalGroups,
 					},
 					feasibility,
 					context: {
@@ -1787,6 +1824,7 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 						base_sha: baseSha,
 						head_sha: headSha,
 						base_branch: baseBranch,
+						head_branch: headBranch,
 						pr_number: parsed.number,
 						owner: parsed.owner,
 						repo: parsed.repo,
@@ -1805,11 +1843,13 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 					sessionId: string;
 					ownership: Record<string, string>;
 					feasibility: FeasibilityResult;
+					groups?: FileGroup[];
 					context: {
 						repo_path: string;
 						base_sha: string;
 						head_sha: string;
 						base_branch: string;
+						head_branch: string;
 						pr_number: number;
 						owner: string;
 						repo: string;
@@ -1827,6 +1867,7 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 				const repoPath = body.context.repo_path;
 				const baseSha = body.context.base_sha;
 				const headSha = body.context.head_sha;
+				const groups = body.groups ?? stored.groups;
 
 				const deltas = await extractDeltas(repoPath, baseSha, headSha);
 				const plan = await createStackPlan({
@@ -1836,7 +1877,7 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 					deltas,
 					ownership,
 					group_order: body.feasibility.ordered_group_ids,
-					groups: stored.groups,
+					groups,
 				});
 
 				const serializedPlan = {
@@ -1872,6 +1913,7 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 						base_sha: string;
 						head_sha: string;
 						base_branch: string;
+						head_branch: string;
 						pr_number: number;
 						owner: string;
 						repo: string;
@@ -1907,6 +1949,7 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 						email: `${stored.meta.author}@users.noreply.github.com`,
 					},
 					pr_number: body.context.pr_number,
+					head_branch: body.context.head_branch,
 				});
 
 				const verifyResult = await verifyStack({

@@ -185,6 +185,18 @@ export async function startWebServer(options: WebServerOptions): Promise<void> {
 			if (path === "/api/review" && req.method === "POST") {
 				return routes["POST /api/review"](req);
 			}
+			if (path === "/api/stack/partition" && req.method === "POST") {
+				return routes["POST /api/stack/partition"](req);
+			}
+			if (path === "/api/stack/plan" && req.method === "POST") {
+				return routes["POST /api/stack/plan"](req);
+			}
+			if (path === "/api/stack/execute" && req.method === "POST") {
+				return routes["POST /api/stack/execute"](req);
+			}
+			if (path === "/api/stack/publish" && req.method === "POST") {
+				return routes["POST /api/stack/publish"](req);
+			}
 
 			return new Response("Not Found", { status: 404 });
 		},

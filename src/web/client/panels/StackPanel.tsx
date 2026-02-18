@@ -16,6 +16,17 @@ export function StackPanel({ sessionId }: { sessionId?: string | null }) {
 					Split this PR into a stack of smaller, focused PRs based on the analysis groups.
 					Each group becomes its own draft PR with proper dependencies.
 				</p>
+				<div className="flex items-center gap-2">
+					<label className="text-[10px] text-muted-foreground/50 shrink-0">Max PRs</label>
+					<input
+						type="number"
+						min={1}
+						placeholder="auto"
+						value={stack.maxGroups ?? ""}
+						onChange={(e) => stack.setMaxGroups(e.target.value ? Number(e.target.value) : null)}
+						className="w-16 rounded-md border bg-transparent px-2 py-1.5 text-[11px] text-center tabular-nums placeholder:text-muted-foreground/30 focus:outline-none focus:ring-1 focus:ring-ring"
+					/>
+				</div>
 				<button
 					type="button"
 					onClick={stack.runFullPipeline}
@@ -133,7 +144,8 @@ export function StackPanel({ sessionId }: { sessionId?: string | null }) {
 				</div>
 			)}
 
-			{stack.verifyResult && (
+		{stack.verifyResult && (
+			<div className="space-y-2">
 				<div className={`flex items-center gap-2 rounded-lg border px-3.5 py-2 ${
 					stack.verifyResult.verified
 						? "border-green-500/20 bg-green-500/5"
@@ -154,7 +166,18 @@ export function StackPanel({ sessionId }: { sessionId?: string | null }) {
 						}
 					</span>
 				</div>
-			)}
+				{stack.verifyResult.warnings && stack.verifyResult.warnings.length > 0 && (
+					<div className="space-y-1 px-1">
+						{stack.verifyResult.warnings.map((w, i) => (
+							<div key={i} className="flex items-start gap-1.5 text-[10px] text-yellow-600 dark:text-yellow-400">
+								<AlertTriangle className="h-2.5 w-2.5 shrink-0 mt-0.5" />
+								<span>{w}</span>
+							</div>
+						))}
+					</div>
+				)}
+			</div>
+		)}
 
 			{stack.phase === "done" && stack.execResult && !stack.publishResult && (
 				<button

@@ -3,11 +3,20 @@ import type { FeasibilityResult } from "../../../stack/types.ts";
 
 type StackPhase = "idle" | "partitioning" | "planning" | "executing" | "publishing" | "done" | "error";
 
+interface GroupData {
+	name: string;
+	type: string;
+	description: string;
+	files: string[];
+	key_changes?: string[];
+}
+
 interface PartitionData {
 	ownership: Record<string, string>;
 	reattributed: Array<{ path: string; from_groups: string[]; to_group: string; reason: string }>;
 	warnings: string[];
 	forced_merges: Array<{ path: string; from_group: string; to_group: string }>;
+	groups?: GroupData[];
 }
 
 interface StackContext {
@@ -15,6 +24,7 @@ interface StackContext {
 	base_sha: string;
 	head_sha: string;
 	base_branch: string;
+	head_branch: string;
 	pr_number: number;
 	owner: string;
 	repo: string;
@@ -38,6 +48,7 @@ interface PlanData {
 
 interface ExecResultData {
 	run_id: string;
+	source_copy_branch: string;
 	group_commits: Array<{
 		group_id: string;
 		commit_sha: string;
@@ -51,6 +62,7 @@ interface ExecResultData {
 interface VerifyResultData {
 	verified: boolean;
 	errors: string[];
+	warnings: string[];
 }
 
 interface PublishResultData {
@@ -68,6 +80,7 @@ interface PublishResultData {
 export interface StackState {
 	phase: StackPhase;
 	error: string | null;
+	maxGroups: number | null;
 	partition: PartitionData | null;
 	feasibility: FeasibilityResult | null;
 	context: StackContext | null;
@@ -81,6 +94,7 @@ export function useStack(sessionId: string | null | undefined) {
 	const [state, setState] = useState<StackState>({
 		phase: "idle",
 		error: null,
+		maxGroups: null,
 		partition: null,
 		feasibility: null,
 		context: null,
@@ -90,6 +104,10 @@ export function useStack(sessionId: string | null | undefined) {
 		publishResult: null,
 	});
 
+	const setMaxGroups = useCallback((n: number | null) => {
+		setState((s) => ({ ...s, maxGroups: n }));
+	}, []);
+
 	const startPartition = useCallback(async () => {
 		if (!sessionId) return;
 		setState((s) => ({ ...s, phase: "partitioning", error: null }));
@@ -97,7 +115,7 @@ export function useStack(sessionId: string | null | undefined) {
 			const res = await fetch("/api/stack/partition", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ sessionId }),
+				body: JSON.stringify({ sessionId, maxGroups: state.maxGroups }),
 			});
 			const data = await res.json();
 			if (!res.ok) throw new Error(data.error ?? "Partition failed");
@@ -117,7 +135,7 @@ export function useStack(sessionId: string | null | undefined) {
 				error: err instanceof Error ? err.message : String(err),
 			}));
 		}
-	}, [sessionId]);
+	}, [sessionId, state.maxGroups]);
 
 	const startPlan = useCallback(async () => {
 		if (!sessionId || !state.partition || !state.feasibility || !state.context) return;
@@ -130,6 +148,7 @@ export function useStack(sessionId: string | null | undefined) {
 					sessionId,
 					ownership: state.partition.ownership,
 					feasibility: state.feasibility,
+					groups: state.partition.groups,
 					context: state.context,
 				}),
 			});
@@ -220,7 +239,7 @@ export function useStack(sessionId: string | null | undefined) {
 			const partRes = await fetch("/api/stack/partition", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ sessionId }),
+				body: JSON.stringify({ sessionId, maxGroups: state.maxGroups }),
 			});
 			const partData = await partRes.json();
 			if (!partRes.ok) throw new Error(partData.error ?? "Partition failed");
@@ -251,6 +270,7 @@ export function useStack(sessionId: string | null | undefined) {
 					sessionId,
 					ownership: partData.partition.ownership,
 					feasibility: partData.feasibility,
+					groups: partData.partition.groups,
 					context: partData.context,
 				}),
 			});
@@ -301,12 +321,13 @@ export function useStack(sessionId: string | null | undefined) {
 				error: err instanceof Error ? err.message : String(err),
 			}));
 		}
-	}, [sessionId]);
+	}, [sessionId, state.maxGroups]);
 
 	const reset = useCallback(() => {
-		setState({
+		setState((s) => ({
 			phase: "idle",
 			error: null,
+			maxGroups: s.maxGroups,
 			partition: null,
 			feasibility: null,
 			context: null,
@@ -314,11 +335,12 @@ export function useStack(sessionId: string | null | undefined) {
 			execResult: null,
 			verifyResult: null,
 			publishResult: null,
-		});
+		}));
 	}, []);
 
 	return {
 		...state,
+		setMaxGroups,
 		startPartition,
 		startPlan,
 		startExecute,

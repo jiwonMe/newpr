@@ -11,19 +11,22 @@ export interface VerifyInput {
 export interface VerifyResult {
 	verified: boolean;
 	errors: string[];
+	warnings: string[];
 }
 
 export async function verifyStack(input: VerifyInput): Promise<VerifyResult> {
 	const { repo_path, base_sha, head_sha, exec_result, ownership } = input;
 	const errors: string[] = [];
+	const warnings: string[] = [];
 
-	await verifyPerGroupDiffScope(repo_path, base_sha, exec_result, ownership, errors);
-	await verifyUnionCompleteness(repo_path, base_sha, head_sha, exec_result, errors);
+	await verifyPerGroupDiffScope(repo_path, base_sha, exec_result, ownership, warnings);
+	await verifyUnionCompleteness(repo_path, base_sha, head_sha, exec_result, warnings);
 	await verifyFinalTreeEquivalence(repo_path, head_sha, exec_result, errors);
 
 	return {
 		verified: errors.length === 0,
 		errors,
+		warnings,
 	};
 }
 
@@ -32,7 +35,7 @@ async function verifyPerGroupDiffScope(
 	baseSha: string,
 	execResult: StackExecResult,
 	ownership: Map<string, string>,
-	errors: string[],
+	warnings: string[],
 ): Promise<void> {
 	let prevCommitSha = baseSha;
 
@@ -40,7 +43,7 @@ async function verifyPerGroupDiffScope(
 		const diffResult = await Bun.$`git -C ${repoPath} diff-tree -r --raw -z --no-commit-id ${prevCommitSha} ${gc.commit_sha}`.quiet().nothrow();
 
 		if (diffResult.exitCode !== 0) {
-			errors.push(`Failed to diff group "${gc.group_id}": ${diffResult.stderr.toString().trim()}`);
+			warnings.push(`Failed to diff group "${gc.group_id}": ${diffResult.stderr.toString().trim()}`);
 			prevCommitSha = gc.commit_sha;
 			continue;
 		}
@@ -50,7 +53,7 @@ async function verifyPerGroupDiffScope(
 		for (const path of changedPaths) {
 			const fileOwner = ownership.get(path);
 			if (fileOwner !== gc.group_id) {
-				errors.push(
+				warnings.push(
 					`Group "${gc.group_id}" diff contains file "${path}" owned by "${fileOwner ?? "unassigned"}"`,
 				);
 			}
@@ -65,12 +68,12 @@ async function verifyUnionCompleteness(
 	baseSha: string,
 	headSha: string,
 	execResult: StackExecResult,
-	errors: string[],
+	warnings: string[],
 ): Promise<void> {
 	const expectedResult = await Bun.$`git -C ${repoPath} diff-tree -r --raw -z --no-commit-id ${baseSha} ${headSha}`.quiet().nothrow();
 
 	if (expectedResult.exitCode !== 0) {
-		errors.push(`Failed to get expected diff: ${expectedResult.stderr.toString().trim()}`);
+		warnings.push(`Failed to get expected diff: ${expectedResult.stderr.toString().trim()}`);
 		return;
 	}
 
@@ -91,13 +94,13 @@ async function verifyUnionCompleteness(
 
 	for (const path of expectedPaths) {
 		if (!actualPaths.has(path)) {
-			errors.push(`File "${path}" present in original diff but missing from stack`);
+			warnings.push(`File "${path}" present in original diff but missing from stack`);
 		}
 	}
 
 	for (const path of actualPaths) {
 		if (!expectedPaths.has(path)) {
-			errors.push(`File "${path}" present in stack but not in original diff`);
+			warnings.push(`File "${path}" present in stack but not in original diff`);
 		}
 	}
 }

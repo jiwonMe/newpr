@@ -127,6 +127,7 @@ export interface GroupCommitInfo {
 
 export interface StackExecResult {
 	run_id: string;
+	source_copy_branch: string;
 	group_commits: GroupCommitInfo[];
 	final_tree_sha: string;
 	verified: boolean;

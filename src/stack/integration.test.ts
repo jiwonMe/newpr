@@ -72,6 +72,7 @@ async function runFullPipeline(
 		ownership: coupled.ownership,
 		pr_author: { name: "Test", email: "test@test.com" },
 		pr_number: 1,
+		head_branch: "test-branch",
 	});
 
 	const verifyResult = await verifyStack({
@@ -127,6 +128,7 @@ describe("integration: full stacking pipeline", () => {
 		expect(result.execResult!.group_commits.length).toBe(3);
 		expect(result.verifyResult!.verified).toBe(true);
 		expect(result.verifyResult!.errors).toEqual([]);
+		expect(result.verifyResult!.warnings).toBeDefined();
 
 		const headTree = await getTree(repo, head);
 		expect(result.execResult!.final_tree_sha).toBe(headTree);

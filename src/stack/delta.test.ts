@@ -2,7 +2,7 @@ import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { extractDeltas, buildRenameMap, DeltaExtractionError } from "./delta.ts";
+import { extractDeltas, buildRenameMap } from "./delta.ts";
 
 let testRepoPath: string;
 
@@ -75,7 +75,7 @@ describe("extractDeltas", () => {
 		expect(renameChange?.path).toBe("new-name.txt");
 	});
 
-	test("throws error on merge commit", async () => {
+	test("handles merge commits via first-parent linearization", async () => {
 		const baseSha = await getCurrentSha(testRepoPath);
 
 		await Bun.$`git -C ${testRepoPath} checkout -b feature`.quiet();
@@ -92,12 +92,11 @@ describe("extractDeltas", () => {
 
 		const headSha = await getCurrentSha(testRepoPath);
 
-		await expect(extractDeltas(testRepoPath, baseSha, headSha)).rejects.toThrow(
-			DeltaExtractionError,
-		);
-		await expect(extractDeltas(testRepoPath, baseSha, headSha)).rejects.toThrow(
-			/Merge commit detected/,
-		);
+		const deltas = await extractDeltas(testRepoPath, baseSha, headSha);
+		expect(deltas.length).toBeGreaterThanOrEqual(2);
+		const allPaths = deltas.flatMap((d) => d.changes.map((c) => c.path));
+		expect(allPaths).toContain("main.txt");
+		expect(allPaths).toContain("feature.txt");
 	});
 
 	test("includes commit metadata (author, date, message)", async () => {
