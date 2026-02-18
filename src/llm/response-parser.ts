@@ -40,12 +40,24 @@ export function parseGroups(raw: string): FileGroup[] {
 			? (rawType as GroupType)
 			: "chore";
 
-		return {
+		const group: FileGroup = {
 			name: String(item.name ?? "Ungrouped"),
 			type,
 			description: String(item.description ?? ""),
 			files: Array.isArray(item.files) ? item.files.map(String) : [],
 		};
+
+		if (Array.isArray(item.key_changes) && item.key_changes.length > 0) {
+			group.key_changes = item.key_changes.map(String);
+		}
+		if (item.risk && typeof item.risk === "string") {
+			group.risk = item.risk;
+		}
+		if (Array.isArray(item.dependencies) && item.dependencies.length > 0) {
+			group.dependencies = item.dependencies.map(String);
+		}
+
+		return group;
 	});
 }
 

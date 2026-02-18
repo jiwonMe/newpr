@@ -3,6 +3,7 @@ export interface SessionRecord {
 	pr_url: string;
 	pr_number: number;
 	pr_title: string;
+	pr_state?: string;
 	repo: string;
 	author: string;
 	analyzed_at: string;

@@ -1,15 +1,25 @@
-import type { GithubPrData, PrComment, PrCommit, PrIdentifier } from "../types/github.ts";
+import type { GithubPrData, PrComment, PrCommit, PrIdentifier, PrState } from "../types/github.ts";
 
 export function mapPrResponse(json: Record<string, unknown>): Omit<GithubPrData, "commits"> {
 	const user = json.user as Record<string, unknown> | undefined;
 	const base = json.base as Record<string, unknown> | undefined;
 	const head = json.head as Record<string, unknown> | undefined;
 
+	let state: PrState = "open";
+	if (json.draft) {
+		state = "draft";
+	} else if (json.merged) {
+		state = "merged";
+	} else if (json.state === "closed") {
+		state = "closed";
+	}
+
 	return {
 		number: json.number as number,
 		title: json.title as string,
 		body: (json.body as string) ?? "",
 		url: json.html_url as string,
+		state,
 		base_branch: (base?.ref as string) ?? "unknown",
 		head_branch: (head?.ref as string) ?? "unknown",
 		author: (user?.login as string) ?? "unknown",

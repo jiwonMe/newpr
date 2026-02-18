@@ -11,11 +11,14 @@ export type GroupType =
 
 export type RiskLevel = "low" | "medium" | "high";
 
+export type PrStateLabel = "open" | "closed" | "merged" | "draft";
+
 export interface PrMeta {
 	pr_number: number;
 	pr_title: string;
 	pr_body?: string;
 	pr_url: string;
+	pr_state?: PrStateLabel;
 	base_branch: string;
 	head_branch: string;
 	author: string;
@@ -40,6 +43,9 @@ export interface FileGroup {
 	type: GroupType;
 	description: string;
 	files: string[];
+	key_changes?: string[];
+	risk?: string;
+	dependencies?: string[];
 }
 
 export interface FileChange {

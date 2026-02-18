@@ -22,11 +22,14 @@ export interface PrComment {
 	html_url: string;
 }
 
+export type PrState = "open" | "closed" | "merged" | "draft";
+
 export interface GithubPrData {
 	number: number;
 	title: string;
 	body: string;
 	url: string;
+	state: PrState;
 	base_branch: string;
 	head_branch: string;
 	author: string;

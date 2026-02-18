@@ -25,6 +25,7 @@ export function buildSessionRecord(id: string, data: NewprOutput): SessionRecord
 		pr_url: meta.pr_url,
 		pr_number: meta.pr_number,
 		pr_title: meta.pr_title,
+		pr_state: meta.pr_state,
 		repo: repoParts?.[1] ?? "unknown",
 		author: meta.author,
 		analyzed_at: meta.analyzed_at,

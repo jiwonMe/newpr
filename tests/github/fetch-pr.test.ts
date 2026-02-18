@@ -23,6 +23,7 @@ describe("mapPrResponse", () => {
 			title: "Add feature X",
 			body: "This PR adds feature X",
 			url: "https://github.com/owner/repo/pull/42",
+			state: "open",
 			base_branch: "main",
 			head_branch: "feature/x",
 			author: "developer",
@@ -41,6 +42,7 @@ describe("mapPrResponse", () => {
 
 		const result = mapPrResponse(json);
 
+		expect(result.state).toBe("open");
 		expect(result.author).toBe("unknown");
 		expect(result.body).toBe("");
 		expect(result.base_branch).toBe("unknown");
