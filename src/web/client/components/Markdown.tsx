@@ -172,7 +172,12 @@ function replaceLineAnchors(text: string): string {
 }
 
 function preprocess(text: string): string {
-	return replaceLineAnchors(text)
+	const mathBlocks: string[] = [];
+	const preserved = text
+		.replace(/\$\$[\s\S]+?\$\$/g, (m) => { mathBlocks.push(m); return `\x00MATH_BLOCK_${mathBlocks.length - 1}\x00`; })
+		.replace(/\$(?!\$)(.+?)\$/g, (m) => { mathBlocks.push(m); return `\x00MATH_BLOCK_${mathBlocks.length - 1}\x00`; });
+
+	const processed = replaceLineAnchors(preserved)
 		.replace(ANCHOR_RE, (_, kind, id) => {
 			const encoded = encodeURIComponent(id);
 			return `![${kind}:${encoded}](newpr)`;
@@ -181,6 +186,8 @@ function preprocess(text: string): string {
 			if (hasCJK(inner)) return `<strong>${inner}</strong>`;
 			return match;
 		});
+
+	return processed.replace(/\x00MATH_BLOCK_(\d+)\x00/g, (_, idx) => mathBlocks[Number(idx)]!);
 }
 
 export function Markdown({ children, onAnchorClick, activeId }: MarkdownProps) {
