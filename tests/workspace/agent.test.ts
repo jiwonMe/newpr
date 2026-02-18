@@ -41,7 +41,7 @@ describe("detectAgents", () => {
 		const agents = await detectAgents();
 		expect(Array.isArray(agents)).toBe(true);
 		for (const agent of agents) {
-			expect(["claude", "opencode", "codex"]).toContain(agent.name);
+			expect(["claude", "cursor", "gemini", "opencode", "codex"]).toContain(agent.name);
 			expect(agent.path.length).toBeGreaterThan(0);
 		}
 	});

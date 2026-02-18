@@ -1,6 +1,6 @@
-import type { AgentTool } from "./types.ts";
+import type { AgentTool, AgentToolName } from "./types.ts";
 import type { ExplorationResult } from "./types.ts";
-import { runAgent } from "./agent.ts";
+import { runAgentWithFallback } from "./agent.ts";
 
 const STRUCTURE_PROMPT = `Analyze the project structure of this repository concisely.
 Return:
@@ -78,7 +78,7 @@ If npx is not available or the command fails, report the error.
 Do NOT attempt to fix any issues — only report the results.`;
 
 export async function exploreCodebase(
-	agent: AgentTool,
+	agents: AgentTool[],
 	headPath: string,
 	changedFiles: string[],
 	prTitle: string,
@@ -89,22 +89,27 @@ export async function exploreCodebase(
 	const totalStart = Date.now();
 	const isReact = hasReactFiles(changedFiles);
 	const totalPhases = isReact ? 4 : 3;
+	let currentAgent: AgentToolName = agents[0]!.name;
 
-	onProgress?.(`${agent.name}: starting exploration of ${changedFiles.length} files`, 0, totalPhases);
+	onProgress?.(`${currentAgent}: starting exploration of ${changedFiles.length} files (${agents.length} agent(s) available)`, 0, totalPhases);
 
 	const runPhase = async (phase: PhaseConfig, prompt: string, total = totalPhases) => {
 		const phaseStart = Date.now();
 		let toolCount = 0;
 		onProgress?.(`${phase.emoji} ${phase.label}...`, phase.step, total);
-		const result = await runAgent(agent, headPath, prompt, {
+		const result = await runAgentWithFallback(agents, headPath, prompt, {
 			timeout,
-			onOutput: (line) => {
+			onOutput: (line: string) => {
 				toolCount++;
 				onProgress?.(`[${phase.step}/${total}] ${line}`, phase.step, total);
 			},
+			onFallback: (from, to, reason) => {
+				currentAgent = to;
+				onProgress?.(`⚠️ ${from} failed (${reason}), falling back to ${to}...`, phase.step, total);
+			},
 		});
 		const elapsed = fmtDuration(Date.now() - phaseStart);
-		onProgress?.(`${phase.emoji} ${phase.label} done (${elapsed}, ${toolCount} tool calls)`, phase.step, total);
+		onProgress?.(`${phase.emoji} ${phase.label} done via ${result.tool_used} (${elapsed}, ${toolCount} tool calls)`, phase.step, total);
 		return result;
 	};
 
@@ -129,7 +134,7 @@ export async function exploreCodebase(
 	}
 
 	const totalElapsed = fmtDuration(Date.now() - totalStart);
-	onProgress?.(`${agent.name}: exploration complete (${totalElapsed})`, totalPhases, totalPhases);
+	onProgress?.(`exploration complete (${totalElapsed})`, totalPhases, totalPhases);
 
 	return {
 		project_structure: structureResult.answer,

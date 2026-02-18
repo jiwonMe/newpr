@@ -1,5 +1,5 @@
 import type { AgentTool, AgentToolName, AgentResult } from "./types.ts";
-import { INSTALL_INSTRUCTIONS } from "./types.ts";
+import { AgentError, INSTALL_INSTRUCTIONS } from "./types.ts";
 
 const AGENT_PRIORITY: AgentToolName[] = ["claude", "cursor", "gemini", "opencode", "codex"];
 
@@ -65,10 +65,91 @@ export async function requireAgent(preferred?: AgentToolName): Promise<AgentTool
 	);
 }
 
+export async function getAvailableAgents(preferred?: AgentToolName): Promise<AgentTool[]> {
+	const agents = await detectAgents();
+
+	if (agents.length === 0) {
+		const installList = AGENT_PRIORITY
+			.map((name) => `  ${name}: ${INSTALL_INSTRUCTIONS[name]}`)
+			.join("\n");
+		throw new Error(
+			"No agentic coding tool found.\n\n" +
+			"newpr requires at least one of the following tools for codebase exploration:\n\n" +
+			`${installList}\n\n` +
+			"Install any one of them and try again.",
+		);
+	}
+
+	if (preferred) {
+		const idx = agents.findIndex((a) => a.name === preferred);
+		if (idx > 0) {
+			const [pref] = agents.splice(idx, 1);
+			agents.unshift(pref!);
+		}
+	}
+
+	return agents;
+}
+
 interface RunOptions {
 	timeout?: number;
 	allowedTools?: string[];
 	onOutput?: (line: string) => void;
+}
+
+const RATE_LIMIT_PATTERNS = [
+	/rate.?limit/i,
+	/too many requests/i,
+	/429/,
+	/capacity.*available/i,
+	/quota.*exceeded/i,
+	/overloaded/i,
+];
+
+function isRateLimitError(text: string): boolean {
+	return RATE_LIMIT_PATTERNS.some((p) => p.test(text));
+}
+
+function validateResult(agent: AgentTool, result: AgentResult): AgentResult {
+	if (isRateLimitError(result.answer)) {
+		throw new AgentError(agent.name, "rate_limit", `${agent.name}: rate limited — ${result.answer.slice(0, 200)}`);
+	}
+	if (!result.answer.trim()) {
+		throw new AgentError(agent.name, "empty_answer", `${agent.name}: returned empty answer`);
+	}
+	return result;
+}
+
+export async function runAgentWithFallback(
+	agents: AgentTool[],
+	workdir: string,
+	prompt: string,
+	options?: RunOptions & { onFallback?: (from: AgentToolName, to: AgentToolName, reason: string) => void },
+): Promise<AgentResult> {
+	if (agents.length === 0) {
+		throw new Error("No agents available");
+	}
+
+	const errors: Array<{ agent: AgentToolName; error: string }> = [];
+
+	for (const agent of agents) {
+		try {
+			const raw = await runAgent(agent, workdir, prompt, options);
+			return validateResult(agent, raw);
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			errors.push({ agent: agent.name, error: msg });
+
+			const nextAgent = agents[agents.indexOf(agent) + 1];
+			if (nextAgent) {
+				const reason = err instanceof AgentError ? err.reason : "unknown";
+				options?.onFallback?.(agent.name, nextAgent.name, reason);
+			}
+		}
+	}
+
+	const summary = errors.map((e) => `  ${e.agent}: ${e.error}`).join("\n");
+	throw new Error(`All agents failed:\n${summary}`);
 }
 
 const ANSI_RE = /\x1b\[[0-9;]*[a-zA-Z]/g;

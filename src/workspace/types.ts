@@ -12,6 +12,17 @@ export interface AgentResult {
 	tool_used: AgentToolName;
 }
 
+export class AgentError extends Error {
+	constructor(
+		public readonly agentName: AgentToolName,
+		public readonly reason: "empty_answer" | "non_zero_exit" | "rate_limit" | "timeout" | "unknown",
+		message: string,
+	) {
+		super(message);
+		this.name = "AgentError";
+	}
+}
+
 export interface WorktreeSet {
 	basePath: string;
 	headPath: string;

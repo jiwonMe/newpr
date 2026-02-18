@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext } from "react";
-import { Loader2, ChevronRight, ChevronDown, CornerDownLeft, FoldVertical } from "lucide-react";
+import { Loader2, ChevronRight, ChevronDown, CornerDownLeft, FoldVertical, Check } from "lucide-react";
 import type { ChatMessage, ChatToolCall, ChatSegment } from "../../../types/output.ts";
 import { Markdown } from "./Markdown.tsx";
 import { TipTapEditor, getTextWithAnchors, type AnchorItem, type CommandItem } from "./TipTapEditor.tsx";
@@ -27,6 +27,26 @@ export { useChatStore as useChatState };
 export function ChatProvider({ state, anchorItems, analyzedAt, children }: { state: ChatState; anchorItems?: AnchorItem[]; analyzedAt?: string; children: React.ReactNode }) {
 	const value = useMemo(() => ({ state, anchorItems, analyzedAt }), [state, anchorItems, analyzedAt]);
 	return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
+}
+
+function formatDuration(ms: number): string {
+	if (ms < 1000) return `${ms}ms`;
+	const s = ms / 1000;
+	if (s < 60) return `${s.toFixed(1)}s`;
+	const m = Math.floor(s / 60);
+	const rem = Math.round(s % 60);
+	return rem > 0 ? `${m}m ${rem}s` : `${m}m`;
+}
+
+function CompletionFooter({ durationMs }: { durationMs: number }) {
+	return (
+		<div className="flex items-center gap-1.5 mt-1.5 animate-in fade-in duration-300">
+			<Check className="h-3 w-3 text-emerald-500/70" />
+			<span className="text-[10px] text-muted-foreground/40">
+				Done · {formatDuration(durationMs)}
+			</span>
+		</div>
+	);
 }
 
 function ToolCallDisplay({ tc }: { tc: ChatToolCall }) {
@@ -261,18 +281,22 @@ export function ChatMessages({ onAnchorClick, activeId }: {
 						</div>
 					);
 				}
-				return (
-					<div key={`assistant-${i}`}>
-						{divider}
-						<div className={isFromPreviousAnalysis ? "opacity-60" : ""}>
-							<AssistantMessage
-								segments={segmentsFromMessage(msg)}
-								onAnchorClick={onAnchorClick}
-								activeId={activeId}
-							/>
-						</div>
+			const isLastAssistant = !loading && !streaming && i === messages.findLastIndex((m) => m.role === "assistant");
+			return (
+				<div key={`assistant-${i}`}>
+					{divider}
+					<div className={isFromPreviousAnalysis ? "opacity-60" : ""}>
+						<AssistantMessage
+							segments={segmentsFromMessage(msg)}
+							onAnchorClick={onAnchorClick}
+							activeId={activeId}
+						/>
+						{isLastAssistant && msg.durationMs != null && (
+							<CompletionFooter durationMs={msg.durationMs} />
+						)}
 					</div>
-				);
+				</div>
+			);
 			})}
 
 			{streaming && (

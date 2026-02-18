@@ -105,6 +105,7 @@ export interface ChatMessage {
 	segments?: ChatSegment[];
 	toolCallId?: string;
 	timestamp: string;
+	durationMs?: number;
 	isCompactSummary?: boolean;
 	compactedCount?: number;
 }

@@ -67,7 +67,7 @@ import {
 } from "../llm/response-parser.ts";
 import { ensureRepo } from "../workspace/repo-cache.ts";
 import { createWorktrees, cleanupWorktrees } from "../workspace/worktree.ts";
-import { requireAgent } from "../workspace/agent.ts";
+import { getAvailableAgents } from "../workspace/agent.ts";
 import { exploreCodebase } from "../workspace/explore.ts";
 import type { ProgressCallback, ProgressStage } from "./progress.ts";
 import { createSilentProgress } from "./progress.ts";
@@ -123,7 +123,7 @@ async function runExploration(
 	preferredAgent?: AgentToolName,
 	onProgress?: ProgressCallback,
 ): Promise<ExplorationResult> {
-	const agent = await requireAgent(preferredAgent);
+	const agents = await getAvailableAgents(preferredAgent);
 
 	const bareRepoPath = await ensureRepo(pr.owner, pr.repo, token, (msg) => {
 		onProgress?.({ stage: "cloning", message: `📦 ${msg}` });
@@ -134,12 +134,13 @@ async function runExploration(
 		(msg) => onProgress?.({ stage: "checkout", message: `🌿 ${msg}` }),
 	);
 
-	onProgress?.({ stage: "exploring", message: `🤖 ${agent.name}: exploring ${changedFiles.length} changed files...` });
+	const agentNames = agents.map((a) => a.name).join(" → ");
+	onProgress?.({ stage: "exploring", message: `🤖 exploring ${changedFiles.length} files (agents: ${agentNames})` });
 	const exploration = await exploreCodebase(
-		agent, worktrees.headPath, changedFiles, prTitle, rawDiff,
+		agents, worktrees.headPath, changedFiles, prTitle, rawDiff,
 		(msg, current, total) => onProgress?.({ stage: "exploring", message: msg, current, total }),
 	);
-	onProgress?.({ stage: "exploring", message: `🤖 ${agent.name}: exploration complete` });
+	onProgress?.({ stage: "exploring", message: "🤖 exploration complete" });
 
 	await cleanupWorktrees(bareRepoPath, pr.number, pr.owner, pr.repo).catch(() => {});
 

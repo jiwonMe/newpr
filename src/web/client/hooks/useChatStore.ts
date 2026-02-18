@@ -72,6 +72,7 @@ class ChatStore {
 		const s = this.getOrCreate(sessionId);
 		if (s.loading) return;
 
+		const startTime = Date.now();
 		const userMsg: ChatMessage = { role: "user", content: text, timestamp: new Date().toISOString() };
 		this.update(sessionId, { messages: [...s.messages, userMsg], loading: true, streaming: { segments: [] } });
 
@@ -158,6 +159,7 @@ class ChatStore {
 					toolCalls: allToolCalls.length > 0 ? allToolCalls : undefined,
 					segments: orderedSegments.length > 0 ? orderedSegments : undefined,
 					timestamp: new Date().toISOString(),
+					durationMs: Date.now() - startTime,
 				}],
 			});
 			sendNotification("Chat response ready", fullText.slice(0, 100));

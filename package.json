@@ -1,6 +1,6 @@
 {
   "name": "newpr",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "AI-powered large PR review tool - understand PRs with 1000+ lines of changes",
   "module": "src/cli/index.ts",
   "type": "module",
@@ -40,7 +40,7 @@
     "type": "git",
     "url": "git+https://github.com/jiwonMe/newpr.git"
   },
-  "homepage": "https://github.com/jiwonMe/newpr",
+  "homepage": "https://jiwonme.github.io/newpr/",
   "bugs": {
     "url": "https://github.com/jiwonMe/newpr/issues"
   },
