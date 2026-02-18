@@ -1,6 +1,6 @@
 {
   "name": "newpr",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "AI-powered large PR review tool - understand PRs with 1000+ lines of changes",
   "module": "src/cli/index.ts",
   "type": "module",
