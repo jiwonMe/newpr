@@ -92,105 +92,122 @@ CRITICAL REQUIREMENTS:
 - Render all text exactly as specified — do not paraphrase or translate`;
 }
 
-async function callGeminiImageGen(apiKey: string, prompt: string): Promise<{ base64: string; mimeType: string }> {
-	const controller = new AbortController();
-	const timeout = setTimeout(() => controller.abort(), 120_000);
-
-	try {
-		const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-			method: "POST",
-			signal: controller.signal,
-			headers: {
-				Authorization: `Bearer ${apiKey}`,
-				"Content-Type": "application/json",
-				"HTTP-Referer": "https://github.com/jiwonMe/newpr",
-				"X-Title": "newpr",
-			},
-			body: JSON.stringify({
-				model: "google/gemini-3-pro-image-preview",
-				messages: [{ role: "user", content: prompt }],
-				modalities: ["image", "text"],
-			}),
-		});
-
-		if (!res.ok) {
-			const body = await res.text();
-			throw new Error(`Gemini API ${res.status}: ${body.slice(0, 200)}`);
-		}
-
-		const json = await res.json() as {
-			choices?: Array<{
-				message?: {
-					content?: string | Array<{ type?: string; image_url?: { url?: string }; text?: string }>;
-					images?: Array<{ image_url?: { url?: string } }>;
-				};
-			}>;
-		};
-
-		const msg = json.choices?.[0]?.message;
-
-		if (msg?.images) {
-			for (const img of msg.images) {
-				if (img.image_url?.url) {
-					const match = img.image_url.url.match(/data:([^;]+);base64,(.+)/s);
-					if (match) return { mimeType: match[1]!, base64: match[2]! };
-				}
-			}
-		}
-
-		const content = msg?.content;
-		if (typeof content === "string") {
-			const match = content.match(/data:([^;]+);base64,(.+)/s);
-			if (match) return { mimeType: match[1]!, base64: match[2]! };
-		}
-
-		if (Array.isArray(content)) {
-			for (const part of content) {
-				if (part.type === "image_url" && part.image_url?.url) {
-					const match = part.image_url.url.match(/data:([^;]+);base64,(.+)/s);
-					if (match) return { mimeType: match[1]!, base64: match[2]! };
-				}
-			}
-		}
-
-		throw new Error(`No image in response: ${JSON.stringify(msg).slice(0, 300)}`);
-	} finally {
-		clearTimeout(timeout);
-	}
-}
-
 async function renderSlides(
 	apiKey: string,
 	plan: SlidePlan,
 	specsToRender: SlideSpec[],
 	onProgress?: (msg: string, current: number, total: number) => void,
+	onSlideComplete?: (completed: SlideImage[]) => void,
 ): Promise<{ completed: SlideImage[]; failed: number[] }> {
 	const totalPlan = plan.slides.length;
 	const completed: SlideImage[] = [];
 	const failed: number[] = [];
 
-	let doneCount = 0;
-	await Promise.all(
-		specsToRender.map(async (spec) => {
-			onProgress?.(`Rendering slide ${spec.index + 1}/${totalPlan}: "${spec.title}"`, doneCount, specsToRender.length);
-			const prompt = buildImagePrompt(plan.stylePrompt, spec);
+	const conversationHistory: Array<{ role: string; content: string }> = [
+		{
+			role: "user",
+			content: `You are generating a series of ${totalPlan} presentation slides. All slides MUST follow this exact visual style consistently:\n\n${plan.stylePrompt}\n\nI will now ask you to generate each slide one by one. Maintain EXACTLY the same visual style, colors, fonts, and layout principles across every slide. Respond with the slide image for each request.`,
+		},
+	];
+
+	for (const spec of specsToRender) {
+		onProgress?.(`Rendering slide ${spec.index + 1}/${totalPlan}: "${spec.title}"`, completed.length, specsToRender.length);
+
+		const slidePrompt = `Generate slide ${spec.index + 1} of ${totalPlan}. 16:9 aspect ratio (1920x1080).
+
+Title: "${spec.title}"
+
+CONTENT AND LAYOUT:
+${spec.contentPrompt}
+
+IMPORTANT: Use the EXACT SAME visual style as all previous slides. Same colors, fonts, spacing, background.`;
+
+		conversationHistory.push({ role: "user", content: slidePrompt });
+
+		try {
+			const controller = new AbortController();
+			const timeout = setTimeout(() => controller.abort(), 120_000);
+
 			try {
-				const img = await callGeminiImageGen(apiKey, prompt);
+				const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+					method: "POST",
+					signal: controller.signal,
+					headers: {
+						Authorization: `Bearer ${apiKey}`,
+						"Content-Type": "application/json",
+						"HTTP-Referer": "https://github.com/jiwonMe/newpr",
+						"X-Title": "newpr",
+					},
+					body: JSON.stringify({
+						model: "google/gemini-3-pro-image-preview",
+						messages: conversationHistory,
+						modalities: ["image", "text"],
+					}),
+				});
+
+				if (!res.ok) {
+					const body = await res.text();
+					throw new Error(`Gemini API ${res.status}: ${body.slice(0, 200)}`);
+				}
+
+				const json = await res.json() as {
+					choices?: Array<{
+						message?: {
+							content?: string | Array<{ type?: string; image_url?: { url?: string }; text?: string }>;
+							images?: Array<{ image_url?: { url?: string } }>;
+						};
+					}>;
+				};
+
+				const msg = json.choices?.[0]?.message;
+				let imageData: { base64: string; mimeType: string } | null = null;
+
+				if (msg?.images) {
+					for (const img of msg.images) {
+						if (img.image_url?.url) {
+							const match = img.image_url.url.match(/data:([^;]+);base64,(.+)/s);
+							if (match) { imageData = { mimeType: match[1]!, base64: match[2]! }; break; }
+						}
+					}
+				}
+
+				if (!imageData) {
+					const content = msg?.content;
+					if (typeof content === "string") {
+						const match = content.match(/data:([^;]+);base64,(.+)/s);
+						if (match) imageData = { mimeType: match[1]!, base64: match[2]! };
+					}
+					if (!imageData && Array.isArray(content)) {
+						for (const part of content) {
+							if (part.type === "image_url" && part.image_url?.url) {
+								const match = part.image_url.url.match(/data:([^;]+);base64,(.+)/s);
+								if (match) { imageData = { mimeType: match[1]!, base64: match[2]! }; break; }
+							}
+						}
+					}
+				}
+
+				if (!imageData) throw new Error(`No image in response for slide ${spec.index + 1}`);
+
+				conversationHistory.push({ role: "assistant", content: `[Slide ${spec.index + 1} image generated successfully]` });
+
 				completed.push({
 					index: spec.index,
-					imageBase64: img.base64,
-					mimeType: img.mimeType,
+					imageBase64: imageData.base64,
+					mimeType: imageData.mimeType,
 					title: spec.title,
 				});
-				doneCount++;
-				onProgress?.(`Slide ${spec.index + 1}/${totalPlan} done (${doneCount}/${specsToRender.length})`, doneCount, specsToRender.length);
-			} catch (err) {
-				failed.push(spec.index);
-				doneCount++;
-				onProgress?.(`Slide ${spec.index + 1}/${totalPlan} failed: ${err instanceof Error ? err.message : String(err)}`, doneCount, specsToRender.length);
+				onProgress?.(`Slide ${spec.index + 1}/${totalPlan} done (${completed.length}/${specsToRender.length})`, completed.length, specsToRender.length);
+				onSlideComplete?.([...completed]);
+			} finally {
+				clearTimeout(timeout);
 			}
-		}),
-	);
+		} catch (err) {
+			failed.push(spec.index);
+			conversationHistory.push({ role: "assistant", content: `[Slide ${spec.index + 1} failed]` });
+			onProgress?.(`Slide ${spec.index + 1}/${totalPlan} failed: ${err instanceof Error ? err.message : String(err)}`, completed.length + failed.length, specsToRender.length);
+		}
+	}
 
 	return { completed, failed };
 }
@@ -202,6 +219,8 @@ export async function generateSlides(
 	language?: string,
 	onProgress?: (msg: string, current: number, total: number) => void,
 	existingDeck?: SlideDeck | null,
+	onPlan?: (plan: SlidePlan, imagePrompts: Array<{ index: number; prompt: string }>) => void,
+	onSlideComplete?: (partialDeck: SlideDeck) => void,
 ): Promise<SlideDeck> {
 	let plan: SlidePlan;
 
@@ -286,6 +305,12 @@ export async function generateSlides(
 		onProgress?.(`Plan ready: ${plan.slides.length} slides`, 0, plan.slides.length);
 	}
 
+	const imagePrompts = plan.slides.map((spec) => ({
+		index: spec.index,
+		prompt: buildImagePrompt(plan.stylePrompt, spec),
+	}));
+	onPlan?.(plan, imagePrompts);
+
 	const existingSlides = existingDeck?.slides ?? [];
 	const existingIndices = new Set(existingSlides.map((s) => s.index));
 	const specsToRender = existingDeck?.failedIndices && existingDeck.failedIndices.length > 0
@@ -298,7 +323,11 @@ export async function generateSlides(
 	}
 
 	onProgress?.(`Generating ${specsToRender.length} slide${specsToRender.length > 1 ? "s" : ""}...`, 0, specsToRender.length);
-	const { completed, failed } = await renderSlides(apiKey, plan, specsToRender, onProgress);
+	const { completed, failed } = await renderSlides(apiKey, plan, specsToRender, onProgress, (partialCompleted) => {
+		const allSlides = [...existingSlides.filter((s) => !partialCompleted.some((c) => c.index === s.index)), ...partialCompleted].sort((a, b) => a.index - b.index);
+		const remaining = specsToRender.filter((s) => !partialCompleted.some((c) => c.index === s.index)).map((s) => s.index);
+		onSlideComplete?.({ slides: allSlides, plan, failedIndices: remaining.length > 0 ? remaining : undefined, generatedAt: new Date().toISOString() });
+	});
 
 	const allSlides = [...existingSlides.filter((s) => !completed.some((c) => c.index === s.index)), ...completed]
 		.sort((a, b) => a.index - b.index);

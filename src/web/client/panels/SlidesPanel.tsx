@@ -36,24 +36,28 @@ export function SlidesPanel({ data, sessionId }: { data: NewprOutput; sessionId?
 		if (!sessionId || pollRef.current) return;
 		pollRef.current = setInterval(async () => {
 			try {
-				const res = await fetch(`/api/slides/status?sessionId=${sessionId}`);
-				const job = await res.json() as { status: string; message?: string; current?: number; total?: number };
+				const [statusRes, slidesRes] = await Promise.all([
+					fetch(`/api/slides/status?sessionId=${sessionId}`),
+					fetch(`/api/sessions/${sessionId}/slides`),
+				]);
+				const job = await statusRes.json() as { status: string; message?: string; current?: number; total?: number };
 				if (job.message) setProgress(job.message);
 				if (job.total && job.total > 0) setProgressDetail({ current: job.current ?? 0, total: job.total });
 
+				const partial = slidesRes.ok ? await slidesRes.json() as SlideDeck | null : null;
+				if (partial?.slides?.length) setDeck(partial);
+
 				if (job.status === "done") {
 					stopPolling();
-					const loaded = await fetch(`/api/sessions/${sessionId}/slides`).then((r) => r.json()) as SlideDeck | null;
-					if (loaded?.slides?.length) {
-						setDeck(loaded);
+					if (partial?.slides?.length) {
+						setDeck(partial);
 						setState("done");
 					}
 				} else if (job.status === "error") {
 					stopPolling();
 					setError(job.message ?? "Generation failed");
-					const loaded = await fetch(`/api/sessions/${sessionId}/slides`).then((r) => r.ok ? r.json() : null).catch(() => null) as SlideDeck | null;
-					if (loaded?.slides?.length) {
-						setDeck(loaded);
+					if (partial?.slides?.length) {
+						setDeck(partial);
 						setState("done");
 					} else {
 						setState("error");
@@ -136,25 +140,49 @@ export function SlidesPanel({ data, sessionId }: { data: NewprOutput; sessionId?
 
 	if (state === "loading") {
 		const pct = progressDetail && progressDetail.total > 0 ? Math.round((progressDetail.current / progressDetail.total) * 100) : 0;
+		const partialSlides = deck?.slides ?? [];
 		return (
-			<div className="pt-8 flex flex-col items-center">
-				<div className="w-full max-w-sm space-y-4">
-					<div className="aspect-video rounded-lg border border-dashed border-border/60 flex flex-col items-center justify-center gap-3 px-6">
-						<Loader2 className="h-5 w-5 animate-spin text-muted-foreground/40" />
-						<div className="text-center space-y-2 w-full">
-							<p className="text-xs text-muted-foreground/60 line-clamp-2">{progress}</p>
-							{progressDetail && progressDetail.total > 0 && (
-								<div className="space-y-1">
-									<div className="h-1 rounded-full bg-muted overflow-hidden">
-										<div className="h-full bg-foreground/40 rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
-									</div>
-									<p className="text-[10px] text-muted-foreground/30 tabular-nums">{progressDetail.current}/{progressDetail.total} slides</p>
-								</div>
-							)}
-							{!progressDetail && <p className="text-[10px] text-muted-foreground/30">This may take 30-90 seconds</p>}
+			<div className="pt-5 space-y-4">
+				<div className="flex items-center gap-3">
+					<Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground/40 shrink-0" />
+					<p className="text-xs text-muted-foreground/60 line-clamp-1 flex-1">{progress}</p>
+					{progressDetail && progressDetail.total > 0 && (
+						<span className="text-[10px] text-muted-foreground/30 tabular-nums shrink-0">{progressDetail.current}/{progressDetail.total}</span>
+					)}
+				</div>
+				{progressDetail && progressDetail.total > 0 && (
+					<div className="h-1 rounded-full bg-muted overflow-hidden">
+						<div className="h-full bg-foreground/40 rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
+					</div>
+				)}
+				{partialSlides.length > 0 && (
+					<div className="space-y-3">
+						<div className="rounded-lg border overflow-hidden bg-black">
+							<img
+								src={`data:${partialSlides[currentSlide >= partialSlides.length ? 0 : currentSlide]!.mimeType};base64,${partialSlides[currentSlide >= partialSlides.length ? 0 : currentSlide]!.imageBase64}`}
+								alt={partialSlides[currentSlide >= partialSlides.length ? 0 : currentSlide]!.title}
+								className="w-full aspect-video object-contain"
+							/>
+						</div>
+						<div className="flex gap-1.5 overflow-x-auto pb-1">
+							{partialSlides.map((s, i) => (
+								<button
+									key={s.index}
+									type="button"
+									onClick={() => setCurrentSlide(i)}
+									className={`shrink-0 rounded-md overflow-hidden border-2 transition-colors ${
+										i === (currentSlide >= partialSlides.length ? 0 : currentSlide) ? "border-foreground" : "border-transparent hover:border-border"
+									}`}
+								>
+									<img src={`data:${s.mimeType};base64,${s.imageBase64}`} alt={s.title} className="h-12 aspect-video object-cover" />
+								</button>
+							))}
 						</div>
 					</div>
-				</div>
+				)}
+				{partialSlides.length === 0 && !progressDetail && (
+					<p className="text-[10px] text-muted-foreground/30 text-center">This may take a few minutes</p>
+				)}
 			</div>
 		);
 	}

@@ -76,6 +76,8 @@ export function createRoutes(token: string, config: NewprConfig, options: RouteO
 		message: string;
 		current: number;
 		total: number;
+		plan?: { stylePrompt: string; slides: Array<{ index: number; title: string; contentPrompt: string }> };
+		imagePrompts?: Array<{ index: number; prompt: string }>;
 	}
 	const slideJobs = new Map<string, SlideJob>();
 
@@ -1278,6 +1280,13 @@ $$
 							job.total = total;
 						},
 						existingDeck,
+						(plan, prompts) => {
+							job.plan = plan;
+							job.imagePrompts = prompts;
+						},
+						(partialDeck) => {
+							saveSlidesSidecar(sessionId, partialDeck).catch(() => {});
+						},
 					);
 					await saveSlidesSidecar(sessionId, deck);
 					job.status = "done";
