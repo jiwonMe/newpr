@@ -1,15 +1,16 @@
 import React, { useState } from "react";
+import { BookOpen, Link, MessageSquare, Bot, Presentation, CheckCircle, Palette, Stethoscope, Plug, Github, Copy, Check } from "lucide-react";
 
 const FEATURES = [
-	{ icon: "📖", title: "Narrative Walkthrough", desc: "Prose-first story with clickable code references. Every sentence links to the exact lines in the diff." },
-	{ icon: "🔗", title: "Line-Level Anchors", desc: "Three anchor types — group chips, file chips, and inline underlined links that open diffs at exact line ranges." },
-	{ icon: "💬", title: "Interactive Chat", desc: "Ask follow-up questions with agentic tool execution. The AI fetches diffs, searches the web, and posts review comments." },
-	{ icon: "🤖", title: "Agentic Exploration", desc: "Claude, OpenCode, or Codex explores the full codebase — project structure, dependencies, and potential issues." },
-	{ icon: "📊", title: "Slide Deck Generation", desc: "Auto-generates presentation slides. Opus designs the style, Gemini renders each slide in a consistent visual language." },
-	{ icon: "✅", title: "Review Actions", desc: "Approve, request changes, or comment directly. Post inline review comments on specific code lines via chat." },
-	{ icon: "🎨", title: "Comic Strip", desc: "Generate a 4-panel comic that humorously visualizes the PR. Powered by Gemini image generation." },
-	{ icon: "📐", title: "React Doctor", desc: "Auto-detects React projects and runs react-doctor for code quality scoring — security, performance, and architecture." },
-	{ icon: "🔌", title: "Plugin System", desc: "Extensible generator architecture. Enable or disable features from settings with toggle switches." },
+	{ icon: BookOpen, title: "Narrative Walkthrough", desc: "Prose-first story with clickable code references. Every sentence links to the exact lines in the diff." },
+	{ icon: Link, title: "Line-Level Anchors", desc: "Three anchor types — group chips, file chips, and inline underlined links that open diffs at exact line ranges." },
+	{ icon: MessageSquare, title: "Interactive Chat", desc: "Ask follow-up questions with agentic tool execution. The AI fetches diffs, searches the web, and posts review comments." },
+	{ icon: Bot, title: "Agentic Exploration", desc: "Claude, OpenCode, or Codex explores the full codebase — project structure, dependencies, and potential issues." },
+	{ icon: Presentation, title: "Slide Deck Generation", desc: "Auto-generates presentation slides. Opus designs the style, Gemini renders each slide in a consistent visual language." },
+	{ icon: CheckCircle, title: "Review Actions", desc: "Approve, request changes, or comment directly. Post inline review comments on specific code lines via chat." },
+	{ icon: Palette, title: "Comic Strip", desc: "Generate a 4-panel comic that humorously visualizes the PR. Powered by Gemini image generation." },
+	{ icon: Stethoscope, title: "React Doctor", desc: "Auto-detects React projects and runs react-doctor for code quality scoring — security, performance, and architecture." },
+	{ icon: Plug, title: "Plugin System", desc: "Extensible generator architecture. Enable or disable features from settings with toggle switches." },
 ];
 
 const STEPS = [
@@ -36,9 +37,9 @@ function CopyButton({ text }: { text: string }) {
 	return (
 		<button
 			onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
-			className="shrink-0 border border-zinc-700 text-zinc-500 text-[11px] px-2.5 py-1 rounded-md hover:text-zinc-300 hover:border-zinc-500 transition-colors"
+			className="shrink-0 border border-zinc-700 text-zinc-500 text-[11px] px-2 py-1 rounded-md hover:text-zinc-300 hover:border-zinc-500 transition-colors flex items-center gap-1"
 		>
-			{copied ? "Copied!" : "Copy"}
+			{copied ? <><Check className="w-3 h-3" /> Copied</> : <><Copy className="w-3 h-3" /> Copy</>}
 		</button>
 	);
 }
@@ -107,13 +108,18 @@ function Features() {
 				<p className="text-[12px] font-semibold uppercase tracking-widest text-zinc-500 mb-3">Features</p>
 				<h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-12">Everything you need to review large PRs</h2>
 				<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 border border-zinc-800 rounded-2xl overflow-hidden">
-					{FEATURES.map((f, i) => (
-						<div key={i} className="p-7 bg-[#09090b] border-b border-r border-zinc-800 last:border-b-0 sm:[&:nth-child(2n)]:border-r-0 lg:[&:nth-child(2n)]:border-r lg:[&:nth-child(3n)]:border-r-0">
-							<div className="w-9 h-9 rounded-[10px] bg-blue-500/10 flex items-center justify-center text-lg mb-4">{f.icon}</div>
-							<h3 className="text-[15px] font-semibold mb-2 tracking-tight">{f.title}</h3>
-							<p className="text-[13px] text-zinc-400 leading-relaxed">{f.desc}</p>
-						</div>
-					))}
+					{FEATURES.map((f, i) => {
+						const Icon = f.icon;
+						return (
+							<div key={i} className="p-7 bg-[#09090b] border-b border-r border-zinc-800 last:border-b-0 sm:[&:nth-child(2n)]:border-r-0 lg:[&:nth-child(2n)]:border-r lg:[&:nth-child(3n)]:border-r-0">
+								<div className="w-9 h-9 rounded-[10px] bg-blue-500/10 flex items-center justify-center mb-4">
+									<Icon className="w-[18px] h-[18px] text-blue-400" />
+								</div>
+								<h3 className="text-[15px] font-semibold mb-2 tracking-tight">{f.title}</h3>
+								<p className="text-[13px] text-zinc-400 leading-relaxed">{f.desc}</p>
+							</div>
+						);
+					})}
 				</div>
 			</div>
 		</section>
