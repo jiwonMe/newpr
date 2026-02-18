@@ -200,15 +200,24 @@ export async function generateSlides(
 		if (agents.length > 0) {
 			onProgress?.(`Planning via ${agents[0]!.name}...`, 0, 1);
 			try {
-				const result = await runAgent(agents[0]!, process.cwd(), `${planPrompt.system}\n\n${planPrompt.user}\n\nRespond ONLY with the JSON object.`, {
+				const result = await runAgent(agents[0]!, process.cwd(), `${planPrompt.system}\n\n${planPrompt.user}\n\nRespond ONLY with the JSON object. No explanation, no markdown fences, just raw JSON.`, {
 					timeout: 120_000,
 					onOutput: (line) => onProgress?.(`Planning: ${line}`, 0, 1),
 				});
 				rawContent = result.answer;
-			} catch {}
+				if (rawContent) {
+					onProgress?.(`Agent returned ${rawContent.length} chars`, 0, 1);
+				} else {
+					onProgress?.("Agent returned empty response, falling back...", 0, 1);
+				}
+			} catch (err) {
+				onProgress?.(`Agent error: ${err instanceof Error ? err.message : String(err)}`, 0, 1);
+			}
+		} else {
+			onProgress?.("No agent available, using OpenRouter...", 0, 1);
 		}
 
-		if (!rawContent.includes('"slides"')) {
+		if (!rawContent || !rawContent.includes("slides")) {
 			onProgress?.("Planning via OpenRouter...", 0, 1);
 			const planRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
 				method: "POST",
