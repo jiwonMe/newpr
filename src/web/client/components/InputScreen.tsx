@@ -1,6 +1,19 @@
-import { useState } from "react";
-import { CornerDownLeft, Clock, GitPullRequest } from "lucide-react";
+import { useState, useEffect } from "react";
+import { CornerDownLeft, Clock, GitPullRequest, Check, X, Minus } from "lucide-react";
 import type { SessionRecord } from "../../../history/types.ts";
+
+interface ToolStatus {
+	name: string;
+	installed: boolean;
+	version?: string;
+	detail?: string;
+}
+
+interface PreflightData {
+	github: ToolStatus & { authenticated: boolean; user?: string };
+	agents: ToolStatus[];
+	openrouterKey: boolean;
+}
 
 const RISK_DOT: Record<string, string> = {
 	low: "bg-green-500",
@@ -21,6 +34,50 @@ function timeAgo(date: string): string {
 	return `${Math.floor(d / 30)}mo ago`;
 }
 
+function StatusIcon({ ok, optional }: { ok: boolean; optional?: boolean }) {
+	if (ok) return <Check className="h-3 w-3 text-green-500" />;
+	if (optional) return <Minus className="h-3 w-3 text-muted-foreground/30" />;
+	return <X className="h-3 w-3 text-red-500" />;
+}
+
+function PreflightStatus({ data }: { data: PreflightData }) {
+	const gh = data.github;
+	return (
+		<div className="space-y-1.5">
+			<div className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider mb-2">Status</div>
+			<div className="flex items-center gap-2">
+				<StatusIcon ok={gh.installed && gh.authenticated} />
+				<span className="text-[11px] font-mono">gh</span>
+				{gh.installed && gh.authenticated && gh.user && (
+					<span className="text-[10px] text-muted-foreground/40">{gh.user}</span>
+				)}
+				{gh.installed && !gh.authenticated && (
+					<span className="text-[10px] text-red-500/70">not authenticated</span>
+				)}
+				{!gh.installed && (
+					<span className="text-[10px] text-red-500/70">not installed</span>
+				)}
+			</div>
+			{data.agents.map((agent) => (
+				<div key={agent.name} className="flex items-center gap-2">
+					<StatusIcon ok={agent.installed} optional />
+					<span className={`text-[11px] font-mono ${agent.installed ? "" : "text-muted-foreground/30"}`}>{agent.name}</span>
+					{agent.installed && agent.version && (
+						<span className="text-[10px] text-muted-foreground/30">{agent.version}</span>
+					)}
+				</div>
+			))}
+			<div className="flex items-center gap-2">
+				<StatusIcon ok={data.openrouterKey} />
+				<span className="text-[11px]">OpenRouter</span>
+				{!data.openrouterKey && (
+					<span className="text-[10px] text-red-500/70">run newpr auth</span>
+				)}
+			</div>
+		</div>
+	);
+}
+
 export function InputScreen({
 	onSubmit,
 	sessions,
@@ -32,6 +89,14 @@ export function InputScreen({
 }) {
 	const [value, setValue] = useState("");
 	const [focused, setFocused] = useState(false);
+	const [preflight, setPreflight] = useState<PreflightData | null>(null);
+
+	useEffect(() => {
+		fetch("/api/preflight")
+			.then((r) => r.json())
+			.then((data) => { if (data) setPreflight(data as PreflightData); })
+			.catch(() => {});
+	}, []);
 
 	function handleSubmit(e: React.FormEvent) {
 		e.preventDefault();
@@ -119,6 +184,8 @@ export function InputScreen({
 						</div>
 					</div>
 				)}
+
+				{preflight && <PreflightStatus data={preflight} />}
 			</div>
 		</div>
 	);
