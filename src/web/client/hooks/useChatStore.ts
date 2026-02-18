@@ -33,8 +33,8 @@ class ChatStore {
 		return () => this.listeners.delete(listener);
 	}
 
-	getState(sessionId: string): ChatSessionState {
-		return this.getOrCreate(sessionId);
+	getState(sessionId: string): ChatSessionState | null {
+		return this.sessions.get(sessionId) ?? null;
 	}
 
 	isLoading(sessionId: string): boolean {
@@ -188,13 +188,20 @@ class ChatStore {
 
 export const chatStore = new ChatStore();
 
+const subscribeFn = (cb: () => void) => chatStore.subscribe(cb);
+
+const EMPTY_STATE: ChatSessionState = { messages: [], loading: false, streaming: null, loaded: false };
+const EMPTY_LOADING: Array<{ sessionId: string; streaming: ChatSessionState["streaming"] }> = [];
+
 export function useChatStore(sessionId?: string | null) {
 	const stableId = sessionId ?? "";
 
-	const state = useSyncExternalStore(
-		(cb) => chatStore.subscribe(cb),
-		() => stableId ? chatStore.getState(stableId) : null,
+	const getSnapshot = useCallback(
+		() => (stableId ? chatStore.getState(stableId) : null) ?? EMPTY_STATE,
+		[stableId],
 	);
+
+	const state = useSyncExternalStore(subscribeFn, getSnapshot);
 
 	useEffect(() => {
 		if (stableId) chatStore.loadHistory(stableId);
@@ -211,17 +218,27 @@ export function useChatStore(sessionId?: string | null) {
 	}, [stableId]);
 
 	return {
-		messages: state?.messages ?? [],
-		loading: state?.loading ?? false,
-		streaming: state?.streaming ?? null,
-		loaded: state?.loaded ?? false,
+		messages: state.messages,
+		loading: state.loading,
+		streaming: state.streaming,
+		loaded: state.loaded,
 		sendMessage,
 	};
 }
 
+let lastLoadingSnapshot: Array<{ sessionId: string; streaming: ChatSessionState["streaming"] }> = EMPTY_LOADING;
+
+function getLoadingSnapshot() {
+	const current = chatStore.getLoadingSessions();
+	if (current.length === 0 && lastLoadingSnapshot.length === 0) return lastLoadingSnapshot;
+	if (
+		current.length === lastLoadingSnapshot.length &&
+		current.every((c, i) => c.sessionId === lastLoadingSnapshot[i]?.sessionId)
+	) return lastLoadingSnapshot;
+	lastLoadingSnapshot = current;
+	return lastLoadingSnapshot;
+}
+
 export function useChatLoadingIndicator(): Array<{ sessionId: string; streaming: ChatSessionState["streaming"] }> {
-	return useSyncExternalStore(
-		(cb) => chatStore.subscribe(cb),
-		() => chatStore.getLoadingSessions(),
-	);
+	return useSyncExternalStore(subscribeFn, getLoadingSnapshot);
 }
