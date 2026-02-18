@@ -5,6 +5,46 @@ import type { FileChange, FileGroup, NewprOutput, PrSummary } from "../types/out
 import type { ExplorationResult } from "../workspace/types.ts";
 import type { AgentToolName } from "../workspace/types.ts";
 import { parseDiff } from "../diff/parser.ts";
+
+function annotateDiffWithLineNumbers(rawDiff: string): string {
+	const lines = rawDiff.split("\n");
+	const result: string[] = [];
+	let oldNum = 0;
+	let newNum = 0;
+
+	for (const line of lines) {
+		const hunkMatch = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+		if (hunkMatch) {
+			oldNum = Number(hunkMatch[1]);
+			newNum = Number(hunkMatch[2]);
+			result.push(line);
+			continue;
+		}
+
+		if (line.startsWith("diff --git") || line.startsWith("index ") || line.startsWith("--- ") || line.startsWith("+++ ") || line.startsWith("\\")) {
+			result.push(line);
+			continue;
+		}
+
+		if (line.startsWith("+")) {
+			result.push(`L${newNum} + ${line.slice(1)}`);
+			newNum++;
+		} else if (line.startsWith("-")) {
+			result.push(`     - ${line.slice(1)}`);
+			oldNum++;
+		} else {
+			const text = line.startsWith(" ") ? line.slice(1) : line;
+			if (oldNum > 0 || newNum > 0) {
+				result.push(`L${newNum}   ${text}`);
+				oldNum++;
+				newNum++;
+			} else {
+				result.push(line);
+			}
+		}
+	}
+	return result.join("\n");
+}
 import { chunkDiff } from "../diff/chunker.ts";
 import { fetchPrData, fetchPrComments } from "../github/fetch-pr.ts";
 import { fetchPrDiff } from "../github/fetch-diff.ts";
@@ -257,7 +297,7 @@ export async function analyzePr(options: PipelineOptions): Promise<NewprOutput> 
 	progress({ stage: "narrating", message: `Writing narrative${enrichedTag}...` });
 	const fileDiffs = chunks.slice(0, 30).map((c) => ({
 		path: c.file_path,
-		diff: c.diff_content.length > 3000 ? `${c.diff_content.slice(0, 3000)}\n... (truncated)` : c.diff_content,
+		diff: annotateDiffWithLineNumbers(c.diff_content.length > 3000 ? c.diff_content.slice(0, 3000) : c.diff_content),
 	}));
 	const narrativePrompt = exploration
 		? buildEnrichedNarrativePrompt(prData.title, summary, groups, exploration, promptCtx, fileDiffs)

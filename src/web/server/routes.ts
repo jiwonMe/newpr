@@ -238,6 +238,38 @@ $$
 					},
 				},
 			},
+			{
+				type: "function",
+				function: {
+					name: "create_review_comment",
+					description: "Create an inline review comment on a specific line or line range of a file in this PR. The comment will be posted to GitHub. Use this when the user asks to leave a comment, suggestion, or feedback on specific code.",
+					parameters: {
+						type: "object",
+						properties: {
+							path: { type: "string", description: "File path (e.g. 'src/auth/session.ts')" },
+							line: { type: "number", description: "Line number to comment on (end line if range)" },
+							start_line: { type: "number", description: "Start line for multi-line comment (optional)" },
+							body: { type: "string", description: "Comment body in markdown" },
+						},
+						required: ["path", "line", "body"],
+					},
+				},
+			},
+			{
+				type: "function",
+				function: {
+					name: "submit_review",
+					description: "Submit a PR review with a verdict: APPROVE, REQUEST_CHANGES, or COMMENT. Use when the user asks to approve or request changes on the PR.",
+					parameters: {
+						type: "object",
+						properties: {
+							event: { type: "string", enum: ["APPROVE", "REQUEST_CHANGES", "COMMENT"], description: "Review action" },
+							body: { type: "string", description: "Optional review summary message" },
+						},
+						required: ["event"],
+					},
+				},
+			},
 		];
 	}
 
@@ -1142,6 +1174,67 @@ $$
 							return stripped.slice(0, 15000) + (stripped.length > 15000 ? "\n\n... (truncated)" : "");
 						} catch (err) {
 							return `Fetch error: ${err instanceof Error ? err.message : String(err)}`;
+						}
+					}
+					case "create_review_comment": {
+						const filePath = args.path as string;
+						const line = args.line as number;
+						const startLine = args.start_line as number | undefined;
+						const body = args.body as string;
+						if (!filePath || !line || !body) return "Error: path, line, and body are required";
+						try {
+							const pr = parsePrInput(sessionData.meta.pr_url);
+							const sha = await fetchHeadSha(pr);
+							if (!sha) return "Error: could not determine HEAD SHA";
+							const ghBody: Record<string, unknown> = {
+								commit_id: sha,
+								path: filePath,
+								line,
+								side: "RIGHT",
+								body,
+							};
+							if (startLine && startLine !== line) {
+								ghBody.start_line = startLine;
+								ghBody.start_side = "RIGHT";
+							}
+							const res = await fetch(
+								`https://api.github.com/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/comments`,
+								{ method: "POST", headers: ghHeaders, body: JSON.stringify(ghBody) },
+							);
+							if (!res.ok) {
+								const errBody = await res.text();
+								return `GitHub API error ${res.status}: ${errBody.slice(0, 200)}`;
+							}
+							const data = await res.json() as { id?: number; html_url?: string };
+							return `Comment created on ${filePath}:${startLine && startLine !== line ? `${startLine}-` : ""}${line}. ${data.html_url ?? ""}`;
+						} catch (err) {
+							return `Error: ${err instanceof Error ? err.message : String(err)}`;
+						}
+					}
+					case "submit_review": {
+						const event = args.event as string;
+						const body = (args.body as string) ?? "";
+						if (!event || !["APPROVE", "REQUEST_CHANGES", "COMMENT"].includes(event)) {
+							return "Error: event must be APPROVE, REQUEST_CHANGES, or COMMENT";
+						}
+						try {
+							const pr = parsePrInput(sessionData.meta.pr_url);
+							const res = await fetch(
+								`https://api.github.com/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/reviews`,
+								{
+									method: "POST",
+									headers: ghHeaders,
+									body: JSON.stringify({ body, event }),
+								},
+							);
+							if (!res.ok) {
+								const errBody = await res.text();
+								return `GitHub API error ${res.status}: ${errBody.slice(0, 200)}`;
+							}
+							const data = await res.json() as { html_url?: string; state?: string };
+							return `Review submitted: ${data.state ?? event}. ${data.html_url ?? ""}`;
+						} catch (err) {
+							return `Error: ${err instanceof Error ? err.message : String(err)}`;
 						}
 					}
 					default:

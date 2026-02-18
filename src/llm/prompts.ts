@@ -145,7 +145,12 @@ export function buildNarrativePrompt(
 		.join("\n\n");
 
 	const diffContext = fileDiffs && fileDiffs.length > 0
-		? `\n\n--- FILE DIFFS (use these line numbers for [[line:...]] anchors) ---\n${fileDiffs.map((f) => `File: ${f.path}\n${f.diff}`).join("\n\n---\n\n")}`
+		? `\n\n--- FILE DIFFS (LINE NUMBERS ARE PRE-COMPUTED — use them directly for [[line:...]] anchors) ---
+Each line is prefixed with its new-file line number:
+  "L42 + code"  = added line at L42
+  "     - code"  = removed line (no new line number)
+  "L42   code"  = unchanged context at L42
+Use the L-numbers EXACTLY as shown. Do NOT compute line numbers yourself.\n\n${fileDiffs.map((f) => `File: ${f.path}\n${f.diff}`).join("\n\n---\n\n")}`
 		: "";
 
 	const commitCtx = ctx?.commits ? formatCommitHistory(ctx.commits) : "";
