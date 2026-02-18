@@ -200,7 +200,10 @@ export async function generateSlides(
 		if (agents.length > 0) {
 			onProgress?.(`Planning via ${agents[0]!.name}...`, 0, 1);
 			try {
-				const result = await runAgent(agents[0]!, process.cwd(), `${planPrompt.system}\n\n${planPrompt.user}\n\nRespond ONLY with the JSON object.`, { timeout: 120_000 });
+				const result = await runAgent(agents[0]!, process.cwd(), `${planPrompt.system}\n\n${planPrompt.user}\n\nRespond ONLY with the JSON object.`, {
+					timeout: 120_000,
+					onOutput: (line) => onProgress?.(`Planning: ${line}`, 0, 1),
+				});
 				rawContent = result.answer;
 			} catch {}
 		}

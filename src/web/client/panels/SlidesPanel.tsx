@@ -7,6 +7,7 @@ export function SlidesPanel({ data, sessionId }: { data: NewprOutput; sessionId?
 	const [deck, setDeck] = useState<SlideDeck | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [progress, setProgress] = useState("");
+	const [progressDetail, setProgressDetail] = useState<{ current: number; total: number } | null>(null);
 	const [currentSlide, setCurrentSlide] = useState(0);
 	const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -37,7 +38,8 @@ export function SlidesPanel({ data, sessionId }: { data: NewprOutput; sessionId?
 			try {
 				const res = await fetch(`/api/slides/status?sessionId=${sessionId}`);
 				const job = await res.json() as { status: string; message?: string; current?: number; total?: number };
-				setProgress(job.message ?? "");
+				if (job.message) setProgress(job.message);
+				if (job.total && job.total > 0) setProgressDetail({ current: job.current ?? 0, total: job.total });
 
 				if (job.status === "done") {
 					stopPolling();
@@ -58,7 +60,7 @@ export function SlidesPanel({ data, sessionId }: { data: NewprOutput; sessionId?
 					}
 				}
 			} catch {}
-		}, 2000);
+		}, 1000);
 	}, [sessionId, stopPolling]);
 
 	const generate = useCallback(async (resume = false) => {
@@ -66,6 +68,7 @@ export function SlidesPanel({ data, sessionId }: { data: NewprOutput; sessionId?
 		setState("loading");
 		setError(null);
 		setProgress(resume ? "Resuming failed slides..." : "Starting...");
+		setProgressDetail(null);
 
 		try {
 			const res = await fetch("/api/slides", {
@@ -132,14 +135,23 @@ export function SlidesPanel({ data, sessionId }: { data: NewprOutput; sessionId?
 	}
 
 	if (state === "loading") {
+		const pct = progressDetail && progressDetail.total > 0 ? Math.round((progressDetail.current / progressDetail.total) * 100) : 0;
 		return (
 			<div className="pt-8 flex flex-col items-center">
 				<div className="w-full max-w-sm space-y-4">
-					<div className="aspect-video rounded-lg border border-dashed border-border/60 flex flex-col items-center justify-center gap-3">
+					<div className="aspect-video rounded-lg border border-dashed border-border/60 flex flex-col items-center justify-center gap-3 px-6">
 						<Loader2 className="h-5 w-5 animate-spin text-muted-foreground/40" />
-						<div className="text-center space-y-1 px-4">
-							<p className="text-xs text-muted-foreground/60">{progress}</p>
-							<p className="text-[10px] text-muted-foreground/30">This may take 30-90 seconds</p>
+						<div className="text-center space-y-2 w-full">
+							<p className="text-xs text-muted-foreground/60 line-clamp-2">{progress}</p>
+							{progressDetail && progressDetail.total > 0 && (
+								<div className="space-y-1">
+									<div className="h-1 rounded-full bg-muted overflow-hidden">
+										<div className="h-full bg-foreground/40 rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
+									</div>
+									<p className="text-[10px] text-muted-foreground/30 tabular-nums">{progressDetail.current}/{progressDetail.total} slides</p>
+								</div>
+							)}
+							{!progressDetail && <p className="text-[10px] text-muted-foreground/30">This may take 30-90 seconds</p>}
 						</div>
 					</div>
 				</div>
