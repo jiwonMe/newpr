@@ -290,5 +290,5 @@ export function Markdown({ children, onAnchorClick, activeId }: MarkdownProps) {
 		td: ({ children }) => <td className="border-b border-border px-3 py-1.5 text-sm">{children}</td>,
 	};
 
-	return <ReactMarkdown remarkPlugins={[[remarkMath, { singleDollarTextMath: true }], remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, output: "htmlAndMathml" }]]} components={components}>{processed}</ReactMarkdown>;
+	return <ReactMarkdown remarkPlugins={[[remarkMath, { singleDollarTextMath: true }], remarkGfm]} rehypePlugins={[[rehypeRaw, { passThrough: ["math", "inlineMath"] }], [rehypeKatex, { throwOnError: false, strict: false, output: "htmlAndMathml" }]]} components={components}>{processed}</ReactMarkdown>;
 }
