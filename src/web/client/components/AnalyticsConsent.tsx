@@ -7,13 +7,23 @@ export function AnalyticsConsent({ onDone }: { onDone: () => void }) {
 
 	if (state !== "pending") return null;
 
+	const syncServer = (consent: "granted" | "denied") => {
+		fetch("/api/config", {
+			method: "PUT",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ telemetry_consent: consent }),
+		}).catch(() => {});
+	};
+
 	const handleAccept = () => {
 		setConsent("granted");
+		syncServer("granted");
 		onDone();
 	};
 
 	const handleDecline = () => {
 		setConsent("denied");
+		syncServer("denied");
 		onDone();
 	};
 

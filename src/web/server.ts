@@ -5,6 +5,7 @@ import index from "./index.html";
 
 import type { PreflightResult } from "../cli/preflight.ts";
 import { getVersion } from "../version.ts";
+import { telemetry } from "../telemetry/index.ts";
 
 interface WebServerOptions {
 	port: number;
@@ -210,6 +211,8 @@ export async function startWebServer(options: WebServerOptions): Promise<void> {
 	});
 
 	const url = `http://localhost:${server.port}`;
+
+	telemetry.serverStarted(getVersion());
 
 	const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
 	const bold = (s: string) => `\x1b[1m${s}\x1b[0m`;

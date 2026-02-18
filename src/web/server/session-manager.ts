@@ -4,6 +4,7 @@ import type { ProgressEvent } from "../../analyzer/progress.ts";
 import { analyzePr } from "../../analyzer/pipeline.ts";
 import { parsePrInput } from "../../github/parse-pr.ts";
 import { saveSession, savePatchesSidecar } from "../../history/store.ts";
+import { telemetry } from "../../telemetry/index.ts";
 
 type SessionStatus = "running" | "done" | "error" | "canceled";
 
@@ -65,6 +66,7 @@ export function startAnalysis(
 	};
 	sessions.set(id, session);
 
+	telemetry.analysisStarted(0);
 	runPipeline(session, prInput, token, config);
 
 	return { sessionId: id };
@@ -100,6 +102,9 @@ async function runPipeline(
 		session.result = result;
 		session.finishedAt = Date.now();
 
+		const durationSec = Math.round((session.finishedAt - session.startedAt) / 1000);
+		telemetry.analysisCompleted(result.files?.length ?? 0, durationSec);
+
 		for (const sub of session.subscribers) {
 			sub({ type: "done" });
 		}
@@ -117,6 +122,8 @@ async function runPipeline(
 		session.status = "error";
 		session.error = msg;
 		session.finishedAt = Date.now();
+
+		telemetry.analysisError(msg);
 
 		for (const sub of session.subscribers) {
 			sub({ type: "error", data: msg });

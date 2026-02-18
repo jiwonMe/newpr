@@ -17,6 +17,7 @@ import { detectAgents, runAgent } from "../../workspace/agent.ts";
 import { randomBytes } from "node:crypto";
 import { publishStack } from "../../stack/publish.ts";
 import { startStack, getStackState, cancelStack, subscribeStack, restoreCompletedStacks } from "./stack-manager.ts";
+import { getTelemetryConsent, setTelemetryConsent, telemetry } from "../../telemetry/index.ts";
 
 function json(data: unknown, status = 200): Response {
 	return new Response(JSON.stringify(data), {
@@ -610,6 +611,7 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 			const pluginList = getAllPlugins().map((p) => ({ id: p.id, name: p.name }));
 			const enabledPlugins = stored.enabled_plugins ?? pluginList.map((p) => p.id);
 			const agents = await detectAgents();
+			const telemetryConsent = await getTelemetryConsent();
 			return json({
 				model: config.model,
 				agent: config.agent ?? null,
@@ -622,6 +624,7 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 				has_github_token: !!token,
 				enabled_plugins: enabledPlugins,
 				available_plugins: pluginList,
+				telemetry_consent: telemetryConsent,
 				defaults: {
 					model: DEFAULT_CONFIG.model,
 					language: DEFAULT_CONFIG.language,
@@ -671,6 +674,11 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 			}
 			if ((body as Record<string, unknown>).enabled_plugins !== undefined) {
 				update.enabled_plugins = (body as Record<string, unknown>).enabled_plugins as string[];
+			}
+
+			const telemetryConsentVal = (body as Record<string, unknown>).telemetry_consent as string | undefined;
+			if (telemetryConsentVal === "granted" || telemetryConsentVal === "denied") {
+				await setTelemetryConsent(telemetryConsentVal);
 			}
 
 			await writeStoredConfig(update);
@@ -748,6 +756,7 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 					return json({ error: errBody.message ?? `GitHub API error: ${res.status}` }, res.status);
 				}
 				const data = await res.json() as { id: number; state: string; html_url: string };
+				telemetry.reviewSubmitted(body.event);
 				return json({ ok: true, id: data.id, state: data.state, html_url: data.html_url });
 			} catch (err) {
 				return json({ error: err instanceof Error ? err.message : String(err) }, 500);

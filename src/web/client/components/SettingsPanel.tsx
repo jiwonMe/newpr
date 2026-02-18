@@ -285,6 +285,11 @@ function AnalyticsToggle() {
 		setConsent(next);
 		setLocal(next);
 		analytics.settingsChanged("analytics");
+		fetch("/api/config", {
+			method: "PUT",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ telemetry_consent: next }),
+		}).catch(() => {});
 	};
 
 	return (
