@@ -62,16 +62,18 @@ async function checkAgent(name: AgentToolName): Promise<ToolStatus> {
 }
 
 export async function runPreflight(): Promise<PreflightResult> {
-	const [github, claude, opencode, codex] = await Promise.all([
+	const [github, claude, cursor, gemini, opencode, codex] = await Promise.all([
 		checkGithubCli(),
 		checkAgent("claude"),
+		checkAgent("cursor"),
+		checkAgent("gemini"),
 		checkAgent("opencode"),
 		checkAgent("codex"),
 	]);
 
 	return {
 		github,
-		agents: [claude, opencode, codex],
+		agents: [claude, cursor, gemini, opencode, codex],
 		openrouterKey: !!(process.env.OPENROUTER_API_KEY || await hasStoredApiKey()),
 	};
 }
@@ -115,11 +117,14 @@ export function printPreflight(result: PreflightResult): void {
 		}
 	}
 
+	const hasAgent = result.agents.some((a) => a.installed);
 	if (result.openrouterKey) {
 		console.log(`  ${check} OpenRouter API key`);
+	} else if (hasAgent) {
+		console.log(`  ${dim("·")} OpenRouter API key ${dim("· not configured (using agent as LLM fallback)")}`);
 	} else {
 		console.log(`  ${cross} OpenRouter API key ${dim("· not configured")}`);
-		console.log(`    ${dim("run: newpr auth")}`);
+		console.log(`    ${dim("run: newpr auth  —or—  install an agent (claude, gemini, etc.)")}`);
 	}
 
 	console.log("");

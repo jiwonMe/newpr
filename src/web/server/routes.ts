@@ -12,7 +12,7 @@ import { startAnalysis, getSession, cancelAnalysis, subscribe, listActiveSession
 import { generateCartoon } from "../../llm/cartoon.ts";
 import { generateSlides } from "../../llm/slides.ts";
 import { getPlugin, getAllPlugins } from "../../plugins/registry.ts";
-import { chatWithTools, type ChatTool, type ChatStreamEvent } from "../../llm/client.ts";
+import { chatWithTools, createLlmClient, type ChatTool, type ChatStreamEvent } from "../../llm/client.ts";
 import { detectAgents, runAgent } from "../../workspace/agent.ts";
 import { randomBytes } from "node:crypto";
 
@@ -70,6 +70,33 @@ export function createRoutes(token: string, config: NewprConfig, options: RouteO
 			}
 		} catch {}
 		return { login: "anonymous" };
+	}
+
+	function buildFallbackPrompt(
+		systemPrompt: string,
+		chatHistory: ChatMessage[],
+		patches?: Record<string, string> | null,
+	): string {
+		const parts: string[] = [systemPrompt];
+
+		if (patches && Object.keys(patches).length > 0) {
+			const patchSummary = Object.entries(patches)
+				.map(([path, diff]) => `### ${path}\n\`\`\`diff\n${diff.slice(0, 3000)}\n\`\`\``)
+				.join("\n\n");
+			parts.push(`\n\n<file_diffs>\n${patchSummary}\n</file_diffs>`);
+		}
+
+		for (const msg of chatHistory) {
+			if (msg.isCompactSummary) {
+				parts.push(`\n[Conversation summary]: ${msg.content}`);
+			} else if (msg.role === "user") {
+				parts.push(`\nUser: ${msg.content}`);
+			} else if (msg.role === "assistant") {
+				parts.push(`\nAssistant: ${msg.content}`);
+			}
+		}
+
+		return parts.join("\n");
 	}
 
 	interface SlideJob {
@@ -580,6 +607,7 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 			const stored = await readStoredConfig();
 			const pluginList = getAllPlugins().map((p) => ({ id: p.id, name: p.name }));
 			const enabledPlugins = stored.enabled_plugins ?? pluginList.map((p) => p.id);
+			const agents = await detectAgents();
 			return json({
 				model: config.model,
 				agent: config.agent ?? null,
@@ -588,6 +616,7 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 				timeout: config.timeout,
 				concurrency: config.concurrency,
 				has_api_key: !!config.openrouter_api_key,
+				has_agent_fallback: agents.length > 0,
 				has_github_token: !!token,
 				enabled_plugins: enabledPlugins,
 				available_plugins: pluginList,
@@ -885,10 +914,6 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 			const segments = url.pathname.split("/");
 			const sessionId = segments[3]!;
 
-			if (!config.openrouter_api_key) {
-				return json({ error: "OpenRouter API key required" }, 400);
-			}
-
 			const body = await req.json() as { message: string };
 			if (!body.message?.trim()) return json({ error: "Missing message" }, 400);
 
@@ -908,31 +933,44 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 						controller.enqueue(encoder.encode(`event: ${eventType}\ndata: ${data}\n\n`));
 					};
 					try {
-						await chatWithTools(
-							{ api_key: config.openrouter_api_key, model: config.model, timeout: config.timeout },
-							apiMessages as Parameters<typeof chatWithTools>[1],
-							buildChatTools(),
-							async (name: string, args: Record<string, unknown>): Promise<string> => {
-								if (name === "get_file_diff") {
-									const filePath = args.path as string;
-									if (!filePath) return "Error: path required";
-									const patches = await loadPatchesSidecar(sessionId);
-									if (patches?.[filePath]) return patches[filePath];
-									const patch = await loadSinglePatch(sessionId, filePath);
-									if (patch) return patch;
-									return `File "${filePath}" not found`;
-								}
-								if (name === "list_files") {
-									return sessionData.files.map((f) => `${f.path} (${f.status}): ${f.summary}`).join("\n");
-								}
-								return `Tool ${name} not available in inline mode`;
-							},
-							(event: ChatStreamEvent) => {
-								if (event.type === "text") send("text", JSON.stringify({ content: event.content }));
-								else if (event.type === "error") send("chat_error", JSON.stringify({ message: event.error }));
-								else if (event.type === "done") send("done", JSON.stringify({}));
-							},
-						);
+						if (config.openrouter_api_key) {
+							await chatWithTools(
+								{ api_key: config.openrouter_api_key, model: config.model, timeout: config.timeout },
+								apiMessages as Parameters<typeof chatWithTools>[1],
+								buildChatTools(),
+								async (name: string, args: Record<string, unknown>): Promise<string> => {
+									if (name === "get_file_diff") {
+										const filePath = args.path as string;
+										if (!filePath) return "Error: path required";
+										const inlinePatches = await loadPatchesSidecar(sessionId);
+										if (inlinePatches?.[filePath]) return inlinePatches[filePath];
+										const patch = await loadSinglePatch(sessionId, filePath);
+										if (patch) return patch;
+										return `File "${filePath}" not found`;
+									}
+									if (name === "list_files") {
+										return sessionData.files.map((f) => `${f.path} (${f.status}): ${f.summary}`).join("\n");
+									}
+									return `Tool ${name} not available in inline mode`;
+								},
+								(event: ChatStreamEvent) => {
+									if (event.type === "text") send("text", JSON.stringify({ content: event.content }));
+									else if (event.type === "error") send("chat_error", JSON.stringify({ message: event.error }));
+									else if (event.type === "done") send("done", JSON.stringify({}));
+								},
+							);
+						} else {
+							const llm = createLlmClient({ api_key: "", model: config.model, timeout: config.timeout });
+							const inlinePatches = await loadPatchesSidecar(sessionId);
+							const fallbackPrompt = buildFallbackPrompt(systemPrompt, [{ role: "user", content: body.message.trim(), timestamp: new Date().toISOString() }], inlinePatches);
+							await llm.completeStream(
+								"You are a helpful PR review assistant. Answer based on the provided context.",
+								fallbackPrompt,
+								(chunk: string) => {
+									send("text", JSON.stringify({ content: chunk }));
+								},
+							);
+						}
 						send("done", JSON.stringify({}));
 					} catch (err) {
 						send("chat_error", JSON.stringify({ message: err instanceof Error ? err.message : String(err) }));
@@ -1010,10 +1048,6 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 			const segments = url.pathname.split("/");
 			const sessionId = segments[3]!;
 
-			if (!config.openrouter_api_key) {
-				return json({ error: "OpenRouter API key required for chat" }, 400);
-			}
-
 			const body = await req.json() as { message: string };
 			if (!body.message?.trim()) return json({ error: "Missing message" }, 400);
 
@@ -1046,7 +1080,6 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 
 				try {
 					const compactPrompt = `Summarize the following conversation concisely for continuation. Focus on: what was discussed, key decisions made, actions taken (tool calls and their outcomes), and any unresolved topics. Be thorough but concise.\n\n${summaryLines.join("\n")}`;
-					const { createLlmClient } = require("../../llm/client.ts") as typeof import("../../llm/client.ts");
 					const llm = createLlmClient({ api_key: config.openrouter_api_key, model: config.model, timeout: config.timeout });
 					const result = await llm.complete("You are a conversation summarizer. Output a concise summary.", compactPrompt);
 
@@ -1377,64 +1410,83 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 					let lastSegmentWasText = false;
 
 					try {
-						await chatWithTools(
-							{
-								api_key: config.openrouter_api_key,
-								model: config.model,
-								timeout: config.timeout,
-							},
-							apiMessages as Parameters<typeof chatWithTools>[1],
-							chatTools,
-							executeTool,
-							(event: ChatStreamEvent) => {
-								switch (event.type) {
-									case "text":
-										fullText += event.content ?? "";
-										if (lastSegmentWasText && orderedSegments.length > 0) {
-											const last = orderedSegments[orderedSegments.length - 1]!;
-											if (last.type === "text") {
-												last.content += event.content ?? "";
+						if (config.openrouter_api_key) {
+							await chatWithTools(
+								{
+									api_key: config.openrouter_api_key,
+									model: config.model,
+									timeout: config.timeout,
+								},
+								apiMessages as Parameters<typeof chatWithTools>[1],
+								chatTools,
+								executeTool,
+								(event: ChatStreamEvent) => {
+									switch (event.type) {
+										case "text":
+											fullText += event.content ?? "";
+											if (lastSegmentWasText && orderedSegments.length > 0) {
+												const last = orderedSegments[orderedSegments.length - 1]!;
+												if (last.type === "text") {
+													last.content += event.content ?? "";
+												}
+											} else {
+												orderedSegments.push({ type: "text", content: event.content ?? "" });
+												lastSegmentWasText = true;
 											}
-										} else {
-											orderedSegments.push({ type: "text", content: event.content ?? "" });
-											lastSegmentWasText = true;
-										}
-										send("text", JSON.stringify({ content: event.content }));
-										break;
-									case "tool_call":
-										if (event.toolCall) {
-											let args: Record<string, unknown> = {};
-											try { args = JSON.parse(event.toolCall.arguments); } catch {}
-											const tc: ChatToolCall = {
-												id: event.toolCall.id,
-												name: event.toolCall.name,
-												arguments: args,
-											};
-											collectedToolCalls.push(tc);
-											orderedSegments.push({ type: "tool_call", toolCall: tc });
-											lastSegmentWasText = false;
-											send("tool_call", JSON.stringify({
-												id: event.toolCall.id,
-												name: event.toolCall.name,
-												arguments: args,
-											}));
-										}
-										break;
-									case "tool_result":
-										if (event.toolResult) {
-											const tc = collectedToolCalls.find((c) => c.id === event.toolResult!.id);
-											if (tc) tc.result = event.toolResult.result;
-											send("tool_result", JSON.stringify(event.toolResult));
-										}
-										break;
-									case "error":
-										send("chat_error", JSON.stringify({ message: event.error }));
-										break;
-									case "done":
-										break;
-								}
-							},
-						);
+											send("text", JSON.stringify({ content: event.content }));
+											break;
+										case "tool_call":
+											if (event.toolCall) {
+												let args: Record<string, unknown> = {};
+												try { args = JSON.parse(event.toolCall.arguments); } catch {}
+												const tc: ChatToolCall = {
+													id: event.toolCall.id,
+													name: event.toolCall.name,
+													arguments: args,
+												};
+												collectedToolCalls.push(tc);
+												orderedSegments.push({ type: "tool_call", toolCall: tc });
+												lastSegmentWasText = false;
+												send("tool_call", JSON.stringify({
+													id: event.toolCall.id,
+													name: event.toolCall.name,
+													arguments: args,
+												}));
+											}
+											break;
+										case "tool_result":
+											if (event.toolResult) {
+												const tc = collectedToolCalls.find((c) => c.id === event.toolResult!.id);
+												if (tc) tc.result = event.toolResult.result;
+												send("tool_result", JSON.stringify(event.toolResult));
+											}
+											break;
+										case "error":
+											send("chat_error", JSON.stringify({ message: event.error }));
+											break;
+										case "done":
+											break;
+									}
+								},
+							);
+						} else {
+							const llm = createLlmClient({ api_key: "", model: config.model, timeout: config.timeout });
+							const prompt = buildFallbackPrompt(
+								systemPrompt,
+								chatHistory,
+								patches,
+							);
+							const result = await llm.completeStream(
+								"You are a helpful PR review assistant. Answer based on the provided context.",
+								prompt,
+								(chunk: string) => {
+									fullText += chunk;
+									send("text", JSON.stringify({ content: chunk }));
+								},
+							);
+							fullText = result.content;
+							orderedSegments.push({ type: "text", content: fullText });
+						}
 
 						const assistantMsg: ChatMessage = {
 							role: "assistant",

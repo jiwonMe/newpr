@@ -239,6 +239,10 @@ export function createLlmClient(options: LlmClientOptions): LlmClient {
 	return create(options.timeout);
 }
 
+export function hasApiKey(options: LlmClientOptions): boolean {
+	return !!options.api_key;
+}
+
 export interface ChatTool {
 	type: "function";
 	function: {
