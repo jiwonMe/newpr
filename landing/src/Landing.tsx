@@ -38,13 +38,13 @@ function TypewriterCode() {
 		{ text: "$ bunx newpr --web", color: "text-emerald-400", delay: 0 },
 		{ text: "", color: "", delay: 800 },
 		{ text: "  Preflight", color: "text-white", delay: 1000 },
-		{ text: "  \u2713 gh 2.62.0 \u00b7 jiwonMe", color: "text-emerald-400", delay: 1200 },
-		{ text: "  \u2713 claude 1.0.3", color: "text-emerald-400", delay: 1400 },
-		{ text: "  \u2713 OpenRouter API key", color: "text-emerald-400", delay: 1600 },
+		{ text: "  ✓ gh 2.62.0 · jiwonMe", color: "text-emerald-400", delay: 1200 },
+		{ text: "  ✓ claude 1.0.3", color: "text-emerald-400", delay: 1400 },
+		{ text: "  ✓ OpenRouter API key", color: "text-emerald-400", delay: 1600 },
 		{ text: "", color: "", delay: 1800 },
 		{ text: "  newpr v0.5", color: "text-white", delay: 2000 },
-		{ text: "  \u2192 Local    http://localhost:3000", color: "text-blue-400", delay: 2200 },
-		{ text: "  \u2192 Model    claude-sonnet-4.6", color: "text-zinc-500", delay: 2400 },
+		{ text: "  → Local    http://localhost:3456", color: "text-blue-400", delay: 2200 },
+		{ text: "  → Model    claude-sonnet-4.6", color: "text-zinc-500", delay: 2400 },
 	];
 	const [visibleCount, setVisibleCount] = useState(0);
 	const { ref, visible } = useInView(0.3);
@@ -61,7 +61,7 @@ function TypewriterCode() {
 				<span className="w-3 h-3 rounded-full bg-zinc-800" />
 			</div>
 			{lines.slice(0, visibleCount).map((l, i) => (
-				<div key={i} className={`${l.color} ${i === visibleCount - 1 ? "animate-pulse" : ""}`}>{l.text || "\u00a0"}</div>
+				<div key={i} className={`${l.color} ${i === visibleCount - 1 ? "animate-pulse" : ""}`}>{l.text || " "}</div>
 			))}
 			{visibleCount < lines.length && <span className="inline-block w-2 h-4 bg-zinc-400 animate-pulse" />}
 		</div>
@@ -93,9 +93,9 @@ function AnchorDemo() {
 				.
 			</p>
 			<div className={`text-[11px] text-zinc-500 transition-all duration-300 ${active !== null ? "opacity-100" : "opacity-0"}`}>
-				{active === 0 && "\u2192 Opens group detail in sidebar"}
-				{active === 1 && "\u2192 Opens file diff in sidebar"}
-				{active === 2 && "\u2192 Scrolls diff to exact lines L24-L35"}
+				{active === 0 && "→ Opens group detail in sidebar"}
+				{active === 1 && "→ Opens file diff in sidebar"}
+				{active === 2 && "→ Scrolls diff to exact lines L24-L35"}
 			</div>
 		</div>
 	);
@@ -219,7 +219,7 @@ function AppMockup() {
 
 const FEATURES = [
 	{ icon: BookOpen, title: "Narrative Walkthrough", desc: "Prose-first story with clickable code references. Every sentence links to exact lines in the diff." },
-	{ icon: Link, title: "Line-Level Anchors", desc: "Three anchor types \u2014 group chips, file chips, and inline underlined links that scroll to exact line ranges." },
+	{ icon: Link, title: "Line-Level Anchors", desc: "Three anchor types — group chips, file chips, and inline underlined links that scroll to exact line ranges." },
 	{ icon: MessageSquare, title: "Interactive Chat", desc: "Ask follow-up questions with agentic tool execution. Post review comments directly from chat." },
 	{ icon: Bot, title: "Agentic Exploration", desc: "Claude, OpenCode, or Codex explores the full codebase for project structure, dependencies, and issues." },
 	{ icon: Presentation, title: "Slide Deck", desc: "Auto-generated presentations. Opus designs the style, Gemini renders each slide sequentially." },
@@ -231,7 +231,7 @@ const FEATURES = [
 
 const STEPS = [
 	{ icon: GitPullRequest, title: "Paste a PR URL", desc: "Any GitHub PR link. Fetches metadata, commits, diff, and discussion from the API." },
-	{ icon: Search, title: "Clone & Explore", desc: "An AI agent clones the repo and explores the full codebase \u2014 structure, imports, tests." },
+	{ icon: Search, title: "Clone & Explore", desc: "An AI agent clones the repo and explores the full codebase — structure, imports, tests." },
 	{ icon: Layers, title: "Analyze & Group", desc: "Files are summarized in parallel, then clustered into logical groups with risk assessment." },
 	{ icon: Code, title: "Generate Narrative", desc: "A prose walkthrough is written with dense line-level code references pointing to exact diffs." },
 	{ icon: MessageSquare, title: "Review & Chat", desc: "Browse the analysis, click anchors to navigate code, chat for deeper analysis, submit reviews." },
@@ -375,7 +375,7 @@ export function Landing() {
 								Like a Wikipedia article, the narrative is densely linked. Group anchors open details, file anchors open diffs, and line anchors scroll to exact code positions.
 							</p>
 							<p className="text-[13px] text-zinc-500 leading-relaxed">
-								Target density: 3\u20136 line anchors per paragraph. Every function, type, config change, and import gets its own clickable reference.
+								Target density: 3–6 line anchors per paragraph. Every function, type, config change, and import gets its own clickable reference.
 							</p>
 						</FadeIn>
 					</div>
@@ -443,7 +443,7 @@ export function Landing() {
 							<p className="text-[12px] font-semibold uppercase tracking-widest text-zinc-500 mb-3">Chat Tools</p>
 							<h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-4">AI with access to your PR</h2>
 							<p className="text-[15px] text-zinc-400 leading-relaxed mb-6">
-								The chat assistant has tools to fetch diffs, post comments, search the web, and submit reviews \u2014 all from the conversation.
+								The chat assistant has tools to fetch diffs, post comments, search the web, and submit reviews — all from the conversation.
 							</p>
 							<p className="text-[13px] text-zinc-500 leading-relaxed">
 								Say "leave a comment on line 42 of auth.ts suggesting to add error handling" and the AI will post it to GitHub.

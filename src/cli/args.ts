@@ -21,7 +21,7 @@ newpr - AI-powered large PR review tool
 Usage:
   newpr                                # launch interactive shell
   newpr <pr-url>                       # launch shell with PR pre-loaded
-  newpr --web [--port 3000]            # launch web UI
+  newpr --web [--port 3456]            # launch web UI
   newpr review <pr-url> --json         # non-interactive JSON output
   newpr history                        # list past review sessions
   newpr history show <id>              # show full JSON for a session
@@ -42,7 +42,7 @@ Examples:
 
 Options:
   --web                 Launch web UI instead of TUI
-  --port <number>       Port for web server (default: 3000)
+  --port <number>       Port for web server (default: 3456)
 
 Options (review mode):
   --repo <owner/repo>   Repository (required when using PR number only)
@@ -98,13 +98,13 @@ export function parseArgs(argv: string[]): CliArgs {
 	}
 
 	if (args.includes("--web")) {
-		let port = 3000;
+		let port = 3456;
 		const portIdx = args.indexOf("--port");
 		if (portIdx !== -1 && args[portIdx + 1]) {
-			port = Number.parseInt(args[portIdx + 1]!, 10) || 3000;
+			port = Number.parseInt(args[portIdx + 1]!, 10) || 3456;
 		} else {
 			const eqArg = args.find((a) => a.startsWith("--port="));
-			if (eqArg) port = Number.parseInt(eqArg.split("=")[1]!, 10) || 3000;
+			if (eqArg) port = Number.parseInt(eqArg.split("=")[1]!, 10) || 3456;
 		}
 		const cartoon = args.includes("--cartoon");
 		return { command: "web", port, cartoon, ...DEFAULTS };

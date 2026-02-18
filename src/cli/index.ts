@@ -60,7 +60,7 @@ async function main(): Promise<void> {
 			const updateInfo = await updatePromise;
 			if (updateInfo) printUpdateNotice(updateInfo);
 			const { startWebServer } = await import("../web/server.ts");
-			await startWebServer({ port: args.port ?? 3000, token, config, cartoon: args.cartoon, preflight });
+			await startWebServer({ port: args.port ?? 3456, token, config, cartoon: args.cartoon, preflight });
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			process.stderr.write(`Error: ${message}\n`);

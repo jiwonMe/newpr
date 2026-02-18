@@ -15,7 +15,7 @@ bun add -g newpr
 newpr --web
 ```
 
-The web UI opens automatically at `http://localhost:3000`. Paste any GitHub PR URL to start.
+The web UI opens automatically at `http://localhost:3456`. Paste any GitHub PR URL to start.
 
 ### Prerequisites
 
@@ -60,7 +60,7 @@ Every analysis is densely linked. The narrative contains three types of clickabl
 ```bash
 newpr                                 # interactive shell (TUI)
 newpr <pr-url>                        # shell with PR pre-loaded
-newpr --web [--port 3000]             # web UI (default)
+newpr --web [--port 3456]             # web UI (default)
 newpr --web --cartoon                 # web UI with comic strip generation
 newpr review <pr-url> --json          # non-interactive JSON output
 newpr history                         # list past sessions
@@ -72,7 +72,7 @@ newpr auth [--key <api-key>]          # configure API key
 ```
 --model <model>       LLM model (default: anthropic/claude-sonnet-4.6)
 --agent <tool>        Preferred agent: claude | opencode | codex (default: auto)
---port <port>         Web UI port (default: 3000)
+--port <port>         Web UI port (default: 3456)
 --cartoon             Enable comic strip generation
 --no-clone            Skip git clone, diff-only analysis
 --json                Output raw JSON
