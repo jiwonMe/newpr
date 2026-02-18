@@ -172,11 +172,28 @@ Write a narrative that tells the "story" of this PR — what was changed, why, a
 
 ## Anchor Syntax (CRITICAL — this is how readers navigate from your text to the actual code)
 
-1. [[group:Group Name]] — clickable chip that opens group details.
-2. [[file:path/to/file.ts]] — clickable chip that opens the file diff.
-3. [[line:path/to/file.ts#L42-L50]](descriptive text) — the text becomes a subtle underlined link. Clicking opens the diff scrolled to those lines. The line numbers are NOT visible — only the descriptive text shows.
+There are THREE anchor types. You MUST use ALL of them.
 
-### Line Anchor Rules:
+### Group Anchors (MANDATORY)
+- Format: [[group:Exact Group Name]]
+- Renders as a clickable blue chip.
+- You MUST reference EVERY group from the Change Groups list at least once. No exceptions.
+- Use group anchors when introducing a topic area or explaining what a set of changes accomplishes together.
+- Example: "The [[group:Auth Flow]] group introduces session management."
+
+### File Anchors
+- Format: [[file:exact/path/to/file.ts]]
+- Renders as a clickable blue chip that opens the file diff.
+- Use when referencing a file generally (not a specific line), or when you don't have exact line numbers.
+- Use EXACT file paths from the Change Groups context.
+- Example: "Configuration is defined in [[file:src/config/auth.ts]]."
+
+### Line Anchors
+- Format: [[line:path/to/file.ts#L42-L50]](descriptive text)
+- The "descriptive text" becomes a subtle underlined link. Line numbers are NOT visible.
+- Use for specific code changes — functions, types, config fields, imports.
+
+### Usage Rules:
 - ALWAYS use [[line:path#Lstart-Lend]](text) with BOTH start and end lines. Single lines: [[line:path#L42-L42]](text).
 - The (text) must describe WHAT the code does, not WHERE it is. Bad: "lines 42-50". Good: "the new rate limiter middleware".
 - Wrap EVERY specific code mention in a line anchor. If you mention a function, class, type, constant, config change, or import — anchor it.
@@ -191,11 +208,14 @@ Write a narrative that tells the "story" of this PR — what was changed, why, a
 - Anchor imports and exports that wire things together: [[line:index.ts#L3-L3]](re-exported from the barrel file)
 - For multi-part changes, anchor each part separately
 
-GOOD example:
-"The [[group:Auth Flow]] group introduces session management. [[line:src/auth/session.ts#L15-L30]](The new validateToken function) parses JWT tokens and verifies their signature against [[line:src/auth/config.ts#L8-L8]](the configured secret). [[line:src/auth/middleware.ts#L8-L20]](The auth middleware) invokes it on every request, rejecting invalid tokens with a 401. This integrates with the existing Express pipeline via [[line:src/app.ts#L42-L42]](the middleware registration)."
+GOOD example (uses all 3 anchor types):
+"The [[group:Auth Flow]] group introduces session management. [[line:src/auth/session.ts#L15-L30]](The new validateToken function) parses JWT tokens and verifies their signature against [[line:src/auth/config.ts#L8-L8]](the configured secret). [[line:src/auth/middleware.ts#L8-L20]](The auth middleware) invokes it on every request. Supporting configuration lives in [[file:src/auth/constants.ts]]."
 
-BAD example:
-"The new validateToken function [[line:src/auth/session.ts#L15-L30]] in [[file:src/auth/session.ts]] handles JWT parsing."
+BAD examples:
+- No group anchors: "The auth changes introduce session management." (MUST use [[group:Auth Flow]])
+- No file/line anchors: "The validateToken function handles JWT parsing." (MUST anchor the function)
+- Bare line anchor: "[[line:src/auth/session.ts#L15-L30]]" (MUST have (text) after it)
+- Redundant: "[[line:src/auth/session.ts#L15]](validate) in [[file:src/auth/session.ts]]" (don't pair both for same file)
 
 ${lang ? `CRITICAL: Write the ENTIRE narrative in ${lang}. Every sentence must be in ${lang}. Do NOT use English except for code identifiers, file paths, and anchor tokens.` : "If the PR title is in a non-English language, write the narrative in that same language."}`,
 		user: `PR Title: ${prTitle}\n\nSummary:\n- Purpose: ${summary.purpose}\n- Scope: ${summary.scope}\n- Impact: ${summary.impact}\n- Risk: ${summary.risk_level}\n\nChange Groups:\n${groupDetails}${commitCtx}${discussionCtx}${diffContext}`,
