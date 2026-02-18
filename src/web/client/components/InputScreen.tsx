@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { CornerDownLeft, Clock, GitPullRequest, Check, X, Minus, ExternalLink } from "lucide-react";
+import { CornerDownLeft, GitPullRequest, ExternalLink, ChevronUp } from "lucide-react";
 import type { SessionRecord } from "../../../history/types.ts";
 import { analytics } from "../lib/analytics.ts";
 
@@ -35,46 +35,50 @@ function timeAgo(date: string): string {
 	return `${Math.floor(d / 30)}mo ago`;
 }
 
-function StatusIcon({ ok, optional }: { ok: boolean; optional?: boolean }) {
-	if (ok) return <Check className="h-3 w-3 text-green-500" />;
-	if (optional) return <Minus className="h-3 w-3 text-muted-foreground/30" />;
-	return <X className="h-3 w-3 text-red-500" />;
+function StatusDot({ ok, optional }: { ok: boolean; optional?: boolean }) {
+	if (ok) return <span className="h-1.5 w-1.5 rounded-full bg-green-500" />;
+	if (optional) return <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/15" />;
+	return <span className="h-1.5 w-1.5 rounded-full bg-red-500" />;
 }
 
-function PreflightStatus({ data }: { data: PreflightData }) {
+function CompactStatus({ data }: { data: PreflightData }) {
+	const [open, setOpen] = useState(false);
 	const gh = data.github;
+	const allOk = gh.installed && gh.authenticated && data.openrouterKey;
 	return (
-		<div className="space-y-1.5">
-			<div className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider mb-2">Status</div>
-			<div className="flex items-center gap-2">
-				<StatusIcon ok={gh.installed && gh.authenticated} />
-				<span className="text-[11px] font-mono">gh</span>
-				{gh.installed && gh.authenticated && gh.user && (
-					<span className="text-[10px] text-muted-foreground/40">{gh.user}</span>
-				)}
-				{gh.installed && !gh.authenticated && (
-					<span className="text-[10px] text-red-500/70">not authenticated</span>
-				)}
-				{!gh.installed && (
-					<span className="text-[10px] text-red-500/70">not installed</span>
-				)}
-			</div>
-			{data.agents.map((agent) => (
-				<div key={agent.name} className="flex items-center gap-2">
-					<StatusIcon ok={agent.installed} optional />
-					<span className={`text-[11px] font-mono ${agent.installed ? "" : "text-muted-foreground/30"}`}>{agent.name}</span>
-					{agent.installed && agent.version && (
-						<span className="text-[10px] text-muted-foreground/30">{agent.version}</span>
-					)}
+		<div className="flex flex-col items-end gap-1">
+			<button
+				type="button"
+				onClick={() => setOpen((v) => !v)}
+				className="flex items-center gap-1.5 hover:opacity-70 transition-opacity"
+			>
+				<StatusDot ok={allOk} />
+				<span className="text-[10px] font-mono text-muted-foreground/30">status</span>
+				<ChevronUp className={`h-2.5 w-2.5 text-muted-foreground/20 transition-transform ${open ? "" : "rotate-180"}`} />
+			</button>
+			{open && (
+				<div className="flex flex-col items-end gap-1 animate-in fade-in slide-in-from-bottom-1 duration-150">
+					<div className="flex items-center gap-1.5">
+						<StatusDot ok={gh.installed && gh.authenticated} />
+						<span className="text-[10px] font-mono text-muted-foreground/30">gh</span>
+						{gh.installed && gh.authenticated && gh.user && (
+							<span className="text-[10px] text-muted-foreground/20">{gh.user}</span>
+						)}
+					</div>
+					{data.agents.map((agent) => (
+						<div key={agent.name} className="flex items-center gap-1.5">
+							<StatusDot ok={agent.installed} optional />
+							<span className={`text-[10px] font-mono ${agent.installed ? "text-muted-foreground/30" : "text-muted-foreground/10"}`}>
+								{agent.name}
+							</span>
+						</div>
+					))}
+					<div className="flex items-center gap-1.5">
+						<StatusDot ok={data.openrouterKey} />
+						<span className="text-[10px] font-mono text-muted-foreground/30">OpenRouter</span>
+					</div>
 				</div>
-			))}
-			<div className="flex items-center gap-2">
-				<StatusIcon ok={data.openrouterKey} />
-				<span className="text-[11px]">OpenRouter</span>
-				{!data.openrouterKey && (
-					<span className="text-[10px] text-red-500/70">run newpr auth</span>
-				)}
-			</div>
+			)}
 		</div>
 	);
 }
@@ -110,26 +114,29 @@ export function InputScreen({
 	const recents = sessions?.slice(0, 5) ?? [];
 
 	return (
-		<div className="flex flex-col items-center justify-center min-h-[60vh]">
-			<div className="w-full max-w-lg space-y-8">
-				<SponsorBanner />
+		<div className="relative flex flex-col items-center justify-center min-h-[80vh]">
+			<div className="w-full max-w-xl space-y-10">
 
-				<div className="space-y-2">
-						<div className="flex items-baseline gap-2">
-							<h1 className="text-sm font-semibold tracking-tight font-mono">newpr</h1>
-							{version && <span className="text-[10px] text-muted-foreground/30">v{version}</span>}
-							<span className="text-[10px] text-muted-foreground/40">AI code review</span>
-						</div>
-						<p className="text-xs text-muted-foreground">
-							Paste a GitHub PR URL to start analysis
-						</p>
+				<div className="flex flex-col items-center text-center space-y-3">
+					<div className="flex items-center gap-2.5">
+						<h1 className="text-2xl font-bold font-mono tracking-tighter">newpr</h1>
+						{version && (
+							<span className="text-[10px] text-muted-foreground/30 bg-foreground/[0.03] border border-border/50 rounded-full px-2 py-0.5 font-mono">
+								v{version}
+							</span>
+						)}
 					</div>
+					<p className="text-sm text-muted-foreground/50">
+						Turn PRs into navigable stories
+					</p>
+				</div>
 
+				<div>
 					<form onSubmit={handleSubmit}>
 						<div className={`flex items-center rounded-xl border bg-background transition-all ${
 							focused ? "ring-1 ring-ring border-foreground/15 shadow-sm" : "border-border"
 						}`}>
-							<GitPullRequest className="h-3.5 w-3.5 text-muted-foreground/40 ml-4 shrink-0" />
+							<GitPullRequest className="h-4 w-4 text-muted-foreground/30 ml-4 shrink-0" />
 							<input
 								type="text"
 								value={value}
@@ -137,62 +144,66 @@ export function InputScreen({
 								onFocus={() => setFocused(true)}
 								onBlur={() => setFocused(false)}
 								placeholder="https://github.com/owner/repo/pull/123"
-								className="flex-1 h-11 bg-transparent px-3 text-xs font-mono placeholder:text-muted-foreground/40 focus:outline-none"
+								className="flex-1 h-12 bg-transparent px-3 text-sm font-mono placeholder:text-muted-foreground/25 focus:outline-none"
 								autoFocus
 							/>
 							<button
 								type="submit"
 								disabled={!value.trim()}
-								className="flex h-7 w-7 items-center justify-center rounded-lg bg-foreground text-background mr-2 transition-opacity disabled:opacity-20 hover:opacity-80"
+								className="flex h-8 w-8 items-center justify-center rounded-lg bg-foreground text-background mr-2 transition-opacity disabled:opacity-15 hover:opacity-80"
 							>
 								<CornerDownLeft className="h-3.5 w-3.5" />
 							</button>
 						</div>
-						<div className="flex justify-end mt-2 pr-1">
-							<span className="text-[10px] text-muted-foreground/30">
-								Enter to analyze
+						<div className="flex justify-center mt-2.5">
+							<span className="text-[10px] text-muted-foreground/20 font-mono">
+								↵ Enter to analyze
 							</span>
 						</div>
 					</form>
+					<div className="mt-4">
+						<SponsorBanner />
+					</div>
+				</div>
 
-					{recents.length > 0 && (
-						<div className="space-y-2">
-							<div className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider px-0.5">
-								Recent
-							</div>
-							<div className="space-y-px">
-								{recents.map((s) => (
-									<button
-										key={s.id}
-										type="button"
-										onClick={() => onSessionSelect?.(s.id)}
-										className="w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-accent/50 transition-colors group"
-									>
-										<span className={`h-1.5 w-1.5 shrink-0 rounded-full ${RISK_DOT[s.risk_level] ?? RISK_DOT.medium}`} />
-										<div className="flex-1 min-w-0">
-											<div className="text-xs truncate group-hover:text-foreground transition-colors">
-												{s.pr_title}
-											</div>
-											<div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-muted-foreground/50">
-												<span className="font-mono truncate">{s.repo.split("/").pop()}</span>
-												<span className="font-mono">#{s.pr_number}</span>
-												<span className="text-muted-foreground/20">·</span>
-												<span className="text-green-600 dark:text-green-400">+{s.total_additions}</span>
-												<span className="text-red-600 dark:text-red-400">-{s.total_deletions}</span>
-											</div>
-										</div>
-										<div className="flex items-center gap-1 text-[10px] text-muted-foreground/30 shrink-0">
-											<Clock className="h-2.5 w-2.5" />
-											<span>{timeAgo(s.analyzed_at)}</span>
-										</div>
-									</button>
-								))}
-							</div>
+				{recents.length > 0 && (
+					<div className="space-y-3">
+						<div className="text-[10px] font-medium text-muted-foreground/25 uppercase tracking-[0.15em] text-center">
+							Recent
 						</div>
-					)}
+						<div className="space-y-px">
+							{recents.map((s) => (
+								<button
+									key={s.id}
+									type="button"
+									onClick={() => onSessionSelect?.(s.id)}
+									className="w-full flex items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-accent/30 transition-colors group"
+								>
+									<span className={`h-1.5 w-1.5 shrink-0 rounded-full ${RISK_DOT[s.risk_level] ?? RISK_DOT.medium}`} />
+									<div className="flex-1 min-w-0">
+										<div className="text-[12px] truncate text-foreground/70 group-hover:text-foreground transition-colors">
+											{s.pr_title}
+										</div>
+									</div>
+									<div className="flex items-center gap-2 shrink-0 text-[10px] text-muted-foreground/25">
+										<span className="font-mono">{s.repo.split("/").pop()}</span>
+										<span className="font-mono">#{s.pr_number}</span>
+										<span className="text-muted-foreground/15">·</span>
+										<span>{timeAgo(s.analyzed_at)}</span>
+									</div>
+								</button>
+							))}
+						</div>
+					</div>
+				)}
 
-					{preflight && <PreflightStatus data={preflight} />}
 			</div>
+
+			{preflight && (
+				<div className="absolute bottom-4 right-0">
+					<CompactStatus data={preflight} />
+				</div>
+			)}
 		</div>
 	);
 }
