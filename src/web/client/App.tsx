@@ -13,6 +13,7 @@ import { ErrorScreen } from "./components/ErrorScreen.tsx";
 import { DetailPane, resolveDetail } from "./components/DetailPane.tsx";
 import { useChatState, ChatProvider, ChatInput } from "./components/ChatSection.tsx";
 import type { AnchorItem } from "./components/TipTapEditor.tsx";
+import { requestNotificationPermission } from "./lib/notify.ts";
 
 function getUrlParam(key: string): string | null {
 	return new URLSearchParams(window.location.search).get(key);
@@ -38,6 +39,8 @@ export function App() {
 	const features = useFeatures();
 	const bgAnalyses = useBackgroundAnalyses();
 	const initialLoadDone = useRef(false);
+
+	useEffect(() => { requestNotificationPermission(); }, []);
 	const [activeId, setActiveId] = useState<string | null>(null);
 
 	useEffect(() => {

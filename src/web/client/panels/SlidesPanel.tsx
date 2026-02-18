@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Loader2, Presentation, RefreshCw, Download, AlertCircle, ChevronLeft, ChevronRight } from "lucide-react";
 import type { NewprOutput, SlideDeck } from "../../../types/output.ts";
+import { sendNotification } from "../lib/notify.ts";
 
 export function SlidesPanel({ data, sessionId }: { data: NewprOutput; sessionId?: string | null }) {
 	const [state, setState] = useState<"idle" | "loading" | "done" | "error">("idle");
@@ -52,6 +53,7 @@ export function SlidesPanel({ data, sessionId }: { data: NewprOutput; sessionId?
 					if (partial?.slides?.length) {
 						setDeck(partial);
 						setState("done");
+						sendNotification("Slides ready", `${partial.slides.length} slides generated`);
 					}
 				} else if (job.status === "error") {
 					stopPolling();

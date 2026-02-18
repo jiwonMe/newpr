@@ -1,4 +1,5 @@
 import { useEffect, useCallback, useSyncExternalStore } from "react";
+import { sendNotification } from "../lib/notify.ts";
 import type { ChatMessage, ChatToolCall, ChatSegment } from "../../../types/output.ts";
 
 interface ChatSessionState {
@@ -159,6 +160,7 @@ class ChatStore {
 					timestamp: new Date().toISOString(),
 				}],
 			});
+			sendNotification("Chat response ready", fullText.slice(0, 100));
 		} catch (err) {
 			if ((err as Error).name !== "AbortError") {
 				const cur = this.getOrCreate(sessionId);

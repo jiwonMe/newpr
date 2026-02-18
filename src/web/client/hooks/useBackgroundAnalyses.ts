@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import type { ProgressEvent } from "../../../analyzer/progress.ts";
 import type { NewprOutput } from "../../../types/output.ts";
+import { sendNotification } from "../lib/notify.ts";
 
 export type BgStatus = "running" | "done" | "error";
 
@@ -89,19 +90,22 @@ export function useBackgroundAnalyses() {
 			try {
 				const res = await fetch(`/api/analysis/${sessionId}`);
 				const data = (await res.json()) as { result?: NewprOutput; historyId?: string };
-				setAnalyses((prev) =>
-					prev.map((a) =>
-						a.sessionId === sessionId
-							? { ...a, status: "done", result: data.result, historyId: data.historyId }
-							: a,
-					),
-				);
+				setAnalyses((prev) => {
+					const a = prev.find((x) => x.sessionId === sessionId);
+					sendNotification("Analysis complete", a?.prTitle ?? prInput);
+					return prev.map((x) =>
+						x.sessionId === sessionId
+							? { ...x, status: "done" as const, result: data.result, historyId: data.historyId }
+							: x,
+					);
+				});
 			} catch {
-				setAnalyses((prev) =>
-					prev.map((a) =>
-						a.sessionId === sessionId ? { ...a, status: "done" } : a,
-					),
-				);
+				setAnalyses((prev) => {
+					sendNotification("Analysis complete", prInput);
+					return prev.map((a) =>
+						a.sessionId === sessionId ? { ...a, status: "done" as const } : a,
+					);
+				});
 			}
 		});
 
@@ -110,6 +114,7 @@ export function useBackgroundAnalyses() {
 			eventSourcesRef.current.delete(sessionId);
 			let msg = "Analysis failed";
 			try { msg = JSON.parse((e as MessageEvent).data).message ?? msg; } catch {}
+			sendNotification("Analysis failed", msg);
 			setAnalyses((prev) =>
 				prev.map((a) =>
 					a.sessionId === sessionId ? { ...a, status: "error", error: msg } : a,
