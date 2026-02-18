@@ -178,6 +178,7 @@ There are THREE anchor types. You MUST use ALL of them.
 - Format: [[group:Exact Group Name]]
 - Renders as a clickable blue chip.
 - You MUST reference EVERY group from the Change Groups list at least once. No exceptions.
+- Use the EXACT group name ONLY — do NOT append the type in parentheses. Write [[group:Auth Flow]], NOT [[group:Auth Flow (refactor)]].
 - Use group anchors when introducing a topic area or explaining what a set of changes accomplishes together.
 - Example: "The [[group:Auth Flow]] group introduces session management."
 

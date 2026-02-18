@@ -43,7 +43,8 @@ export function resolveDetail(
 	files: FileChange[],
 ): DetailTarget | null {
 	if (kind === "group") {
-		const group = groups.find((g) => g.name === id);
+		const cleanId = id.replace(/\s*\([^)]*\)\s*$/, "").trim();
+		const group = groups.find((g) => g.name === id || g.name === cleanId || g.name.toLowerCase() === cleanId.toLowerCase());
 		if (!group) return null;
 		const groupFiles = files.filter((f) => group.files.includes(f.path));
 		return { kind: "group", group, files: groupFiles };
@@ -164,7 +165,6 @@ function FileDetail({
 				)}
 				{patch && (
 					<DiffViewer
-						key={`${file.path}-${scrollToLine ?? 0}-${scrollToLineEnd ?? 0}`}
 						patch={patch}
 						filePath={file.path}
 						sessionId={sessionId}

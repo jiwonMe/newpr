@@ -18,7 +18,8 @@ const RENDER_CAP = 2000;
 const TOTAL_CAP = 3000;
 
 function parseLines(patch: string): DiffLine[] {
-	const raw = patch.split("\n");
+	let raw = patch.split("\n");
+	while (raw.length > 0 && raw[raw.length - 1] === "") raw.pop();
 	const lines: DiffLine[] = [];
 	let oldNum = 0;
 	let newNum = 0;
@@ -61,6 +62,8 @@ function parseLines(patch: string): DiffLine[] {
 			oldNum++;
 		} else if (line.startsWith("\\")) {
 			lines.push({ type: "context", content: line, oldNum: null, newNum: null });
+		} else if (line === "" && (oldNum === 0 && newNum === 0)) {
+			continue;
 		} else {
 			const text = line.startsWith(" ") ? line.slice(1) : line;
 			if (oldNum > 0 || newNum > 0) {
@@ -602,8 +605,12 @@ export function DiffViewer({
 	const [visibleWidth, setVisibleWidth] = useState(0);
 
 	const highlightedRef = useRef<HTMLElement[]>([]);
+	const scrollKeyRef = useRef(0);
 
 	useEffect(() => {
+		scrollKeyRef.current++;
+		const currentKey = scrollKeyRef.current;
+
 		for (const el of highlightedRef.current) {
 			el.style.boxShadow = "";
 		}
@@ -612,6 +619,7 @@ export function DiffViewer({
 		if (!scrollToLine || !containerRef.current) return;
 		const endLine = scrollToLineEnd ?? scrollToLine;
 		const timer = setTimeout(() => {
+			if (scrollKeyRef.current !== currentKey) return;
 			const container = containerRef.current;
 			if (!container) return;
 			let scrollTarget: HTMLElement | null = null;
@@ -636,7 +644,7 @@ export function DiffViewer({
 					scrollParent.scrollTop += targetRect.top - parentRect.top - parentRect.height / 2;
 				}
 			}
-		}, 100);
+		}, 50);
 		return () => clearTimeout(timer);
 	}, [scrollToLine, scrollToLineEnd, patch]);
 	const [comments, setComments] = useState<DiffComment[]>([]);
