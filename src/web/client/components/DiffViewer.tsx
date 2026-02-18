@@ -410,11 +410,15 @@ export function DiffViewer({
 	filePath,
 	sessionId,
 	githubUrl,
+	scrollToLine,
+	scrollToLineEnd,
 }: {
 	patch: string;
 	filePath: string;
 	sessionId?: string | null;
 	githubUrl?: string;
+	scrollToLine?: number;
+	scrollToLineEnd?: number;
 }) {
 	const [showAll, setShowAll] = useState(false);
 	const hl = useHighlighter();
@@ -427,7 +431,35 @@ export function DiffViewer({
 	const fileName = filePath.split("/").pop() ?? filePath;
 
 	const scrollRef = useRef<HTMLDivElement>(null);
+	const containerRef = useRef<HTMLDivElement>(null);
 	const [visibleWidth, setVisibleWidth] = useState(0);
+
+	const highlightedRef = useRef<HTMLElement[]>([]);
+
+	useEffect(() => {
+		for (const el of highlightedRef.current) {
+			el.style.boxShadow = "";
+		}
+		highlightedRef.current = [];
+
+		if (!scrollToLine || !containerRef.current) return;
+		const endLine = scrollToLineEnd ?? scrollToLine;
+		const timer = setTimeout(() => {
+			const container = containerRef.current;
+			if (!container) return;
+			let scrollTarget: HTMLElement | null = null;
+			for (let n = scrollToLine; n <= endLine; n++) {
+				const el = container.querySelector(`[data-line-new="${n}"]`) as HTMLElement | null;
+				if (el) {
+					el.style.boxShadow = "inset 0 0 0 9999px oklch(0.623 0.214 259.815 / 0.12)";
+					highlightedRef.current.push(el);
+					if (!scrollTarget) scrollTarget = el;
+				}
+			}
+			scrollTarget?.scrollIntoView({ behavior: "instant", block: "center" });
+		}, 100);
+		return () => clearTimeout(timer);
+	}, [scrollToLine, scrollToLineEnd, patch]);
 	const [comments, setComments] = useState<DiffComment[]>([]);
 	const [currentUser, setCurrentUser] = useState<{ login: string; avatar_url: string } | null>(null);
 	const [formRange, setFormRange] = useState<{ side: "old" | "new"; startLine: number; endLine: number } | null>(null);
@@ -554,7 +586,7 @@ export function DiffViewer({
 	const commentCount = comments.length;
 
 	return (
-		<div className="rounded-lg border overflow-hidden">
+		<div ref={containerRef} className="rounded-lg border overflow-hidden">
 			<div className="sticky top-0 z-10 bg-muted px-3 py-1.5 border-b flex items-center gap-2">
 				<span className="text-xs font-mono font-medium truncate flex-1" title={filePath}>
 					{fileName}
@@ -622,6 +654,8 @@ export function DiffViewer({
 								<div
 									className={`flex ${ROW_STYLE[line.type]} ${canComment ? "cursor-pointer select-none hover:brightness-[1.15] dark:hover:brightness-[1.3]" : ""}`}
 									style={selectShadow ? { boxShadow: selectShadow } : undefined}
+									data-line-new={line.newNum ?? undefined}
+									data-line-old={line.oldNum ?? undefined}
 									onMouseDown={canComment ? (e) => handleMouseDown(lk.side, lk.num, e) : undefined}
 									onMouseEnter={canComment ? () => handleMouseEnter(lk.side, lk.num) : undefined}
 								>

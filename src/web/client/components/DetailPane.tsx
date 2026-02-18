@@ -4,10 +4,12 @@ import type { FileGroup, FileChange, FileStatus } from "../../../types/output.ts
 import { DiffViewer } from "./DiffViewer.tsx";
 
 export interface DetailTarget {
-	kind: "group" | "file";
+	kind: "group" | "file" | "line";
 	group?: FileGroup;
 	file?: FileChange;
 	files: FileChange[];
+	scrollToLine?: number;
+	scrollToLineEnd?: number;
 }
 
 const STATUS_ICON: Record<FileStatus, typeof Plus> = {
@@ -35,7 +37,7 @@ const TYPE_DOT: Record<string, string> = {
 };
 
 export function resolveDetail(
-	kind: "group" | "file",
+	kind: "group" | "file" | "line",
 	id: string,
 	groups: FileGroup[],
 	files: FileChange[],
@@ -45,6 +47,18 @@ export function resolveDetail(
 		if (!group) return null;
 		const groupFiles = files.filter((f) => group.files.includes(f.path));
 		return { kind: "group", group, files: groupFiles };
+	}
+	if (kind === "line") {
+		const hashIdx = id.indexOf("#");
+		if (hashIdx < 0) return null;
+		const filePath = id.slice(0, hashIdx);
+		const lineRef = id.slice(hashIdx + 1);
+		const rangeMatch = lineRef.match(/^L(\d+)(?:-L?(\d+))?/);
+		const lineNum = rangeMatch ? Number.parseInt(rangeMatch[1]!, 10) : undefined;
+		const lineEnd = rangeMatch?.[2] ? Number.parseInt(rangeMatch[2]!, 10) : undefined;
+		const file = files.find((f) => f.path === filePath);
+		if (!file) return null;
+		return { kind: "line", file, files: [file], scrollToLine: lineNum, scrollToLineEnd: lineEnd };
 	}
 	const file = files.find((f) => f.path === id);
 	if (!file) return null;
@@ -89,11 +103,15 @@ function FileDetail({
 	sessionId,
 	prUrl,
 	onClose,
+	scrollToLine,
+	scrollToLineEnd,
 }: {
 	file: FileChange;
 	sessionId?: string | null;
 	prUrl?: string;
 	onClose?: () => void;
+	scrollToLine?: number;
+	scrollToLineEnd?: number;
 }) {
 	const Icon = STATUS_ICON[file.status];
 	const { patch, loading, error, fetchPatch } = usePatchFetcher(sessionId, file.path);
@@ -150,6 +168,8 @@ function FileDetail({
 						filePath={file.path}
 						sessionId={sessionId}
 						githubUrl={prUrl ? `${prUrl}/files` : undefined}
+						scrollToLine={scrollToLine}
+						scrollToLineEnd={scrollToLineEnd}
 					/>
 				)}
 			</div>
@@ -190,8 +210,40 @@ export function DetailPane({
 					)}
 				</div>
 
-				<div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+				<div className="flex-1 overflow-y-auto px-4 py-4 space-y-5">
 					<p className="text-[11px] text-muted-foreground/60 leading-relaxed">{g.description}</p>
+
+					{g.key_changes && g.key_changes.length > 0 && (
+						<div>
+							<div className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider mb-2">Key Changes</div>
+							<ul className="space-y-1.5">
+								{g.key_changes.map((change, i) => (
+									<li key={i} className="flex gap-2 text-[11px] text-muted-foreground/70 leading-relaxed">
+										<span className="text-muted-foreground/25 shrink-0 mt-px">·</span>
+										<span>{change}</span>
+									</li>
+								))}
+							</ul>
+						</div>
+					)}
+
+					{g.risk && (
+						<div>
+							<div className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider mb-1.5">Risk</div>
+							<p className="text-[11px] text-muted-foreground/60 leading-relaxed">{g.risk}</p>
+						</div>
+					)}
+
+					{g.dependencies && g.dependencies.length > 0 && (
+						<div>
+							<div className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider mb-1.5">Dependencies</div>
+							<div className="flex flex-wrap gap-1.5">
+								{g.dependencies.map((dep) => (
+									<span key={dep} className="text-[10px] px-1.5 py-0.5 rounded-md bg-accent/60 text-muted-foreground/60">{dep}</span>
+								))}
+							</div>
+						</div>
+					)}
 
 					<div>
 						<div className="flex items-center gap-2 mb-2.5">
@@ -221,8 +273,8 @@ export function DetailPane({
 		);
 	}
 
-	if (target.kind === "file" && target.file) {
-		return <FileDetail file={target.file} sessionId={sessionId} prUrl={prUrl} onClose={onClose} />;
+	if ((target.kind === "file" || target.kind === "line") && target.file) {
+		return <FileDetail file={target.file} sessionId={sessionId} prUrl={prUrl} onClose={onClose} scrollToLine={target.scrollToLine} scrollToLineEnd={target.scrollToLineEnd} />;
 	}
 
 	return null;

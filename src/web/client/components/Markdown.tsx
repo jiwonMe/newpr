@@ -11,7 +11,7 @@ import { ensureHighlighter, getHighlighterSync, langFromClassName } from "../lib
 
 interface MarkdownProps {
 	children: string;
-	onAnchorClick?: (kind: "group" | "file", id: string) => void;
+	onAnchorClick?: (kind: "group" | "file" | "line", id: string) => void;
 	activeId?: string | null;
 }
 
@@ -96,14 +96,41 @@ function MediaEmbed({ src }: { src: string }) {
 }
 
 const ANCHOR_RE = /\[\[(group|file):([^\]]+)\]\]/g;
+const LINE_ANCHOR_WITH_TEXT_RE = /\[\[line:([^\]]+)\]\]\(([^)]+)\)/g;
+const LINE_ANCHOR_BARE_RE = /\[\[line:([^\]]+)\]\]/g;
 const BOLD_CJK_RE = /\*\*(.+?)\*\*/g;
 
 function hasCJK(text: string): boolean {
 	return /[가-힣ぁ-ヿ一-鿿]/.test(text);
 }
 
+function formatLineLabel(id: string): string {
+	const hashIdx = id.indexOf("#");
+	if (hashIdx < 0) return id;
+	const file = id.slice(0, hashIdx);
+	const lineRef = id.slice(hashIdx + 1);
+	const fileName = file.split("/").pop() ?? file;
+	return `${fileName}:${lineRef}`;
+}
+
+function inlineMarkdownToHtml(text: string): string {
+	return text
+		.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+		.replace(/\*(.+?)\*/g, "<em>$1</em>")
+		.replace(/`([^`]+)`/g, "<code>$1</code>");
+}
+
 function preprocess(text: string): string {
 	return text
+		.replace(LINE_ANCHOR_WITH_TEXT_RE, (_, id, label) => {
+			const encoded = encodeURIComponent(id);
+			return `<span data-line-ref="${encoded}">${inlineMarkdownToHtml(label)}</span>`;
+		})
+		.replace(LINE_ANCHOR_BARE_RE, (_, id) => {
+			const encoded = encodeURIComponent(id);
+			const label = formatLineLabel(id);
+			return `<span data-line-ref="${encoded}">${label}</span>`;
+		})
 		.replace(ANCHOR_RE, (_, kind, id) => {
 			const encoded = encodeURIComponent(id);
 			return `![${kind}:${encoded}](newpr)`;
@@ -150,6 +177,32 @@ export function Markdown({ children, onAnchorClick, activeId }: MarkdownProps) {
 		pre: ({ children }) => (
 			<pre className="bg-muted rounded-lg p-4 overflow-x-auto mb-3 whitespace-pre text-xs font-mono [&>span>pre]:!bg-transparent [&>span>pre]:!p-0 [&>span>pre]:!m-0">{children}</pre>
 		),
+		span: ({ children, ...props }) => {
+			const lineRef = (props as Record<string, unknown>)["data-line-ref"] as string | undefined;
+			if (lineRef && onAnchorClick) {
+				const id = decodeURIComponent(lineRef);
+				const isActive = activeId === `line:${id}`;
+				return (
+					<span
+						role="button"
+						tabIndex={0}
+						onClick={(e) => { e.stopPropagation(); onAnchorClick("line", id); }}
+						onKeyDown={(e) => { if (e.key === "Enter") onAnchorClick("line", id); }}
+						className={`underline decoration-1 underline-offset-[3px] cursor-pointer transition-colors ${
+							isActive
+								? "decoration-blue-500 dark:decoration-blue-400 bg-blue-500/5 rounded-sm"
+								: "decoration-foreground/15 hover:decoration-foreground/40"
+						}`}
+					>
+						{children}
+					</span>
+				);
+			}
+			if (lineRef) {
+				return <span className="underline decoration-foreground/10 decoration-1 underline-offset-[3px]">{children}</span>;
+			}
+			return <span>{children}</span>;
+		},
 		a: ({ href, children }) => {
 			if (href && isMediaUrl(href)) {
 				const textContent = String(children ?? "");

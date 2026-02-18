@@ -19,7 +19,7 @@ export function StoryPanel({
 }: {
 	data: NewprOutput;
 	activeId: string | null;
-	onAnchorClick: (kind: "group" | "file", id: string) => void;
+	onAnchorClick: (kind: "group" | "file" | "line", id: string) => void;
 }) {
 	const { summary, groups, narrative } = data;
 

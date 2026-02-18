@@ -243,7 +243,7 @@ function AssistantMessage({ segments, activeToolName, isStreaming, onAnchorClick
 	segments: ChatSegment[];
 	activeToolName?: string;
 	isStreaming?: boolean;
-	onAnchorClick?: (kind: "group" | "file", id: string) => void;
+	onAnchorClick?: (kind: "group" | "file" | "line", id: string) => void;
 	activeId?: string | null;
 }) {
 	const hasContent = segments.some((s) => s.type === "text" && s.content);
@@ -280,7 +280,7 @@ function AssistantMessage({ segments, activeToolName, isStreaming, onAnchorClick
 }
 
 export function ChatMessages({ onAnchorClick, activeId }: {
-	onAnchorClick?: (kind: "group" | "file", id: string) => void;
+	onAnchorClick?: (kind: "group" | "file" | "line", id: string) => void;
 	activeId?: string | null;
 }) {
 	const ctx = useContext(ChatContext);
