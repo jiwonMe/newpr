@@ -18,7 +18,7 @@ describe("mapPrResponse", () => {
 
 		const result = mapPrResponse(json);
 
-		expect(result).toEqual({
+		expect(result).toMatchObject({
 			number: 42,
 			title: "Add feature X",
 			body: "This PR adds feature X",

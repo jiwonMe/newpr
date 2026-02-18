@@ -223,7 +223,7 @@ $$
 
 	return {
 		"POST /api/analysis": async (req: Request) => {
-			const body = await req.json() as { pr: string };
+			const body = await req.json() as { pr: string; reuseSessionId?: string };
 			if (!body.pr) return json({ error: "Missing 'pr' field" }, 400);
 
 			const result = startAnalysis(body.pr, token, config);
@@ -231,6 +231,7 @@ $$
 
 			return json({
 				sessionId: result.sessionId,
+				reuseSessionId: body.reuseSessionId,
 				eventsUrl: `/api/analysis/${result.sessionId}/events`,
 			});
 		},
@@ -724,6 +725,40 @@ $$
 			await saveCommentsSidecar(sessionId, existing);
 
 			return json({ ok: true });
+		},
+
+		"GET /api/sessions/:id/outdated": async (req: Request) => {
+			const url = new URL(req.url);
+			const segments = url.pathname.split("/");
+			const id = segments[3]!;
+			const sessionData = await loadSession(id);
+			if (!sessionData) return json({ error: "Session not found" }, 404);
+
+			const prUrl = sessionData.meta.pr_url;
+			const analyzedUpdatedAt = sessionData.meta.pr_updated_at;
+			if (!analyzedUpdatedAt) return json({ outdated: false, reason: "no_baseline" });
+
+			try {
+				const pr = parsePrInput(prUrl);
+				const res = await fetch(
+					`https://api.github.com/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}`,
+					{ headers: ghHeaders },
+				);
+				if (!res.ok) return json({ outdated: false, reason: "api_error" });
+				const data = await res.json() as { updated_at?: string; title?: string; state?: string; merged?: boolean; draft?: boolean };
+				const currentUpdatedAt = data.updated_at ?? "";
+				const outdated = currentUpdatedAt !== analyzedUpdatedAt;
+				return json({
+					outdated,
+					analyzed_at: sessionData.meta.analyzed_at,
+					analyzed_updated_at: analyzedUpdatedAt,
+					current_updated_at: currentUpdatedAt,
+					current_title: data.title,
+					current_state: data.draft ? "draft" : data.merged ? "merged" : data.state === "closed" ? "closed" : "open",
+				});
+			} catch {
+				return json({ outdated: false, reason: "fetch_error" });
+			}
 		},
 
 		"GET /api/sessions/:id/chat": async (req: Request) => {

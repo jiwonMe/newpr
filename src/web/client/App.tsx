@@ -145,7 +145,7 @@ export function App() {
 	}, [analysis.result]);
 
 	return (
-		<ChatProvider state={chatState} anchorItems={anchorItems}>
+		<ChatProvider state={chatState} anchorItems={anchorItems} analyzedAt={analysis.result?.meta.analyzed_at}>
 		<AppShell
 			theme={themeCtx.theme}
 			onThemeChange={themeCtx.setTheme}
@@ -184,6 +184,7 @@ export function App() {
 					cartoonEnabled={features.cartoon}
 					sessionId={diffSessionId}
 					onTabChange={setActiveTab}
+					onReanalyze={(prUrl: string) => { analysis.start(prUrl); }}
 				/>
 			)}
 			{analysis.phase === "error" && (

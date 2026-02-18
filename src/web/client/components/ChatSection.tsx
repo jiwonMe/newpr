@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext } from "react";
 import { Loader2, ChevronRight, CornerDownLeft } from "lucide-react";
 import type { ChatMessage, ChatToolCall, ChatSegment } from "../../../types/output.ts";
 import { Markdown } from "./Markdown.tsx";
@@ -17,14 +17,15 @@ export interface ChatState {
 interface ChatContextValue {
 	state: ChatState;
 	anchorItems?: AnchorItem[];
+	analyzedAt?: string;
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null);
 
 export { useChatStore as useChatState };
 
-export function ChatProvider({ state, anchorItems, children }: { state: ChatState; anchorItems?: AnchorItem[]; children: React.ReactNode }) {
-	const value = useMemo(() => ({ state, anchorItems }), [state, anchorItems]);
+export function ChatProvider({ state, anchorItems, analyzedAt, children }: { state: ChatState; anchorItems?: AnchorItem[]; analyzedAt?: string; children: React.ReactNode }) {
+	const value = useMemo(() => ({ state, anchorItems, analyzedAt }), [state, anchorItems, analyzedAt]);
 	return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
 }
 
@@ -71,6 +72,33 @@ function segmentsFromMessage(msg: ChatMessage): ChatSegment[] {
 	return segs;
 }
 
+function ThrottledMarkdown({ content, onAnchorClick, activeId }: {
+	content: string;
+	onAnchorClick?: (kind: "group" | "file" | "line", id: string) => void;
+	activeId?: string | null;
+}) {
+	const [rendered, setRendered] = useState(content);
+	const pendingRef = useRef(content);
+	const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+	useEffect(() => {
+		pendingRef.current = content;
+		if (!timerRef.current) {
+			timerRef.current = setTimeout(() => {
+				setRendered(pendingRef.current);
+				timerRef.current = null;
+			}, 150);
+		}
+		return () => {};
+	}, [content]);
+
+	useEffect(() => {
+		return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+	}, []);
+
+	return <Markdown onAnchorClick={onAnchorClick} activeId={activeId}>{rendered}</Markdown>;
+}
+
 function AssistantMessage({ segments, activeToolName, isStreaming, onAnchorClick, activeId }: {
 	segments: ChatSegment[];
 	activeToolName?: string;
@@ -86,11 +114,16 @@ function AssistantMessage({ segments, activeToolName, isStreaming, onAnchorClick
 				if (seg.type === "tool_call") {
 					return <ToolCallDisplay key={seg.toolCall.id} tc={seg.toolCall} />;
 				}
-				return seg.content ? (
+				if (!seg.content) return null;
+				return (
 					<div key={`text-${i}`} className="text-xs leading-relaxed">
-						<Markdown onAnchorClick={onAnchorClick} activeId={activeId}>{seg.content}</Markdown>
+						{isStreaming ? (
+							<ThrottledMarkdown content={seg.content} onAnchorClick={onAnchorClick} activeId={activeId} />
+						) : (
+							<Markdown onAnchorClick={onAnchorClick} activeId={activeId}>{seg.content}</Markdown>
+						)}
 					</div>
-				) : null;
+				);
 			})}
 			{activeToolName && (
 				<div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-accent/40 text-[11px] text-muted-foreground/50">
@@ -149,6 +182,7 @@ export function ChatMessages({ onAnchorClick, activeId }: {
 
 	if (!ctx) return null;
 	const { messages, streaming, loaded, loading } = ctx.state;
+	const { analyzedAt } = ctx;
 	const hasMessages = messages.length > 0 || loading;
 
 	if (!hasMessages && loaded) {
@@ -162,26 +196,51 @@ export function ChatMessages({ onAnchorClick, activeId }: {
 
 	if (!hasMessages) return null;
 
+	let shownOutdatedDivider = false;
+
 	return (
 		<div ref={containerRef} className="border-t mt-6 pt-5 space-y-5">
 			<div className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider">Chat</div>
 			{messages.map((msg, i) => {
+				const isFromPreviousAnalysis = analyzedAt && msg.timestamp && msg.timestamp < analyzedAt;
+				let divider = null;
+				if (isFromPreviousAnalysis && !shownOutdatedDivider) {
+					shownOutdatedDivider = true;
+					divider = (
+						<div className="flex items-center gap-2 py-1">
+							<div className="flex-1 h-px bg-yellow-500/20" />
+							<span className="text-[10px] text-yellow-600/60 dark:text-yellow-400/50 shrink-0">Previous analysis</span>
+							<div className="flex-1 h-px bg-yellow-500/20" />
+						</div>
+					);
+				}
 				if (msg.role === "user") {
 					return (
-						<div key={`user-${i}`} className="flex justify-end">
-							<div className="max-w-[80%] rounded-xl rounded-br-sm bg-foreground text-background px-3.5 py-2 text-[11px] leading-relaxed">
-								{msg.content}
+						<div key={`user-${i}`}>
+							{divider}
+							<div className="flex justify-end">
+								<div className={`max-w-[80%] rounded-xl rounded-br-sm px-3.5 py-2 text-[11px] leading-relaxed ${
+									isFromPreviousAnalysis
+										? "bg-foreground/60 text-background"
+										: "bg-foreground text-background"
+								}`}>
+									{msg.content}
+								</div>
 							</div>
 						</div>
 					);
 				}
 				return (
-					<AssistantMessage
-						key={`assistant-${i}`}
-						segments={segmentsFromMessage(msg)}
-						onAnchorClick={onAnchorClick}
-						activeId={activeId}
-					/>
+					<div key={`assistant-${i}`}>
+						{divider}
+						<div className={isFromPreviousAnalysis ? "opacity-60" : ""}>
+							<AssistantMessage
+								segments={segmentsFromMessage(msg)}
+								onAnchorClick={onAnchorClick}
+								activeId={activeId}
+							/>
+						</div>
+					</div>
 				);
 			})}
 

@@ -102,6 +102,9 @@ export async function startWebServer(options: WebServerOptions): Promise<void> {
 			if (path.match(/^\/api\/sessions\/[^/]+\/comments$/) && req.method === "POST") {
 				return routes["POST /api/sessions/:id/comments"](req);
 			}
+			if (path.match(/^\/api\/sessions\/[^/]+\/outdated$/) && req.method === "GET") {
+				return routes["GET /api/sessions/:id/outdated"](req);
+			}
 			if (path.match(/^\/api\/sessions\/[^/]+\/chat\/undo$/) && req.method === "POST") {
 				return routes["POST /api/sessions/:id/chat/undo"](req);
 			}

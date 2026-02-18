@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { ArrowLeft, Layers, FolderTree, BookOpen, MessageSquare, GitBranch, Sparkles, Check, ChevronDown } from "lucide-react";
+import { ArrowLeft, Layers, FolderTree, BookOpen, MessageSquare, GitBranch, Sparkles, Check, ChevronDown, AlertTriangle, RefreshCw } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../components/ui/tabs.tsx";
 import type { NewprOutput } from "../../../types/output.ts";
 import { GroupsPanel } from "../panels/GroupsPanel.tsx";
@@ -8,6 +8,7 @@ import { StoryPanel } from "../panels/StoryPanel.tsx";
 import { DiscussionPanel } from "../panels/DiscussionPanel.tsx";
 import { CartoonPanel } from "../panels/CartoonPanel.tsx";
 import { ReviewModal } from "./ReviewModal.tsx";
+import { useOutdatedCheck } from "../hooks/useOutdatedCheck.ts";
 
 const VALID_TABS = ["story", "discussion", "groups", "files", "cartoon"] as const;
 type TabValue = typeof VALID_TABS[number];
@@ -46,6 +47,7 @@ export function ResultsScreen({
 	cartoonEnabled,
 	sessionId,
 	onTabChange,
+	onReanalyze,
 }: {
 	data: NewprOutput;
 	onBack: () => void;
@@ -54,10 +56,12 @@ export function ResultsScreen({
 	cartoonEnabled?: boolean;
 	sessionId?: string | null;
 	onTabChange?: (tab: string) => void;
+	onReanalyze?: (prUrl: string) => void;
 }) {
 	const { meta, summary } = data;
 	const [tab, setTab] = useState<TabValue>(getInitialTab);
 	const [reviewOpen, setReviewOpen] = useState(false);
+	const outdated = useOutdatedCheck(sessionId);
 
 	const stickyRef = useRef<HTMLDivElement>(null);
 	const collapsibleRef = useRef<HTMLDivElement>(null);
@@ -173,6 +177,24 @@ export function ResultsScreen({
 							</div>
 						</div>
 					</div>
+					{outdated?.outdated && (
+						<div className="flex items-center gap-2 mt-3 px-3 py-2 rounded-lg border border-yellow-500/20 bg-yellow-500/5">
+							<AlertTriangle className="h-3.5 w-3.5 text-yellow-600 dark:text-yellow-400 shrink-0" />
+							<span className="text-[11px] text-yellow-700 dark:text-yellow-300 flex-1">
+								This PR has been updated since this analysis was created.
+							</span>
+							{onReanalyze && (
+								<button
+									type="button"
+									onClick={() => onReanalyze(meta.pr_url)}
+									className="flex items-center gap-1 text-[11px] font-medium text-yellow-700 dark:text-yellow-300 hover:text-yellow-900 dark:hover:text-yellow-100 shrink-0 transition-colors"
+								>
+									<RefreshCw className="h-3 w-3" />
+									Re-analyze
+								</button>
+							)}
+						</div>
+					)}
 				</div>
 
 				<div ref={compactRef} className="overflow-hidden transition-[max-height,opacity] duration-200" style={{ maxHeight: 0, opacity: 0 }}>

@@ -30,6 +30,7 @@ export interface GithubPrData {
 	body: string;
 	url: string;
 	state: PrState;
+	updated_at: string;
 	base_branch: string;
 	head_branch: string;
 	author: string;

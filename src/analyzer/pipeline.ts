@@ -298,6 +298,7 @@ export async function analyzePr(options: PipelineOptions): Promise<NewprOutput> 
 			pr_body: prData.body || undefined,
 			pr_url: prData.url,
 			pr_state: prData.state,
+			pr_updated_at: prData.updated_at,
 			base_branch: prData.base_branch,
 			head_branch: prData.head_branch,
 			author: prData.author,

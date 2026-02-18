@@ -19,6 +19,7 @@ export interface PrMeta {
 	pr_body?: string;
 	pr_url: string;
 	pr_state?: PrStateLabel;
+	pr_updated_at?: string;
 	base_branch: string;
 	head_branch: string;
 	author: string;
