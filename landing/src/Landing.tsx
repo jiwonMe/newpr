@@ -255,7 +255,14 @@ const STATS = [
 export function Landing() {
 	return (
 		<>
-			<nav className="fixed top-0 left-0 right-0 z-50 bg-[#09090b]/80 backdrop-blur-xl border-b border-zinc-800/50">
+			<div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-center gap-3 bg-[#0d1b33]/90 backdrop-blur-sm py-1.5 border-b border-blue-500/10">
+				<a href="https://www.sionic.ai" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2.5 opacity-70 hover:opacity-100 transition-opacity">
+					<span className="text-[11px] text-zinc-400 uppercase tracking-widest">Sponsored by</span>
+					<img src="https://www.sionic.ai/favicon.ico" alt="Sionic AI" className="h-4 w-4" />
+					<span className="text-[13px] text-zinc-200 font-medium">Sionic AI</span>
+				</a>
+			</div>
+			<nav className="fixed top-8 left-0 right-0 z-50 bg-[#09090b]/80 backdrop-blur-xl border-b border-zinc-800/50">
 				<div className="max-w-[1080px] mx-auto px-6 h-14 flex items-center justify-between">
 					<a href="/" className="font-mono text-sm font-semibold tracking-tight">newpr</a>
 					<div className="flex items-center gap-5">
@@ -268,7 +275,7 @@ export function Landing() {
 				</div>
 			</nav>
 
-			<section className="pt-32 sm:pt-40 pb-16 text-center px-6">
+			<section className="pt-40 sm:pt-48 pb-16 text-center px-6">
 				<div className="max-w-[1080px] mx-auto">
 					<FadeIn>
 						<div className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-500/10 border border-blue-500/20 rounded-full text-[12px] text-blue-400 font-medium mb-6">
@@ -311,13 +318,6 @@ export function Landing() {
 						<div className="mt-16 max-w-[960px] mx-auto">
 							<AppMockup />
 						</div>
-					</FadeIn>
-					<FadeIn delay={600}>
-						<a href="https://www.sionic.ai" target="_blank" rel="noopener noreferrer" className="mt-8 flex items-center justify-center gap-2 opacity-25 hover:opacity-50 transition-opacity">
-							<span className="text-[10px] text-zinc-500 uppercase tracking-widest">Sponsored by</span>
-							<img src="https://www.sionic.ai/favicon.ico" alt="Sionic AI" className="h-4 w-4" />
-							<span className="text-[11px] text-zinc-400 font-medium">Sionic AI</span>
-						</a>
 					</FadeIn>
 				</div>
 			</section>
