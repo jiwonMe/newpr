@@ -7,6 +7,7 @@ import type { SessionRecord } from "../../../history/types.ts";
 import type { GithubUser } from "../hooks/useGithubUser.ts";
 import { SettingsPanel } from "./SettingsPanel.tsx";
 import { ResizeHandle } from "./ResizeHandle.tsx";
+import { analytics } from "../lib/analytics.ts";
 
 type Theme = "light" | "dark" | "system";
 
@@ -276,7 +277,7 @@ export function AppShell({
 								<button
 									type="button"
 									disabled={update.updating}
-									onClick={update.doUpdate}
+									onClick={() => { analytics.updateClicked(); update.doUpdate(); }}
 									className="w-full flex items-center justify-center gap-1.5 rounded-md bg-blue-500 hover:bg-blue-600 text-white text-[11px] font-medium py-1.5 transition-colors disabled:opacity-50"
 								>
 									{update.updating ? (
@@ -375,7 +376,7 @@ export function AppShell({
 						<div className="flex-1" />
 						<button
 							type="button"
-							onClick={() => setSettingsOpen(true)}
+							onClick={() => { analytics.settingsOpened(); setSettingsOpen(true); }}
 							className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/40 hover:bg-accent/40 hover:text-foreground transition-colors"
 							title="Settings"
 						>

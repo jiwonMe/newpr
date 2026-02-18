@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from "react";
 import type { ProgressEvent } from "../../../analyzer/progress.ts";
 import type { NewprOutput } from "../../../types/output.ts";
+import { analytics } from "../lib/analytics.ts";
 
 type Phase = "idle" | "loading" | "done" | "error";
 
@@ -29,6 +30,7 @@ export function useAnalysis() {
 	const eventSourceRef = useRef<EventSource | null>(null);
 
 	const start = useCallback(async (prInput: string) => {
+		analytics.analysisStarted(0);
 		setState({
 			phase: "loading",
 			sessionId: null,
@@ -79,12 +81,16 @@ export function useAnalysis() {
 				eventSourceRef.current = null;
 				const resultRes = await fetch(`/api/analysis/${sessionId}`);
 				const data = await resultRes.json() as { result?: NewprOutput; historyId?: string };
-				setState((s) => ({
-					...s,
-					phase: "done",
-					result: data.result ?? null,
-					historyId: data.historyId ?? null,
-				}));
+				setState((s) => {
+					const durationSec = s.startedAt ? Math.round((Date.now() - s.startedAt) / 1000) : 0;
+					analytics.analysisCompleted(data.result?.files.length ?? 0, durationSec);
+					return {
+						...s,
+						phase: "done",
+						result: data.result ?? null,
+						historyId: data.historyId ?? null,
+					};
+				});
 			});
 
 			es.addEventListener("analysis_error", (e) => {
@@ -92,6 +98,7 @@ export function useAnalysis() {
 				eventSourceRef.current = null;
 				let msg = "Analysis failed";
 				try { msg = JSON.parse((e as MessageEvent).data).message ?? msg; } catch {}
+				analytics.analysisError(msg.slice(0, 100));
 				setState((s) => ({ ...s, phase: "error", error: msg }));
 			});
 
@@ -125,6 +132,7 @@ export function useAnalysis() {
 			const res = await fetch(`/api/sessions/${sessionId}`);
 			if (!res.ok) throw new Error("Session not found");
 			const data = await res.json() as NewprOutput;
+			analytics.sessionLoaded();
 			setState((s) => ({
 				...s,
 				phase: "done",

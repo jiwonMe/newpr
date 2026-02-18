@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { X, Check, Loader2, Search, ChevronDown } from "lucide-react";
+import { analytics } from "../lib/analytics.ts";
 
 interface ConfigData {
 	model: string;
@@ -69,6 +70,8 @@ export function SettingsPanel({ onClose, onFeaturesChange }: { onClose: () => vo
 	const save = useCallback(async (update: Record<string, unknown>) => {
 		setSaving(true);
 		setSaved(false);
+		const field = Object.keys(update).filter((k) => k !== "openrouter_api_key").join(",");
+		if (field) analytics.settingsChanged(field);
 		try {
 			await fetch("/api/config", {
 				method: "PUT",

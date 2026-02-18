@@ -14,6 +14,7 @@ import { DetailPane, resolveDetail } from "./components/DetailPane.tsx";
 import { useChatState, ChatProvider, ChatInput } from "./components/ChatSection.tsx";
 import type { AnchorItem } from "./components/TipTapEditor.tsx";
 import { requestNotificationPermission } from "./lib/notify.ts";
+import { analytics } from "./lib/analytics.ts";
 
 function getUrlParam(key: string): string | null {
 	return new URLSearchParams(window.location.search).get(key);
@@ -73,6 +74,7 @@ export function App() {
 
 	const scrollGuardRef = useRef<number | null>(null);
 	const handleAnchorClick = useCallback((kind: "group" | "file" | "line", id: string) => {
+		analytics.detailOpened(kind);
 		const key = `${kind}:${id}`;
 		const main = document.querySelector("main");
 		const savedScroll = main?.scrollTop ?? 0;
@@ -133,6 +135,10 @@ export function App() {
 	) : null;
 
 	const [activeTab, setActiveTab] = useState(() => getUrlParam("tab") ?? "story");
+	const handleTabChange = useCallback((tab: string) => {
+		analytics.tabChanged(tab);
+		setActiveTab(tab);
+	}, []);
 	const chatState = useChatState(analysis.phase === "done" ? diffSessionId : null);
 
 	const anchorItems = useMemo<AnchorItem[]>(() => {
@@ -187,7 +193,7 @@ export function App() {
 					onAnchorClick={handleAnchorClick}
 					cartoonEnabled={features.cartoon}
 					sessionId={diffSessionId}
-					onTabChange={setActiveTab}
+					onTabChange={handleTabChange}
 					onReanalyze={(prUrl: string) => { analysis.start(prUrl); }}
 					enabledPlugins={features.enabledPlugins}
 				/>

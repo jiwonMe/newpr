@@ -2,6 +2,7 @@ import { useState, useRef, useCallback } from "react";
 import { X, Check, MessageSquare, Loader2, AlertCircle, ExternalLink } from "lucide-react";
 import { TipTapEditor, getTextWithAnchors } from "./TipTapEditor.tsx";
 import type { useEditor } from "@tiptap/react";
+import { analytics } from "../lib/analytics.ts";
 
 type ReviewEvent = "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
 
@@ -53,6 +54,7 @@ export function ReviewModal({ prUrl, onClose }: ReviewModalProps) {
 			});
 			const data = await res.json() as { ok?: boolean; html_url?: string; error?: string };
 			if (data.ok) {
+				analytics.reviewSubmitted(event);
 				setResult({ ok: true, html_url: data.html_url });
 			} else {
 				setResult({ ok: false, error: data.error ?? "Failed to submit review" });

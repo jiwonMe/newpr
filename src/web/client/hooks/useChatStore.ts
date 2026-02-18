@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useSyncExternalStore } from "react";
 import { sendNotification } from "../lib/notify.ts";
+import { analytics } from "../lib/analytics.ts";
 import type { ChatMessage, ChatToolCall, ChatSegment } from "../../../types/output.ts";
 
 interface ChatSessionState {
@@ -73,6 +74,7 @@ class ChatStore {
 		if (s.loading) return;
 
 		const startTime = Date.now();
+		analytics.chatSent();
 		const userMsg: ChatMessage = { role: "user", content: text, timestamp: new Date().toISOString() };
 		this.update(sessionId, { messages: [...s.messages, userMsg], loading: true, streaming: { segments: [] } });
 
@@ -152,6 +154,8 @@ class ChatStore {
 			}
 
 			const cur = this.getOrCreate(sessionId);
+			const durationMs = Date.now() - startTime;
+			analytics.chatCompleted(Math.round(durationMs / 1000), allToolCalls.length > 0);
 			this.update(sessionId, {
 				messages: [...cur.messages, {
 					role: "assistant",
@@ -159,7 +163,7 @@ class ChatStore {
 					toolCalls: allToolCalls.length > 0 ? allToolCalls : undefined,
 					segments: orderedSegments.length > 0 ? orderedSegments : undefined,
 					timestamp: new Date().toISOString(),
-					durationMs: Date.now() - startTime,
+					durationMs,
 				}],
 			});
 			sendNotification("Chat response ready", fullText.slice(0, 100));

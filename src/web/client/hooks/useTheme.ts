@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { analytics } from "../lib/analytics.ts";
 
 type Theme = "light" | "dark" | "system";
 
@@ -28,6 +29,7 @@ export function useTheme() {
 	const setTheme = useCallback((t: Theme) => {
 		localStorage.setItem("newpr-theme", t);
 		setThemeState(t);
+		analytics.themeChanged(t);
 	}, []);
 
 	return { theme, setTheme };
