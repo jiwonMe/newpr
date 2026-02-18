@@ -181,7 +181,7 @@ async function renderSlides(
 export async function generateSlides(
 	apiKey: string,
 	data: NewprOutput,
-	planModel: string,
+	_planModel?: string,
 	language?: string,
 	onProgress?: (msg: string, current: number, total: number) => void,
 	existingDeck?: SlideDeck | null,
@@ -219,27 +219,43 @@ export async function generateSlides(
 
 		if (!rawContent || !rawContent.includes("slides")) {
 			onProgress?.("Planning via OpenRouter...", 0, 1);
-			const planRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-				method: "POST",
-				headers: {
-					Authorization: `Bearer ${apiKey}`,
-					"Content-Type": "application/json",
-					"HTTP-Referer": "https://github.com/jiwonMe/newpr",
-					"X-Title": "newpr",
-				},
-				body: JSON.stringify({
-					model: planModel,
-					messages: [
-						{ role: "system", content: planPrompt.system },
-						{ role: "user", content: planPrompt.user },
-					],
-					temperature: 0.4,
-					response_format: { type: "json_object" },
-				}),
-			});
-			if (!planRes.ok) throw new Error(`Plan API error: ${planRes.status}`);
-			const planJson = await planRes.json() as { choices: Array<{ message: { content: string } }> };
-			rawContent = planJson.choices[0]?.message?.content ?? "";
+			const controller = new AbortController();
+			const timeout = setTimeout(() => controller.abort(), 90_000);
+			try {
+				const planRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+					method: "POST",
+					signal: controller.signal,
+					headers: {
+						Authorization: `Bearer ${apiKey}`,
+						"Content-Type": "application/json",
+						"HTTP-Referer": "https://github.com/jiwonMe/newpr",
+						"X-Title": "newpr",
+					},
+					body: JSON.stringify({
+						model: "anthropic/claude-sonnet-4-20250514",
+						messages: [
+							{ role: "system", content: planPrompt.system },
+							{ role: "user", content: planPrompt.user },
+						],
+						temperature: 0.4,
+						max_tokens: 8192,
+					}),
+				});
+				clearTimeout(timeout);
+				if (!planRes.ok) {
+					const errBody = await planRes.text().catch(() => "");
+					throw new Error(`Plan API error ${planRes.status}: ${errBody.slice(0, 200)}`);
+				}
+				const planJson = await planRes.json() as { choices: Array<{ message: { content: string } }> };
+				rawContent = planJson.choices[0]?.message?.content ?? "";
+				onProgress?.(`OpenRouter returned ${rawContent.length} chars`, 0, 1);
+			} catch (err) {
+				clearTimeout(timeout);
+				if ((err as Error).name === "AbortError") {
+					throw new Error("Plan generation timed out after 90 seconds");
+				}
+				throw err;
+			}
 		}
 
 		rawContent = rawContent.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
