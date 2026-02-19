@@ -94,7 +94,7 @@ function MediaEmbed({ src }: { src: string }) {
 	);
 }
 
-const ANCHOR_RE = /\[\[(group|file):([^\]]+)\]\]/g;
+const ANCHOR_RE = /\[\[(group|file):(.*?)\]\]/g;
 
 const BOLD_CJK_RE = /\*\*(.+?)\*\*/g;
 
@@ -131,16 +131,14 @@ function replaceLineAnchors(text: string): string {
 		result += text.slice(i, start);
 
 		const idStart = start + OPEN.length;
-		const closeBracket = text.indexOf("]", idStart);
-		if (closeBracket === -1) {
+		const closeBrackets = text.indexOf("]]", idStart);
+		if (closeBrackets === -1) {
 			result += text.slice(start);
 			break;
 		}
 
-		const id = text.slice(idStart, closeBracket);
-		let afterClose = closeBracket + 1;
-
-		if (text[afterClose] === "]") afterClose++;
+		const id = text.slice(idStart, closeBrackets);
+		let afterClose = closeBrackets + 2;
 
 		let label: string | null = null;
 		if (text[afterClose] === "(") {
@@ -156,8 +154,6 @@ function replaceLineAnchors(text: string): string {
 				afterClose = end;
 			}
 		}
-
-		if (text[afterClose] === "]") afterClose++;
 
 		const encoded = encodeURIComponent(id);
 		if (label) {
