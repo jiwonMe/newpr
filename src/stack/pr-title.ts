@@ -26,6 +26,7 @@ export async function generatePrTitles(
 	llmClient: LlmClient,
 	groups: StackGroup[],
 	prTitle: string,
+	language?: string,
 ): Promise<Map<string, string>> {
 	const groupSummaries = groups
 		.map((g, i) => [
@@ -36,16 +37,22 @@ export async function generatePrTitles(
 		].join("\n"))
 		.join("\n\n");
 
+	const lang = language && language !== "English" ? language : null;
+	const langRule = lang
+		? `- Write the description part in ${lang}. Keep the type prefix (feat/fix/etc.) in English.`
+		: "- Write the description in English.";
+
 	const system = `You generate PR titles for stacked PRs — concise but descriptive, like titles written by a senior engineer.
 
 Rules:
 - Format: "type: description"
 - type must be one of: feat | fix | refactor | chore | docs | test | perf | style | ci
-- description: 5-12 words, imperative mood, lowercase, no trailing period
+- description: 5-12 words, imperative mood, no trailing period
 - Target length: 40-72 characters total
 - Be specific about WHAT changed, not vague
 - Each title must be unique across the set
 - Never leave description empty
+${langRule}
 
 Good examples:
 - "feat: add JWT token refresh middleware for auth flow"

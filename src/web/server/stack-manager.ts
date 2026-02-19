@@ -453,7 +453,7 @@ async function runStackPipeline(
 		}
 
 		emit(session, "planning", "Generating PR titles...");
-		const prTitles = await generatePrTitles(llmClient, plan.groups, stored.meta.pr_title);
+		const prTitles = await generatePrTitles(llmClient, plan.groups, stored.meta.pr_title, config.language);
 		for (const group of plan.groups) {
 			const title = prTitles.get(group.id);
 			if (title) group.pr_title = title;
