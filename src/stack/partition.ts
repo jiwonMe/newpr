@@ -13,6 +13,7 @@ interface FileSummaryInput {
 export interface PartitionInput {
 	groups: FileGroup[];
 	changed_files: string[];
+	group_order_hint?: string[];
 }
 
 export interface AmbiguityReport {
@@ -58,54 +59,71 @@ export function buildStackPartitionPrompt(
 	groups: FileGroup[],
 	fileSummaries: FileSummaryInput[],
 	commits: PrCommit[],
+	groupOrderHint?: string[],
 ): { system: string; user: string } {
+	const summaryByPath = new Map(fileSummaries.map((f) => [f.path, f.summary]));
+
 	const groupDescriptions = groups
-		.map((g) => `- "${g.name}" (${g.type}): ${g.description}`)
+		.map((g) => {
+			const canonicalFiles = g.files.slice(0, 8);
+			const fileHints = canonicalFiles.length > 0
+				? `\n    Representative files: ${canonicalFiles.join(", ")}${g.files.length > 8 ? ` (+${g.files.length - 8} more)` : ""}`
+				: "";
+			return `- "${g.name}" (${g.type}): ${g.description}${fileHints}`;
+		})
 		.join("\n");
 
+	const buildFileEntry = (path: string, extra = ""): string => {
+		const summary = summaryByPath.get(path);
+		const summaryNote = summary ? ` — ${summary}` : "";
+		return `- ${path}${summaryNote}${extra}`;
+	};
+
 	const ambiguousSection = ambiguous.length > 0
-		? `\n\nAmbiguous files (appear in multiple groups):\n${ambiguous
-				.map((a) => `- ${a.path} → in groups: ${a.groups.join(", ")}`)
+		? `\n\nAmbiguous files (appear in multiple groups — pick the BEST ONE):\n${ambiguous
+				.map((a) => buildFileEntry(a.path, ` → candidate groups: ${a.groups.join(", ")}`))
 				.join("\n")}`
 		: "";
 
 	const unassignedSection = unassigned.length > 0
-		? `\n\nUnassigned files (not in any group):\n${unassigned.map((f) => `- ${f}`).join("\n")}`
-		: "";
-
-	const fileSummarySection = fileSummaries.length > 0
-		? `\n\nFile summaries:\n${fileSummaries.map((f) => `- ${f.path}: ${f.summary}`).join("\n")}`
+		? `\n\nUnassigned files (assign to the most relevant group — prefer an EXISTING group over creating Shared Foundation):\n${unassigned.map((f) => buildFileEntry(f)).join("\n")}`
 		: "";
 
 	const commitSection = commits.length > 0
-		? `\n\nCommit history:\n${commits.map((c) => `- ${c.sha.substring(0, 7)} ${c.message}`).join("\n")}`
+		? `\n\nCommit history (use to understand intent of each change):\n${commits.map((c) => `- ${c.sha.substring(0, 7)} ${c.message}`).join("\n")}`
+		: "";
+
+	const orderHintSection = groupOrderHint && groupOrderHint.length > 1
+		? `\n\nSuggested PR stack order (foundation → integration, for context only — use to judge which group a file logically "enables"):\n${groupOrderHint.map((g, i) => `${i + 1}. ${g}`).join("\n")}`
 		: "";
 
 	return {
-		system: `You are a code organization expert. Your task is to assign each file to EXACTLY ONE group for PR stacking.
+		system: `You are a senior engineer helping organize a pull request into a reviewable stack.
+
+Your task: assign each ambiguous or unassigned file to EXACTLY ONE group.
 
 Rules:
-1. Each file must be assigned to exactly one group
-2. Do not change files that are already exclusively assigned
-3. For ambiguous files, choose the group where the file's changes are most relevant
-4. For unassigned files, assign them to the most appropriate existing group
-5. You may create a "Shared Foundation" group ONLY if files truly don't fit any existing group
-6. Respond ONLY with a JSON object
+1. Assign every file to exactly one group — no file may be skipped.
+2. Use file path structure, file summary, and commit messages to judge relevance.
+3. An unassigned file that touches shared utilities (e.g. schema types, constants, index re-exports) belongs to the group that INTRODUCES or PRIMARILY USES those utilities in this PR.
+4. Prefer existing groups. Only create a "Shared Foundation" group if a file is genuinely orthogonal to ALL existing groups AND is depended on by multiple groups.
+5. Do NOT dump hard-to-classify files into Shared Foundation — that creates an oversized catch-all PR that defeats the purpose of stacking.
+6. When in doubt, pick the group whose file paths are most similar (same directory prefix, same feature area).
 
-Response format:
+Response format (JSON only):
 {
   "assignments": [
-    { "path": "file.ts", "group": "group-name", "reason": "brief reason" }
+    { "path": "file.ts", "group": "exact-group-name", "reason": "one sentence" }
   ],
   "shared_foundation": null
 }
 
-If creating a Shared Foundation group:
+Only include shared_foundation if truly necessary:
 {
   "assignments": [...],
-  "shared_foundation": { "name": "Shared Foundation", "description": "Common infrastructure changes", "files": [...] }
+  "shared_foundation": { "name": "Shared Foundation", "description": "why this is shared", "files": ["path1", "path2"] }
 }`,
-		user: `Groups:\n${groupDescriptions}${ambiguousSection}${unassignedSection}${fileSummarySection}${commitSection}\n\nAssign each ambiguous/unassigned file to exactly one group.`,
+		user: `Groups:\n${groupDescriptions}${ambiguousSection}${unassignedSection}${commitSection}${orderHintSection}\n\nAssign every listed file to exactly one group. Prefer existing groups over Shared Foundation.`,
 	};
 }
 
@@ -115,6 +133,7 @@ export async function partitionGroups(
 	changedFiles: string[],
 	fileSummaries: FileSummaryInput[],
 	commits: PrCommit[],
+	groupOrderHint?: string[],
 ): Promise<PartitionResult> {
 	const report = detectAmbiguousPaths({ groups, changed_files: changedFiles });
 
@@ -133,6 +152,7 @@ export async function partitionGroups(
 		groups,
 		fileSummaries,
 		commits,
+		groupOrderHint,
 	);
 
 	const response = await client.complete(prompt.system, prompt.user);

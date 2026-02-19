@@ -425,12 +425,14 @@ async function runStackPipeline(
 				emit(session, session.phase ?? "partitioning", `${reason}. Falling back to local agent...`);
 			},
 		});
+		const analysisGroupOrderHint = stored.groups.map((g) => g.name);
 		const partition = await partitionGroups(
 			llmClient,
 			stored.groups,
 			changedFiles,
 			fileSummaries,
 			prData.commits,
+			analysisGroupOrderHint,
 		);
 
 		checkAborted(session);
