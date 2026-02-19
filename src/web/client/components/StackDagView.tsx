@@ -44,75 +44,83 @@ interface DagPr {
 
 interface DagNode {
 	group: DagGroup;
-	level: number;
-	isLastAtLevel: boolean;
-	parentIds: string[];
+	indent: number;
+	isLastChild: boolean;
+	parentId: string | null;
 	childIds: string[];
 }
 
 function buildDagNodes(groups: DagGroup[]): DagNode[] {
 	const byId = new Map(groups.map((g) => [g.id, g]));
 
-	const levels = new Map<string, number>();
-	const inDegree = new Map(groups.map((g) => [g.id, 0]));
-	for (const g of groups) {
-		for (const dep of (g.deps ?? [])) {
-			if (byId.has(dep)) inDegree.set(g.id, (inDegree.get(g.id) ?? 0) + 1);
-		}
-	}
-
-	const queue = groups.filter((g) => (inDegree.get(g.id) ?? 0) === 0).map((g) => g.id);
-	for (const id of queue) levels.set(id, 0);
-
-	while (queue.length > 0) {
-		const id = queue.shift()!;
-		const level = levels.get(id) ?? 0;
-		for (const g of groups) {
-			if ((g.deps ?? []).includes(id)) {
-				const newLevel = Math.max(levels.get(g.id) ?? 0, level + 1);
-				levels.set(g.id, newLevel);
-				const remaining = (inDegree.get(g.id) ?? 1) - 1;
-				inDegree.set(g.id, remaining);
-				if (remaining === 0) queue.push(g.id);
-			}
-		}
-	}
-
-	const levelCount = new Map<number, number>();
-	const levelSeen = new Map<number, number>();
-	for (const [, l] of levels) levelCount.set(l, (levelCount.get(l) ?? 0) + 1);
-
 	const childrenOf = new Map<string, string[]>();
 	for (const g of groups) {
 		for (const dep of (g.deps ?? [])) {
+			if (!byId.has(dep)) continue;
 			const arr = childrenOf.get(dep) ?? [];
 			arr.push(g.id);
 			childrenOf.set(dep, arr);
 		}
 	}
 
-	const sorted = [...groups].sort((a, b) => {
-		const la = levels.get(a.id) ?? 0;
-		const lb = levels.get(b.id) ?? 0;
-		if (la !== lb) return la - lb;
-		return a.order - b.order;
+	const hasIncomingEdge = new Set<string>();
+	for (const g of groups) {
+		for (const dep of (g.deps ?? [])) {
+			if (byId.has(dep)) hasIncomingEdge.add(g.id);
+		}
+	}
+
+	const roots = groups.filter((g) => !hasIncomingEdge.has(g.id)).sort((a, b) => a.order - b.order);
+
+	const result: DagNode[] = [];
+	const visited = new Set<string>();
+
+	const dfs = (id: string, indent: number, parentId: string | null, siblingIndex: number, siblingCount: number) => {
+		if (visited.has(id)) return;
+		visited.add(id);
+
+		const g = byId.get(id)!;
+		const children = (childrenOf.get(id) ?? []).sort((a, b) => {
+			const ga = byId.get(a)!;
+			const gb = byId.get(b)!;
+			return ga.order - gb.order;
+		});
+
+		result.push({
+			group: g,
+			indent,
+			isLastChild: siblingIndex === siblingCount - 1,
+			parentId,
+			childIds: children,
+		});
+
+		children.forEach((childId, i) => {
+			dfs(childId, indent + 1, id, i, children.length);
+		});
+	};
+
+	roots.forEach((root, i) => {
+		dfs(root.id, 0, null, i, roots.length);
 	});
 
-	return sorted.map((g) => {
-		const level = levels.get(g.id) ?? 0;
-		const seenAtLevel = levelSeen.get(level) ?? 0;
-		const countAtLevel = levelCount.get(level) ?? 1;
-		levelSeen.set(level, seenAtLevel + 1);
-		return {
-			group: g,
-			level,
-			isLastAtLevel: seenAtLevel === countAtLevel - 1,
-			parentIds: (g.deps ?? []).filter((d) => byId.has(d)),
-			childIds: childrenOf.get(g.id) ?? [],
-		};
-	});
+	for (const g of groups) {
+		if (!visited.has(g.id)) {
+			result.push({
+				group: g,
+				indent: 0,
+				isLastChild: true,
+				parentId: null,
+				childIds: childrenOf.get(g.id) ?? [],
+			});
+		}
+	}
+
+	return result;
 }
 
+
+const INDENT = 16;
+const DOT_OFFSET = 8;
 
 function DagNodeCard({
 	node,
@@ -126,7 +134,7 @@ function DagNodeCard({
 	allGroups: DagGroup[];
 }) {
 	const [expanded, setExpanded] = useState(false);
-	const { group, level } = node;
+	const { group, indent: level } = node;
 	const stats = group.stats;
 	const colors = TYPE_COLORS[group.type] ?? TYPE_COLORS.chore!;
 
@@ -135,61 +143,58 @@ function DagNodeCard({
 		return found?.pr_title ?? found?.name ?? depId;
 	});
 
-	const isParallel = node.parentIds.length === 0
-		? false
-		: allGroups.filter((g) => {
-			const gDeps = g.deps ?? [];
-			return node.parentIds.every((p) => gDeps.includes(p)) && g.id !== group.id;
-		}).length > 0;
-
 	return (
-		<div className="relative" style={{ marginLeft: `${level * 20}px` }}>
-			{level > 0 && (
+		<div className="flex items-start min-w-0">
+			{Array.from({ length: level }).map((_, i) => (
 				<div
-					className="absolute top-[18px] h-px bg-border/30"
-					style={{ left: `-${20 - 9}px`, width: `${20 - 9}px` }}
-				/>
-			)}
+					key={i}
+					className="shrink-0 relative"
+					style={{ width: INDENT }}
+				>
+					<div
+						className="absolute top-0 bottom-0 border-l border-border/20"
+						style={{ left: DOT_OFFSET }}
+					/>
+					{i === level - 1 && (
+						<div
+							className="absolute h-px bg-border/20"
+							style={{ left: DOT_OFFSET, right: 0, top: 18 }}
+						/>
+					)}
+				</div>
+			))}
 
-			<div className="group/card relative">
+			<div className="flex-1 min-w-0">
 				<button
 					type="button"
 					onClick={() => setExpanded(!expanded)}
-					className="w-full flex items-start gap-2 px-2.5 py-2 text-left hover:bg-accent/20 transition-colors rounded-md"
+					className="w-full flex items-start gap-2 px-2 py-2 text-left hover:bg-accent/20 transition-colors rounded-md"
 				>
-					<div className="flex-shrink-0 mt-[5px] flex flex-col items-center gap-[3px]">
-						<div className={`h-2 w-2 rounded-full ${colors.dot} ring-2 ring-background`} />
-						{node.childIds.length > 1 && (
-							<GitMerge className="h-2.5 w-2.5 text-muted-foreground/25 mt-0.5" />
-						)}
+					<div className="shrink-0 mt-[5px]">
+						<div className={`h-[7px] w-[7px] rounded-full ${colors.dot} ring-[1.5px] ring-background`} />
 					</div>
 
 					<div className="flex-1 min-w-0">
 						<div className="flex items-center gap-1.5 flex-wrap">
-							<span className={`text-[9px] font-medium px-1.5 py-px rounded ${colors.badge} ${colors.text} shrink-0`}>
+							<span className={`text-[9px] font-medium px-1.5 py-px rounded ${colors.badge} ${colors.text} shrink-0 leading-none`}>
 								{group.type}
 							</span>
-							{isParallel && (
-								<span className="text-[9px] text-muted-foreground/25 shrink-0">∥</span>
-							)}
 							<span className="text-[11.5px] font-medium text-foreground/90 truncate">
 								{group.pr_title ?? group.name}
 							</span>
 						</div>
 
-						{depNames.length > 0 && (
-							<div className="flex items-center gap-1 mt-0.5 flex-wrap">
-								<span className="text-[9px] text-muted-foreground/20">after</span>
-								{depNames.map((name, i) => (
-									<span key={i} className="text-[9px] text-muted-foreground/25 font-mono truncate max-w-[120px]">
-										{name}
-									</span>
-								))}
+						{depNames.length > 0 && level > 0 && (
+							<div className="flex items-center gap-1 mt-[2px]">
+								<span className="text-[9px] text-muted-foreground/20">↳</span>
+								<span className="text-[9px] text-muted-foreground/25 truncate">
+									{depNames.join(", ")}
+								</span>
 							</div>
 						)}
 					</div>
 
-					<div className="flex-shrink-0 flex items-center gap-2 mt-[3px]">
+					<div className="shrink-0 flex items-center gap-2 mt-[3px]">
 						{stats ? (
 							<span className="flex items-center gap-1.5">
 								<span className="text-[10px] text-green-600/60 dark:text-green-400/60 tabular-nums">
@@ -207,7 +212,7 @@ function DagNodeCard({
 				</button>
 
 				{expanded && (
-					<div className="ml-4 pl-3 pb-3 pt-1 space-y-2 border-l border-border/30">
+					<div className="ml-[15px] pl-3 pb-3 pt-1 space-y-2 border-l border-border/20">
 						{group.description && (
 							<p className="text-[10.5px] text-muted-foreground/45 leading-[1.55]">{group.description}</p>
 						)}
@@ -279,7 +284,7 @@ export function StackDagView({
 	publishedPrs?: DagPr[];
 }) {
 	const nodes = buildDagNodes(groups);
-	const isLinear = nodes.every((n) => n.level === n.group.order);
+	const isLinear = nodes.every((n) => n.indent === 0);
 
 	return (
 		<div className="relative">
