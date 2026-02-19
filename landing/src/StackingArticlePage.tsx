@@ -55,11 +55,11 @@ const EN_CONTENT: ArticleContent = {
 	htmlLang: "en",
 	pageTitle: "How PR Stacking Works",
 	badge: "Engineering Deep Dive",
-	title: "How PR Stacking Works: Dependency-Safe Splitting for Large Pull Requests",
+	title: "How PR Stacking Works: DAG-Structured Splitting for Large Pull Requests",
 	subtitle:
-		"A practical breakdown of how newpr converts one massive pull request into a chain of smaller draft PRs without changing the final tree.",
-	updated: "Updated for v1.0.13",
-	readingTime: "~8 min read",
+		"A practical breakdown of how newpr converts one massive pull request into a DAG (Directed Acyclic Graph) of smaller draft PRs — using symbol-flow analysis, confidence scoring, and co-change signals — without changing the final tree.",
+	updated: "Updated for v1.0.23",
+	readingTime: "~10 min read",
 	homeLabel: "Back to landing",
 	langSwitchLabel: "한국어",
 	langSwitchPath: "/newpr/ko/stacking-principles.html",
@@ -75,7 +75,8 @@ const EN_CONTENT: ArticleContent = {
 	},
 	problemParagraphs: [
 		"Large pull requests fail for a predictable reason: review bandwidth does not scale with diff size. Past a few hundred lines, reviewers switch from understanding intent to scanning for obvious mistakes. Important architecture changes get buried.",
-		"PR stacking solves this by preserving one logical feature while splitting delivery into smaller review units. Instead of asking reviewers to validate 40 files at once, it presents a sequence where each PR has a narrower concern and clearer dependency boundary.",
+		"PR stacking solves this by preserving one logical feature while splitting delivery into smaller review units. Instead of asking reviewers to validate 40 files at once, it presents a dependency-ordered DAG where each PR has a narrower concern and clearer boundary.",
+		"Earlier versions of the stacking algorithm produced a simple linear chain. Real-world PRs, however, often have independent concerns — a schema change and a UI refactor that don't depend on each other. Forcing these into a single sequence creates unnecessary review bottlenecks. The current algorithm builds a DAG (Directed Acyclic Graph) instead, allowing independent groups to be reviewed and merged in parallel while preserving correct ordering for actual dependencies.",
 		"The hard part is correctness. If splitting changes behavior, stacking becomes dangerous. So the algorithm is built around invariants that guarantee the final result is equivalent to the original pull request.",
 	],
 	principles: [
@@ -85,19 +86,19 @@ const EN_CONTENT: ArticleContent = {
 				"The top-level invariant is strict: the final stacked tree must match the original PR head tree exactly. Any deviation is a hard failure, not a warning.",
 		},
 		{
-			title: "Dependency-Aware Ordering",
+			title: "DAG Over Linear Chain",
 			description:
-				"Groups are ordered by actual file and change dependencies, not by filename or commit timestamp. This prevents broken intermediate PRs.",
+				"Groups form a DAG, not a flat sequence. Each group declares explicit dependency edges. Independent groups can be reviewed and merged in parallel, while dependent groups maintain correct ordering.",
 		},
 		{
-			title: "Git Plumbing, Not Patch Guessing",
+			title: "Multi-Signal Dependency Analysis",
 			description:
-				"The stack is built using tree/index operations instead of patch/cherry-pick workflows. This minimizes ambiguity and merge-shape drift.",
+				"Ordering is derived from four signals: AST-level symbol flow (import/export), directory proximity, co-change frequency in git history, and commit-order path constraints. A confidence score merges these signals to make robust grouping decisions.",
 		},
 		{
-			title: "Fail Fast on Infeasible Plans",
+			title: "Soft Cycle Breaking",
 			description:
-				"If cycles or unsplittable coupling are detected, the pipeline stops early with explicit diagnostics instead of producing misleading output.",
+				"Dependency cycles are treated as soft hints, not hard failures. The algorithm automatically breaks cycles by removing the weakest edges (path-order first, then dependency) to produce a valid topological order.",
 		},
 	],
 	pipeline: [
@@ -110,90 +111,102 @@ const EN_CONTENT: ArticleContent = {
 		{
 			phase: "2) Delta Extraction",
 			goal: "Extract structural change deltas between base and head.",
-			how: "Build a normalized change graph from file-level and hunk-level differences.",
-			output: "Machine-usable delta objects instead of raw text diffs.",
+			how: "Build a normalized change graph from file-level and hunk-level differences using git plumbing.",
+			output: "Machine-usable delta objects with per-file blob SHAs and mode changes.",
 		},
 		{
-			phase: "3) Initial Partitioning",
+			phase: "3) Symbol Flow & Import Analysis",
+			goal: "Map cross-file dependencies at the symbol level.",
+			how: "Parse each changed file's AST (via meriyah) to extract exports/imports. Resolve relative specifiers to actual file paths. Build both file→file and group→group dependency edges from import relationships.",
+			output: "A symbol index (which file exports which symbols) and a group-level dependency map.",
+		},
+		{
+			phase: "4) Initial Partitioning",
 			goal: "Assign changed files into candidate concern groups.",
-			how: "Combine existing analysis groups with AI classification for unassigned or ambiguous files.",
-			output: "Initial ownership map plus reattribution warnings.",
+			how: "Combine existing analysis groups with AI classification for unassigned or ambiguous files. Use confidence scoring (import affinity 40%, directory proximity 30%, symbol overlap 20%, co-change frequency 10%, plus layer bonus) to validate and refine assignments.",
+			output: "Initial ownership map plus reattribution warnings and confidence scores.",
 		},
 		{
-			phase: "4) Coupling and Rebalance",
-			goal: "Reduce unsafe cross-group dependencies.",
-			how: "Apply coupling rules, split oversized groups, rebalance edges, and merge empty groups.",
+			phase: "5) Coupling, Rebalance & Co-Change",
+			goal: "Reduce unsafe cross-group dependencies using multi-signal analysis.",
+			how: "Apply coupling rules, split oversized groups, rebalance edges, and merge empty groups. Incorporate co-change analysis from git history to identify files that frequently change together.",
 			output: "A cleaner grouping set with fewer hidden cross-cutting edges.",
 		},
 		{
-			phase: "5) Feasibility Check",
-			goal: "Prove the grouping can form a valid stack.",
-			how: "Run cycle detection and ordering feasibility checks before any execution.",
-			output: "Topological order or an explicit infeasibility error.",
+			phase: "6) Feasibility & Cycle Resolution",
+			goal: "Prove the grouping can form a valid DAG stack.",
+			how: "Build constraint edges (path-order and dependency). Detect cycles and automatically break them by removing the weakest edges. Topologically sort the resulting acyclic graph with tie-breaking by earliest commit date.",
+			output: "Topological order, explicit dependency edges for the DAG, or diagnostics if truly infeasible.",
 		},
 		{
-			phase: "6) Plan Generation",
-			goal: "Create a concrete stack plan with expected trees.",
-			how: "Build per-group commit plan, dependency edges, and predicted tree hashes.",
-			output: "Executable plan with deterministic expectations.",
+			phase: "7) DAG Plan Generation",
+			goal: "Create a concrete DAG stack plan with expected trees and ancestor sets.",
+			how: "Build per-group commit plan with explicit DAG parent edges. Compute ancestor sets (transitive closure) for each group. Predict expected tree hashes using git index operations.",
+			output: "Executable plan with DAG structure, ancestor sets, and deterministic tree expectations.",
 		},
 		{
-			phase: "7) Stack Execution",
-			goal: "Materialize branch/commit chain in order.",
-			how: "Apply group deltas onto the planned ancestry and create commits per group.",
-			output: "A branch hierarchy ready for draft PR publishing.",
+			phase: "8) DAG Stack Execution",
+			goal: "Materialize the DAG branch/commit structure.",
+			how: "For each group in topological order, apply its file deltas onto the base tree (including all ancestor groups' changes). Create commits with multiple parents (one per DAG dependency) using git commit-tree. For DAGs with multiple leaf nodes, verify an all-changes index separately.",
+			output: "A DAG branch hierarchy with multi-parent commits, ready for draft PR publishing.",
 		},
 		{
-			phase: "8) Verification",
+			phase: "9) Verification",
 			goal: "Verify output is semantically identical to original PR.",
-			how: "Compare resulting tree state against original head tree and run invariant checks.",
+			how: "Compare resulting tree state (union of all leaf groups or the all-changes index) against original head tree and run invariant checks.",
 			output: "Verified stack or hard failure with error context.",
 		},
 	],
 	safetyItems: [
-		"Invariant: tree(stackTop) == tree(originalHEAD)",
-		"Intermediate PRs remain reviewable and dependency-consistent",
-		"Warnings are structured and surfaced (assignment, grouping, verification)",
-		"Server-side state can be restored from sidecar snapshots",
+		"Invariant: tree(stackTop) == tree(originalHEAD) — enforced via all-changes index for multi-leaf DAGs",
+		"DAG ancestor sets guarantee each group sees all prerequisite changes",
+		"Cycles are auto-resolved by removing weakest constraint edges, preserving topological validity",
+		"Intermediate PRs remain reviewable with correct dependency-based base branches",
+		"Warnings are structured and surfaced (assignment, grouping, coupling, verification)",
 	],
 	risks: [
 		{
 			risk: "Over-coupled change set",
-			mitigation: "Coupling rules + split/rebalance steps + feasibility gate prevent unsafe decomposition.",
+			mitigation: "Multi-signal coupling analysis (symbol flow + co-change + path-order) plus split/rebalance and feasibility gate prevent unsafe decomposition.",
 		},
 		{
 			risk: "AI misclassification of file ownership",
-			mitigation: "Backfill ownership, emit explicit warnings, and validate through dependency checks.",
+			mitigation: "Confidence scoring validates AI assignments against four independent signals. Low-confidence assignments are flagged and reassigned.",
+		},
+		{
+			risk: "Circular dependencies between groups",
+			mitigation: "Soft cycle breaking automatically removes weakest edges (path-order before dependency). All cycles are resolved without failing the pipeline.",
+		},
+		{
+			risk: "DAG tree mismatch (multi-leaf divergence)",
+			mitigation: "A dedicated all-changes index tracks the union of all groups. Final verification compares this against the original HEAD tree, catching any divergence.",
 		},
 		{
 			risk: "Repository state drift (missing SHAs)",
 			mitigation: "Required SHA verification forces fetch when base/head objects are missing.",
 		},
-		{
-			risk: "Execution mismatch vs source PR",
-			mitigation: "Final tree-equivalence verification fails hard before completion.",
-		},
 	],
 	operatorGuide: [
 		"Use stacking when one PR has multiple concerns (schema + API + UI + tests) but still belongs to one feature thread.",
-		"Treat each generated PR as a review layer: foundation first, integration second, UX/tests last.",
-		"If feasibility fails, reduce max group pressure or manually simplify coupling hotspots before rerunning.",
-		"Use stacked draft PRs to parallelize review feedback while preserving merge order.",
+		"The DAG structure means independent groups (e.g., schema changes and unrelated UI tweaks) appear at the same level and can be reviewed in parallel.",
+		"Each generated PR uses level-based labels (L0, L1, L2) indicating its depth in the DAG, plus dependency links showing which PRs must merge first.",
+		"If cycle resolution drops an edge you consider important, manually adjust the coupling before rerunning.",
+		"Use stacked draft PRs to parallelize review feedback while preserving merge order dictated by the DAG.",
 	],
 	closingTitle: "Why this matters",
 	closingParagraph:
-		"PR stacking is not just a UI convenience. It is a correctness-constrained transformation from one large review unit into many smaller ones. Done right, it improves reviewer throughput, reduces cognitive load, and keeps delivery semantics intact.",
+		"PR stacking is not just a UI convenience. It is a correctness-constrained DAG transformation from one large review unit into many smaller ones. Done right, it unlocks parallel review for independent concerns, improves reviewer throughput, reduces cognitive load, and keeps delivery semantics intact.",
 };
 
 const KO_CONTENT: ArticleContent = {
 	htmlLang: "ko",
 	pageTitle: "PR Stacking 원리",
 	badge: "엔지니어링 딥다이브",
-	title: "PR Stacking은 어떻게 동작할까: 대형 PR을 안전하게 분해하는 원리",
+	title: "PR Stacking은 어떻게 동작할까: DAG 구조로 대형 PR을 안전하게 분해하는 원리",
 	subtitle:
-		"newpr가 하나의 거대한 PR을 최종 결과를 바꾸지 않고 여러 개의 작은 Draft PR 체인으로 분해하는 과정을 실제 파이프라인 기준으로 설명합니다.",
-	updated: "v1.0.13 기준",
-	readingTime: "약 8분",
+		"newpr가 하나의 거대한 PR을 심볼 플로우 분석, 신뢰도 스코어링, co-change 시그널을 활용해 최종 결과를 바꾸지 않고 DAG(방향 비순환 그래프) 구조의 Draft PR로 분해하는 과정을 설명합니다.",
+	updated: "v1.0.23 기준",
+	readingTime: "약 10분",
 	homeLabel: "소개 페이지로 돌아가기",
 	langSwitchLabel: "EN",
 	langSwitchPath: "/newpr/stacking-principles.html",
@@ -209,7 +222,8 @@ const KO_CONTENT: ArticleContent = {
 	},
 	problemParagraphs: [
 		"대형 PR이 어려운 이유는 단순합니다. 변경량이 커질수록 리뷰어의 이해 비용이 선형이 아니라 급격히 증가합니다. 결국 설계 의도 검증 대신 표면적인 오류 탐지에 머무르게 됩니다.",
-		"PR stacking은 하나의 기능 흐름은 유지하면서 리뷰 단위를 작게 나눕니다. 리뷰어는 40개 파일을 한 번에 보는 대신, 의존성이 정리된 순서대로 작은 PR을 검토할 수 있습니다.",
+		"PR stacking은 하나의 기능 흐름은 유지하면서 리뷰 단위를 작게 나눕니다. 리뷰어는 40개 파일을 한 번에 보는 대신, 의존성이 정리된 DAG 순서대로 작은 PR을 검토할 수 있습니다.",
+		"이전 버전의 스택 알고리즘은 단순한 선형 체인을 생성했습니다. 하지만 실제 PR에는 서로 독립적인 관심사 — 예를 들어 스키마 변경과 무관한 UI 리팩토링 — 가 함께 존재합니다. 이를 하나의 순서로 강제하면 불필요한 리뷰 병목이 생깁니다. 현재 알고리즘은 DAG(방향 비순환 그래프)를 만들어, 독립 그룹은 병렬로 리뷰·머지하고 실제 의존이 있는 그룹만 순서를 유지합니다.",
 		"중요한 건 정확성입니다. 분할 과정에서 동작이 달라지면 stacking은 오히려 위험해집니다. 그래서 newpr의 스택 파이프라인은 결과 동일성 보장을 최우선 불변조건으로 둡니다.",
 	],
 	principles: [
@@ -219,19 +233,19 @@ const KO_CONTENT: ArticleContent = {
 				"최종 불변식은 명확합니다. stack의 마지막 트리는 원본 PR의 head 트리와 완전히 동일해야 합니다. 어긋나면 성공이 아니라 실패입니다.",
 		},
 		{
-			title: "의존성 기반 순서화",
+			title: "선형 체인이 아닌 DAG",
 			description:
-				"파일명이나 커밋 시간 순서가 아니라, 실제 변경 의존성을 기반으로 PR 순서를 만듭니다. 중간 PR이 깨지는 상황을 방지합니다.",
+				"그룹은 일렬이 아닌 DAG를 형성합니다. 각 그룹은 명시적 의존 edge를 선언하며, 독립 그룹은 병렬로 리뷰·머지가 가능하고 의존 그룹만 정확한 순서를 유지합니다.",
 		},
 		{
-			title: "Patch 추측 대신 Git plumbing",
+			title: "다중 시그널 의존성 분석",
 			description:
-				"cherry-pick/patch 중심 접근이 아니라 tree/index 기반으로 실행하여 애매한 재적용 오차를 줄입니다.",
+				"순서 결정에 네 가지 시그널을 사용합니다: AST 기반 심볼 플로우(import/export), 디렉토리 근접도, git 히스토리의 co-change 빈도, 커밋 순서 경로 제약. 신뢰도 스코어가 이 시그널들을 종합하여 견고한 그룹핑을 수행합니다.",
 		},
 		{
-			title: "불가능한 계획은 빠르게 실패",
+			title: "순환 의존의 소프트 해소",
 			description:
-				"순환 의존이나 분해 불가능 결합이 탐지되면 일찍 중단하고, 이유를 구조화된 경고/에러로 노출합니다.",
+				"의존성 순환은 하드 실패가 아닌 소프트 힌트로 처리합니다. 알고리즘이 가장 약한 edge(path-order 우선, 다음 dependency)를 자동으로 제거해 유효한 위상 정렬을 만듭니다.",
 		},
 	],
 	pipeline: [
@@ -244,85 +258,101 @@ const KO_CONTENT: ArticleContent = {
 		{
 			phase: "2) 델타 추출",
 			goal: "base 대비 head의 구조적 변경 정보를 만듭니다.",
-			how: "raw diff를 파일/변경 단위의 정규화된 delta로 변환합니다.",
-			output: "후속 의존성 계산에 쓸 수 있는 delta 객체",
+			how: "git plumbing으로 파일/변경 단위의 정규화된 delta를 생성합니다.",
+			output: "파일별 blob SHA와 mode 변경을 포함한 delta 객체",
 		},
 		{
-			phase: "3) 1차 그룹 분할",
+			phase: "3) 심볼 플로우 & import 분석",
+			goal: "심볼 수준에서 파일 간 의존성을 매핑합니다.",
+			how: "변경된 파일의 AST를 파싱(meriyah)하여 export/import를 추출하고, 상대 경로 specifier를 실제 파일로 resolve합니다. 파일→파일 및 그룹→그룹 의존 edge를 import 관계로부터 생성합니다.",
+			output: "심볼 인덱스(어떤 파일이 어떤 심볼을 export하는지)와 그룹 레벨 의존성 맵",
+		},
+		{
+			phase: "4) 1차 그룹 분할",
 			goal: "변경 파일을 관심사 단위 그룹에 배치합니다.",
-			how: "기존 분석 그룹 + AI 분류를 조합해 미할당/모호 파일을 재배치합니다.",
-			output: "초기 ownership 맵 + 재배치 경고",
+			how: "기존 분석 그룹 + AI 분류를 조합해 미할당/모호 파일을 재배치합니다. 신뢰도 스코어링(import 친화도 40%, 디렉토리 근접도 30%, 심볼 겹침 20%, co-change 빈도 10%, 레이어 보너스)으로 배치를 검증·보정합니다.",
+			output: "초기 ownership 맵 + 재배치 경고 + 신뢰도 점수",
 		},
 		{
-			phase: "4) 결합 완화와 리밸런싱",
-			goal: "그룹 간 위험한 교차 의존을 줄입니다.",
-			how: "coupling 규칙 적용, oversized 그룹 분리, 재균형, empty 그룹 병합을 수행합니다.",
+			phase: "5) 결합 완화와 Co-Change 분석",
+			goal: "다중 시그널로 그룹 간 위험한 교차 의존을 줄입니다.",
+			how: "coupling 규칙 적용, oversized 그룹 분리, 재균형, empty 그룹 병합. git 히스토리의 co-change 분석으로 자주 함께 변경되는 파일 패턴을 반영합니다.",
 			output: "실행 가능한 품질의 그룹 세트",
 		},
 		{
-			phase: "5) 실행 가능성 검증",
-			goal: "이 그룹 구조가 실제 스택이 될 수 있는지 증명합니다.",
-			how: "순환 의존 탐지와 위상 정렬 가능성 검사를 실행 전 선검증합니다.",
-			output: "정렬 순서 또는 명시적 infeasible 에러",
+			phase: "6) 실행 가능성 & 순환 해소",
+			goal: "이 그룹 구조가 유효한 DAG 스택이 될 수 있는지 증명합니다.",
+			how: "path-order와 dependency constraint edge를 구축합니다. 순환을 탐지하면 가장 약한 edge를 자동 제거합니다. 결과 비순환 그래프를 최초 커밋 시각 기준 tie-breaking으로 위상 정렬합니다.",
+			output: "위상 정렬 순서 + DAG 의존 edge, 또는 진정 불가능 시 진단 정보",
 		},
 		{
-			phase: "6) 계획 생성",
-			goal: "예상 트리 해시를 포함한 실행 계획을 만듭니다.",
-			how: "그룹별 커밋 계획, 의존 edge, expected tree를 계산합니다.",
-			output: "결정적 실행 플랜",
+			phase: "7) DAG 계획 생성",
+			goal: "예상 트리와 ancestor set을 포함한 DAG 스택 계획을 만듭니다.",
+			how: "명시적 DAG 부모 edge가 포함된 그룹별 커밋 계획을 작성합니다. 각 그룹의 ancestor set(전이적 폐포)을 계산하고, git index 연산으로 expected tree hash를 예측합니다.",
+			output: "DAG 구조, ancestor set, 결정적 트리 기대치를 갖춘 실행 플랜",
 		},
 		{
-			phase: "7) 스택 실행",
-			goal: "브랜치/커밋 체인을 실제로 생성합니다.",
-			how: "계획된 순서대로 그룹 델타를 적용하고 그룹별 커밋을 작성합니다.",
-			output: "Draft PR 발행 가능한 브랜치 계층",
+			phase: "8) DAG 스택 실행",
+			goal: "DAG 브랜치/커밋 구조를 실제로 생성합니다.",
+			how: "위상 순서대로 각 그룹의 파일 델타를 base 트리에 적용(모든 ancestor 그룹 변경 포함). git commit-tree로 DAG 의존당 하나의 parent를 갖는 multi-parent 커밋을 생성합니다. leaf 노드가 여러 개인 DAG는 all-changes index를 별도 검증합니다.",
+			output: "multi-parent 커밋이 포함된 DAG 브랜치 계층, Draft PR 발행 준비 완료",
 		},
 		{
-			phase: "8) 결과 검증",
+			phase: "9) 결과 검증",
 			goal: "원본 PR과 결과가 동일함을 확인합니다.",
-			how: "최종 트리와 원본 head 트리를 비교하고 불변식을 검증합니다.",
+			how: "결과 트리(모든 leaf 그룹의 합집합 또는 all-changes index)를 원본 head 트리와 비교하고 불변식을 검증합니다.",
 			output: "검증 성공 또는 즉시 실패",
 		},
 	],
 	safetyItems: [
-		"불변식: tree(stackTop) == tree(originalHEAD)",
-		"중간 PR도 리뷰 가능한 상태를 유지하는 의존성 순서",
-		"assignment/grouping/verification 경고를 구조화해서 표출",
-		"서버 재시작 이후에도 sidecar 스냅샷 복구 가능",
+		"불변식: tree(stackTop) == tree(originalHEAD) — multi-leaf DAG는 all-changes index로 보장",
+		"DAG ancestor set이 각 그룹에 모든 선행 변경이 포함됨을 보증",
+		"순환은 가장 약한 constraint edge를 제거해 자동 해소, 위상 정렬 유효성 유지",
+		"중간 PR도 의존성 기반 base branch로 올바른 리뷰 가능 상태 유지",
+		"assignment/grouping/coupling/verification 경고를 구조화해서 표출",
 	],
 	risks: [
 		{
 			risk: "변경이 과도하게 결합된 경우",
-			mitigation: "coupling 규칙 + split/rebalance + feasibility gate로 분해 불가능 케이스를 사전 차단합니다.",
+			mitigation: "다중 시그널 coupling 분석(심볼 플로우 + co-change + path-order)과 split/rebalance + feasibility gate로 분해 불가능 케이스를 사전 차단합니다.",
 		},
 		{
 			risk: "AI 파일 분류 오차",
-			mitigation: "fallback ownership과 경고를 남기고, 의존성 검증 단계에서 추가 필터링합니다.",
+			mitigation: "신뢰도 스코어링이 네 가지 독립 시그널로 AI 배치를 검증합니다. 신뢰도가 낮은 배치는 플래그를 남기고 재배치합니다.",
+		},
+		{
+			risk: "그룹 간 순환 의존",
+			mitigation: "소프트 순환 해소가 가장 약한 edge(path-order 우선)를 자동 제거합니다. 모든 순환은 파이프라인 실패 없이 해소됩니다.",
+		},
+		{
+			risk: "DAG 트리 불일치 (multi-leaf 분기)",
+			mitigation: "전용 all-changes index가 전체 그룹의 합집합을 추적합니다. 최종 검증에서 원본 HEAD 트리와 비교해 모든 분기를 잡습니다.",
 		},
 		{
 			risk: "base/head SHA 누락",
 			mitigation: "required SHA 검증 후 누락 시 강제 fetch하여 잘못된 기준점 실행을 방지합니다.",
 		},
-		{
-			risk: "실행 결과가 원본과 달라지는 경우",
-			mitigation: "최종 tree-equivalence 검증에서 하드 실패 처리합니다.",
-		},
 	],
 	operatorGuide: [
 		"하나의 PR 안에 스키마/API/UI/테스트처럼 서로 다른 관심사가 섞여 있을 때 stacking 효과가 가장 큽니다.",
-		"생성된 PR을 '기반 계층 → 통합 계층 → UX/테스트 계층' 순서로 리뷰하면 의도 파악이 빠릅니다.",
-		"feasibility 실패 시 max group 강도를 낮추거나 결합 지점을 먼저 정리한 뒤 재실행하세요.",
-		"Draft PR 체인을 활용하면 병렬 피드백과 순차 머지를 동시에 가져갈 수 있습니다.",
+		"DAG 구조 덕분에 독립적인 그룹(예: 스키마 변경과 무관한 UI 수정)은 같은 레벨에 위치하며 병렬로 리뷰할 수 있습니다.",
+		"생성된 각 PR은 레벨 기반 라벨(L0, L1, L2)로 DAG 깊이를 표시하며, 어떤 PR이 먼저 머지되어야 하는지 의존성 링크가 포함됩니다.",
+		"순환 해소가 중요한 edge를 제거한 경우, coupling을 수동 조정한 뒤 재실행하세요.",
+		"Draft PR DAG를 활용하면 독립 관심사의 병렬 피드백과 의존 순서에 따른 순차 머지를 동시에 가져갈 수 있습니다.",
 	],
 	closingTitle: "핵심 요약",
 	closingParagraph:
-		"PR stacking은 UI 편의 기능이 아니라, 정합성을 강하게 보장하는 변환 파이프라인입니다. 올바르게 동작하면 리뷰 처리량을 높이고 인지 부하를 줄이면서도 최종 결과의 의미를 그대로 유지합니다.",
+		"PR stacking은 UI 편의 기능이 아니라, 정합성을 강하게 보장하는 DAG 변환 파이프라인입니다. 올바르게 동작하면 독립 관심사의 병렬 리뷰를 가능하게 하고, 리뷰 처리량을 높이고 인지 부하를 줄이면서도 최종 결과의 의미를 그대로 유지합니다.",
 };
 
-const CODE_SNIPPET = `extractDeltas -> partitionGroups -> applyCouplingRules
+const CODE_SNIPPET = `extractDeltas -> extractSymbols -> analyzeImportDeps
+    -> partitionGroups (+ confidenceScoring)
+    -> applyCouplingRules -> buildCoChangePairs
     -> splitOversizedGroups -> rebalanceGroups
-    -> checkFeasibility -> createStackPlan
-    -> executeStack -> verifyStack`;
+    -> checkFeasibility (+ softCycleBreaking)
+    -> createStackPlan (DAG parents + ancestor sets)
+    -> executeStack (multi-parent commits)
+    -> verifyStack`;
 
 function SectionHeader({ id, title }: { id: string; title: string }) {
 	return (
