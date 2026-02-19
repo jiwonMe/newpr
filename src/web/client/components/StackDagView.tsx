@@ -24,6 +24,7 @@ export interface DagGroup {
 	description: string;
 	files: string[];
 	deps: string[];
+	explicit_deps?: string[];
 	order: number;
 	stats?: StackGroupStats;
 	pr_title?: string;
@@ -60,7 +61,7 @@ function buildDagNodes(groups: DagGroup[]): DagNode[] {
 
 	const childrenOf = new Map<string, string[]>();
 	for (const g of groups) {
-		for (const dep of (g.deps ?? [])) {
+		for (const dep of (g.explicit_deps ?? g.deps ?? [])) {
 			if (!byId.has(dep)) continue;
 			const arr = childrenOf.get(dep) ?? [];
 			arr.push(g.id);
@@ -70,7 +71,7 @@ function buildDagNodes(groups: DagGroup[]): DagNode[] {
 
 	const hasIncomingEdge = new Set<string>();
 	for (const g of groups) {
-		for (const dep of (g.deps ?? [])) {
+		for (const dep of (g.explicit_deps ?? g.deps ?? [])) {
 			if (byId.has(dep)) hasIncomingEdge.add(g.id);
 		}
 	}

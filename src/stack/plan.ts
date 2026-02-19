@@ -22,10 +22,12 @@ export async function createStackPlan(input: PlanInput): Promise<StackPlan> {
 	const groupRank = new Map<string, number>();
 	group_order.forEach((gid, idx) => groupRank.set(gid, idx));
 
-	const dagParents = buildDagParents(group_order, dependency_edges ?? []);
+	const edges = dependency_edges ?? [];
+	const dagParents = buildDagParents(group_order, edges);
+	const explicitDagParents = buildExplicitDagParents(group_order, edges);
 	const ancestorSets = buildAncestorSets(group_order, dagParents);
 
-	const stackGroups = buildStackGroups(groups, group_order, ownership, dagParents);
+	const stackGroups = buildStackGroups(groups, group_order, ownership, dagParents, explicitDagParents);
 
 	const tmpIndexFiles: string[] = [];
 	const expectedTrees = new Map<string, string>();
@@ -126,6 +128,27 @@ export function buildDagParents(
 	groupOrder: string[],
 	dependencyEdges: Array<{ from: string; to: string }>,
 ): Map<string, string[]> {
+	const explicit = buildExplicitDagParents(groupOrder, dependencyEdges);
+
+	for (const gid of groupOrder) {
+		if ((explicit.get(gid) ?? []).length === 0) {
+			const rank = groupOrder.indexOf(gid);
+			if (rank > 0) {
+				const prev = groupOrder[rank - 1]!;
+				if (!dependencyEdges.some((e) => e.to === gid)) {
+					explicit.set(gid, [prev]);
+				}
+			}
+		}
+	}
+
+	return explicit;
+}
+
+export function buildExplicitDagParents(
+	groupOrder: string[],
+	dependencyEdges: Array<{ from: string; to: string }>,
+): Map<string, string[]> {
 	const parents = new Map<string, string[]>();
 	for (const gid of groupOrder) parents.set(gid, []);
 
@@ -133,18 +156,6 @@ export function buildDagParents(
 		if (!parents.has(edge.to)) continue;
 		const arr = parents.get(edge.to)!;
 		if (!arr.includes(edge.from)) arr.push(edge.from);
-	}
-
-	for (const gid of groupOrder) {
-		if ((parents.get(gid) ?? []).length === 0) {
-			const rank = groupOrder.indexOf(gid);
-			if (rank > 0) {
-				const prev = groupOrder[rank - 1]!;
-				if (!dependencyEdges.some((e) => e.to === gid)) {
-					parents.set(gid, [prev]);
-				}
-			}
-		}
 	}
 
 	return parents;
@@ -176,6 +187,7 @@ function buildStackGroups(
 	groupOrder: string[],
 	ownership: Map<string, string>,
 	dagParents: Map<string, string[]>,
+	explicitDagParents: Map<string, string[]>,
 ): StackGroup[] {
 	const groupNameMap = new Map<string, FileGroup>();
 	for (const g of groups) {
@@ -197,6 +209,7 @@ function buildStackGroups(
 			description: original?.description ?? "",
 			files: files.sort(),
 			deps: dagParents.get(gid) ?? [],
+			explicit_deps: explicitDagParents.get(gid) ?? [],
 			order: idx,
 		};
 	});

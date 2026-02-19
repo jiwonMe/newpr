@@ -113,7 +113,8 @@ export interface StackGroup {
 	type: GroupType;
 	description: string;
 	files: string[];
-	deps: string[]; // groupIds
+	deps: string[];
+	explicit_deps?: string[];
 	order: number;
 	stats?: StackGroupStats;
 	pr_title?: string;
