@@ -76,7 +76,7 @@ describe("checkFeasibility", () => {
 		expect(result.feasible).toBe(true);
 	});
 
-	test("declared deps creating cycle → infeasible", () => {
+	test("declared deps with mutual cycle → still feasible (cycle broken automatically)", () => {
 		const deltas: DeltaEntry[] = [
 			makeDelta("c1", "base", [{ status: "A", path: "a.ts" }]),
 			makeDelta("c2", "c1", [{ status: "A", path: "b.ts" }]),
@@ -94,9 +94,8 @@ describe("checkFeasibility", () => {
 
 		const result = checkFeasibility({ deltas, ownership, declared_deps: declaredDeps });
 
-		expect(result.feasible).toBe(false);
-		expect(result.cycle).toBeDefined();
-		expect(result.cycle?.group_cycle.length).toBeGreaterThan(0);
+		expect(result.feasible).toBe(true);
+		expect(result.ordered_group_ids).toHaveLength(2);
 	});
 
 	test("single file in one group → no edges, feasible", () => {
@@ -139,7 +138,7 @@ describe("checkFeasibility", () => {
 		expect(result.feasible).toBe(true);
 	});
 
-	test("mutual declared deps create cycle → infeasible", () => {
+	test("mutual declared deps create cycle → cycle broken, still feasible", () => {
 		const deltas: DeltaEntry[] = [
 			makeDelta("c1", "base", [{ status: "A", path: "a.ts" }]),
 			makeDelta("c2", "c1", [{ status: "A", path: "b.ts" }]),
@@ -156,8 +155,8 @@ describe("checkFeasibility", () => {
 		]);
 
 		const result = checkFeasibility({ deltas, ownership, declared_deps: declaredDeps });
-		expect(result.feasible).toBe(false);
-		expect(result.cycle).toBeDefined();
+		expect(result.feasible).toBe(true);
+		expect(result.ordered_group_ids).toHaveLength(2);
 	});
 
 	test("declared deps without cycle → feasible with correct order", () => {

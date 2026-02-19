@@ -30,50 +30,21 @@ export function checkFeasibility(input: FeasibilityInput): FeasibilityResult {
 	}
 
 	const deduped = deduplicateEdges(edges);
-
-	const declaredOnly = deduped.filter((e) => e.kind === "dependency");
-	if (hasCycle([...allGroups], declaredOnly)) {
-		const cycle = findMinimalCycle([...allGroups], buildAdjacency(declaredOnly), [], buildEdgeMap(declaredOnly));
-		return { feasible: false, ordered_group_ids: undefined, cycle };
-	}
-
-	const acyclic = removeConflictingPathOrderEdges(deduped);
+	const acyclic = breakAllCycles(deduped);
 	const result = topologicalSort(Array.from(allGroups), acyclic, deltas, ownership);
 
 	return result;
 }
 
-function buildAdjacency(edges: ConstraintEdge[]): Map<string, string[]> {
-	const adjacency = new Map<string, string[]>();
-	for (const e of edges) {
-		if (!adjacency.has(e.from)) adjacency.set(e.from, []);
-		if (!adjacency.has(e.to)) adjacency.set(e.to, []);
-		adjacency.get(e.from)!.push(e.to);
-	}
-	return adjacency;
-}
-
-function buildEdgeMap(edges: ConstraintEdge[]): Map<string, ConstraintEdge> {
-	const m = new Map<string, ConstraintEdge>();
-	for (const e of edges) m.set(`${e.from}→${e.to}`, e);
-	return m;
-}
-
-function removeConflictingPathOrderEdges(edges: ConstraintEdge[]): ConstraintEdge[] {
-	const depEdgeSet = new Set(edges.filter((e) => e.kind === "dependency").map((e) => `${e.from}→${e.to}`));
-
-	const result: ConstraintEdge[] = [];
+function breakAllCycles(edges: ConstraintEdge[]): ConstraintEdge[] {
+	const edgeSet = new Set(edges.map((e) => `${e.from}→${e.to}`));
+	const withoutMutual: ConstraintEdge[] = [];
 	for (const edge of edges) {
-		if (edge.kind !== "path-order") {
-			result.push(edge);
-			continue;
-		}
 		const reverseKey = `${edge.to}→${edge.from}`;
-		if (depEdgeSet.has(reverseKey)) continue;
-		result.push(edge);
+		if (edgeSet.has(reverseKey) && edge.kind === "dependency") continue;
+		withoutMutual.push(edge);
 	}
-
-	return breakRemainingCycles(result);
+	return breakRemainingCycles(withoutMutual);
 }
 
 function hasCycle(groups: string[], edges: ConstraintEdge[]): boolean {
