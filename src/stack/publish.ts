@@ -88,6 +88,45 @@ function buildGroupMetaMap(groups: StackPublishGroupMeta[] | undefined): Map<str
 	return map;
 }
 
+function buildDagLevelMap(
+	groupCommits: StackExecResult["group_commits"],
+	groupMetaById: Map<string, StackPublishGroupMeta>,
+): Map<string, number> {
+	const levels = new Map<string, number>();
+	const inDegree = new Map<string, number>();
+
+	for (const gc of groupCommits) {
+		inDegree.set(gc.group_id, 0);
+	}
+
+	for (const gc of groupCommits) {
+		const deps = groupMetaById.get(gc.group_id)?.deps ?? [];
+		if (deps.length > 0) {
+			inDegree.set(gc.group_id, deps.length);
+		}
+	}
+
+	const queue = groupCommits.filter((gc) => (inDegree.get(gc.group_id) ?? 0) === 0).map((gc) => gc.group_id);
+	for (const gid of queue) levels.set(gid, 0);
+
+	while (queue.length > 0) {
+		const gid = queue.shift()!;
+		const level = levels.get(gid) ?? 0;
+		for (const gc of groupCommits) {
+			const deps = groupMetaById.get(gc.group_id)?.deps ?? [];
+			if (deps.includes(gid)) {
+				const newLevel = Math.max(levels.get(gc.group_id) ?? 0, level + 1);
+				levels.set(gc.group_id, newLevel);
+				const remaining = (inDegree.get(gc.group_id) ?? 1) - 1;
+				inDegree.set(gc.group_id, remaining);
+				if (remaining === 0) queue.push(gc.group_id);
+			}
+		}
+	}
+
+	return levels;
+}
+
 function buildEffectiveGroupMeta(
 	execResult: StackExecResult,
 	groupMetaById: Map<string, StackPublishGroupMeta>,
@@ -461,6 +500,8 @@ export async function publishStack(input: PublishInput): Promise<StackPublishRes
 
 	const branchByGroupId = new Map(exec_result.group_commits.map((gc) => [gc.group_id, gc.branch_name]));
 
+	const dagLevelMap = buildDagLevelMap(exec_result.group_commits, groupMetaById);
+
 	const resolvePrBase = (gc: typeof exec_result.group_commits[number], index: number): string => {
 		const planGroup = plan_groups?.find((g) => g.id === gc.group_id);
 		const directDeps: string[] = planGroup?.deps ?? [];
@@ -499,7 +540,8 @@ export async function publishStack(input: PublishInput): Promise<StackPublishRes
 		if (!prBase) continue;
 
 		const order = i + 1;
-		const title = previewItem?.title ?? buildStackPrTitle(gc, pr_meta, order, total);
+		const dagLevel = dagLevelMap.get(gc.group_id);
+		const title = previewItem?.title ?? buildStackPrTitle(gc, pr_meta, order, total, dagLevel);
 
 		const placeholder = previewItem?.body ?? buildPlaceholderBody(
 			gc.group_id,
@@ -522,6 +564,7 @@ export async function publishStack(input: PublishInput): Promise<StackPublishRes
 			const prUrl = prResult.stdout.toString().trim();
 			const prNumberMatch = prUrl.match(/\/pull\/(\d+)/);
 
+			const planGroupDeps = plan_groups?.find((g) => g.id === gc.group_id)?.deps ?? [];
 			prs.push({
 				group_id: gc.group_id,
 				number: prNumberMatch ? parseInt(prNumberMatch[1]!, 10) : 0,
@@ -529,6 +572,7 @@ export async function publishStack(input: PublishInput): Promise<StackPublishRes
 				title,
 				base_branch: prBase,
 				head_branch: gc.branch_name,
+				dep_group_ids: planGroupDeps,
 			});
 		} else {
 			const stderr = prResult.stderr.toString().trim();
@@ -537,7 +581,7 @@ export async function publishStack(input: PublishInput): Promise<StackPublishRes
 	}
 
 	await updatePrBodies(ghRepo, prs, pr_meta, prTemplate, groupMetaById, llmPrefillByGroup, previewByGroup);
-	await postStackNavigationComments(ghRepo, prs);
+	await postStackNavigationComments(ghRepo, prs, dagLevelMap);
 
 	return { branches, prs };
 }
@@ -628,7 +672,11 @@ async function updatePrBodies(
 	}
 }
 
-async function postStackNavigationComments(ghRepo: string, prs: PrInfo[]): Promise<void> {
+async function postStackNavigationComments(
+	ghRepo: string,
+	prs: PrInfo[],
+	dagLevelMap: Map<string, number>,
+): Promise<void> {
 	if (prs.length === 0) return;
 
 	for (let i = 0; i < prs.length; i++) {
@@ -636,7 +684,7 @@ async function postStackNavigationComments(ghRepo: string, prs: PrInfo[]): Promi
 		const alreadyPosted = await hasStackNavigationComment(ghRepo, pr.number);
 		if (alreadyPosted) continue;
 
-		const comment = buildStackNavigationComment(i, prs);
+		const comment = buildStackNavigationComment(i, prs, dagLevelMap);
 		const commentResult = await runWithBodyFile(
 			comment,
 			(filePath) => Bun.$`gh pr comment ${pr.number} --repo ${ghRepo} --body-file ${filePath}`.quiet().nothrow(),
@@ -679,8 +727,10 @@ function buildStackPrTitle(
 	prMeta: PrMeta,
 	order: number,
 	total: number,
+	dagLevel?: number,
 ): string {
-	const stackPrefix = `[PR#${prMeta.pr_number} ${order}/${total}]`;
+	const levelLabel = dagLevel !== undefined ? `L${dagLevel}` : `${order}/${total}`;
+	const stackPrefix = `[PR#${prMeta.pr_number} ${levelLabel}]`;
 	return groupCommit.pr_title
 		? `${stackPrefix} ${groupCommit.pr_title}`
 		: `${stackPrefix} ${groupCommit.group_id}`;
@@ -696,11 +746,16 @@ function buildDescriptionBody(
 	baseBranch?: string,
 	headBranch?: string,
 	llmBullets?: SectionBullets,
+	dagLevel?: number,
 ): string {
+	const positionLabel = dagLevel !== undefined ? `L${dagLevel}` : `${order}/${total}`;
+	const depNames = (groupMeta?.deps ?? []).length > 0
+		? `Depends on: ${(groupMeta?.deps ?? []).join(", ")}`
+		: "Base of stack";
 	const lines = [
-		`> **Stack ${order}/${total}** — This PR is part of a stacked PR chain created by [newpr](https://github.com/jiwonMe/newpr).`,
+		`> **Stack ${positionLabel}** — This PR is part of a stacked PR chain created by [newpr](https://github.com/jiwonMe/newpr).`,
 		`> Source: #${prMeta.pr_number} ${prMeta.pr_title}`,
-		`> Stack navigation is posted as a discussion comment.`,
+		`> ${depNames} · Stack navigation is posted as a discussion comment.`,
 		``,
 		`---`,
 		``,
@@ -740,35 +795,55 @@ function buildFullBody(
 	return buildDescriptionBody(current.group_id, index + 1, allPrs.length, prMeta, prTemplate, groupMeta, baseBranch, headBranch, llmBullets);
 }
 
-function buildStackNavigationComment(index: number, allPrs: PrInfo[]): string {
+function buildStackNavigationComment(
+	index: number,
+	allPrs: PrInfo[],
+	dagLevelMap: Map<string, number>,
+): string {
 	const total = allPrs.length;
-	const order = index + 1;
+	const currentPr = allPrs[index]!;
+	const currentLevel = dagLevelMap.get(currentPr.group_id) ?? index;
+	const prByGroupId = new Map(allPrs.map((pr) => [pr.group_id, pr]));
+
+	const depPrs = (currentPr.dep_group_ids ?? [])
+		.map((depId) => prByGroupId.get(depId))
+		.filter((pr): pr is PrInfo => Boolean(pr));
+
+	const dependentPrs = allPrs.filter((pr) =>
+		(pr.dep_group_ids ?? []).includes(currentPr.group_id),
+	);
 
 	const stackTable = allPrs.map((pr, i) => {
-		const num = i + 1;
 		const isCurrent = i === index;
 		const marker = isCurrent ? "👉" : statusEmoji(i, index);
 		const link = `[#${pr.number}](${pr.url})`;
 		const titleText = pr.title.replace(/^\[(?:PR#\d+\s+\d+\/\d+|Stack\s+\d+\/\d+|\d+\/\d+)\]\s*/i, "");
-		return `| ${marker} | ${num}/${total} | ${link} | ${titleText} |`;
+		const level = dagLevelMap.get(pr.group_id) ?? i;
+		const indent = level > 0 ? "  ".repeat(level) : "";
+		return `| ${marker} | L${level} | ${link} | ${indent}${titleText} |`;
 	}).join("\n");
 
-	const prev = index > 0
-		? `⬅️ Previous: [#${allPrs[index - 1]!.number}](${allPrs[index - 1]!.url})`
-		: "⬅️ Previous: base branch";
-	const next = index < total - 1
-		? `➡️ Next: [#${allPrs[index + 1]!.number}](${allPrs[index + 1]!.url})`
-		: "➡️ Next: top of stack";
+	const navLines: string[] = [];
+	if (depPrs.length > 0) {
+		navLines.push(`⬆️ Depends on: ${depPrs.map((p) => `[#${p.number}](${p.url})`).join(", ")}`);
+	} else {
+		navLines.push("⬆️ Depends on: base branch");
+	}
+	if (dependentPrs.length > 0) {
+		navLines.push(`⬇️ Required by: ${dependentPrs.map((p) => `[#${p.number}](${p.url})`).join(", ")}`);
+	} else {
+		navLines.push("⬇️ Required by: (top of stack)");
+	}
 
 	return [
 		STACK_NAV_COMMENT_MARKER,
-		`### 📚 Stack Navigation (${order}/${total})`,
+		`### 📚 Stack Navigation (L${currentLevel}, PR ${index + 1}/${total})`,
 		``,
-		`| | Order | PR | Title |`,
+		`| | Level | PR | Title |`,
 		`|---|---|---|---|`,
 		stackTable,
 		``,
-		`${prev} | ${next}`,
+		navLines.join(" | "),
 		``,
 		`_Posted by newpr during stack publish._`,
 	].join("\n");

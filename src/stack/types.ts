@@ -162,6 +162,7 @@ export interface PrInfo {
 	title: string;
 	base_branch: string;
 	head_branch: string;
+	dep_group_ids?: string[];
 }
 
 export interface StackPublishResult {

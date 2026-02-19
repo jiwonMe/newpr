@@ -228,20 +228,21 @@ export function StackPanel({ sessionId, onTrackAnalysis }: StackPanelProps) {
 							</span>
 						)}
 					</div>
-					<div className="space-y-0">
-						{stack.plan.groups.map((group) => {
-							const commit = stack.execResult?.group_commits.find((gc) => gc.group_id === group.id);
-							const pr = stack.publishResult?.prs.find((p) => p.group_id === group.id);
-							return (
-								<StackGroupCard
-									key={group.id}
-									group={group}
-									commit={commit}
-									pr={pr}
-								/>
-							);
-						})}
-					</div>
+		<div className="space-y-0">
+					{stack.plan.groups.map((group) => {
+						const commit = stack.execResult?.group_commits.find((gc) => gc.group_id === group.id);
+						const pr = stack.publishResult?.prs.find((p) => p.group_id === group.id);
+						return (
+							<StackGroupCard
+								key={group.id}
+								group={group}
+								commit={commit}
+								pr={pr}
+								allGroups={stack.plan!.groups}
+							/>
+						);
+					})}
+				</div>
 				</div>
 			)}
 

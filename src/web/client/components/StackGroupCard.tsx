@@ -45,6 +45,7 @@ interface StackGroupCardProps {
 		description: string;
 		files: string[];
 		order: number;
+		deps?: string[];
 		stats?: StackGroupStats;
 		pr_title?: string;
 	};
@@ -57,15 +58,28 @@ interface StackGroupCardProps {
 		url: string;
 		title: string;
 	};
+	allGroups?: Array<{ id: string; name: string; pr_title?: string }>;
 }
 
-export function StackGroupCard({ group, commit, pr }: StackGroupCardProps) {
+export function StackGroupCard({ group, commit, pr, allGroups }: StackGroupCardProps) {
 	const [expanded, setExpanded] = useState(false);
 	const stats = group.stats;
 	const colors = TYPE_COLORS[group.type] ?? TYPE_COLORS.chore!;
+	const hasDeps = (group.deps ?? []).length > 0;
+	const depNames = (group.deps ?? []).map((depId) => {
+		const found = allGroups?.find((g) => g.id === depId);
+		return found?.pr_title ?? found?.name ?? depId;
+	});
 
 	return (
 		<div className="group/card">
+			{hasDeps && (
+				<div className="ml-[26px] px-3 pb-0.5 flex items-center gap-1.5 flex-wrap">
+					{depNames.map((name, i) => (
+						<span key={i} className="text-[9px] text-muted-foreground/25 font-mono leading-none">↑ {name}</span>
+					))}
+				</div>
+			)}
 			<button
 				type="button"
 				onClick={() => setExpanded(!expanded)}
