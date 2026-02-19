@@ -51,6 +51,7 @@ export function ResultsScreen({
 	onTabChange,
 	onReanalyze,
 	enabledPlugins,
+	onTrackAnalysis,
 }: {
 	data: NewprOutput;
 	onBack: () => void;
@@ -61,6 +62,7 @@ export function ResultsScreen({
 	onTabChange?: (tab: string) => void;
 	onReanalyze?: (prUrl: string) => void;
 	enabledPlugins?: string[];
+	onTrackAnalysis?: (analysisSessionId: string, prUrl: string) => void;
 }) {
 	const { meta, summary } = data;
 	const [tab, setTab] = useState<TabValue>(getInitialTab);
@@ -274,7 +276,7 @@ export function ResultsScreen({
 				/>
 			</TabsContent>
 			<TabsContent value="stack">
-				<StackPanel sessionId={sessionId} />
+				<StackPanel sessionId={sessionId} onTrackAnalysis={onTrackAnalysis} />
 			</TabsContent>
 			<TabsContent value="slides">
 				<SlidesPanel data={data} sessionId={sessionId} />

@@ -202,6 +202,7 @@ export function App() {
 					onTabChange={handleTabChange}
 					onReanalyze={(prUrl: string) => { analysis.start(prUrl); }}
 					enabledPlugins={features.enabledPlugins}
+					onTrackAnalysis={bgAnalyses.track}
 				/>
 			)}
 			{analysis.phase === "error" && (

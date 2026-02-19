@@ -133,7 +133,11 @@ function applyServerState(server: ServerStackState): Partial<StackState> {
 	};
 }
 
-export function useStack(sessionId: string | null | undefined) {
+interface UseStackOptions {
+	onTrackAnalysis?: (analysisSessionId: string, prUrl: string) => void;
+}
+
+export function useStack(sessionId: string | null | undefined, options?: UseStackOptions) {
 	const [state, setState] = useState<StackState>({
 		phase: "idle",
 		error: null,
@@ -253,11 +257,29 @@ export function useStack(sessionId: string | null | undefined) {
 			const data = await res.json();
 			if (!res.ok) throw new Error(data.error ?? "Publishing failed");
 
+			const publishResult = data.publish_result as PublishResultData;
+
 			setState((s) => ({
 				...s,
 				phase: "done",
-				publishResult: data.publish_result,
+				publishResult,
 			}));
+
+			if (options?.onTrackAnalysis && publishResult?.prs?.length > 0) {
+				for (const pr of publishResult.prs) {
+					try {
+						const analysisRes = await fetch("/api/analysis", {
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify({ pr: pr.url }),
+						});
+						const analysisData = await analysisRes.json() as { sessionId?: string };
+						if (analysisData.sessionId) {
+							options.onTrackAnalysis(analysisData.sessionId, pr.url);
+						}
+					} catch {}
+				}
+			}
 		} catch (err) {
 			setState((s) => ({
 				...s,
@@ -265,7 +287,7 @@ export function useStack(sessionId: string | null | undefined) {
 				error: err instanceof Error ? err.message : String(err),
 			}));
 		}
-	}, [sessionId]);
+	}, [sessionId, options]);
 
 	const reset = useCallback(() => {
 		eventSourceRef.current?.close();

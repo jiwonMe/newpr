@@ -68,8 +68,13 @@ function PipelineTimeline({ phase }: { phase: StackPhase }) {
 	);
 }
 
-export function StackPanel({ sessionId }: { sessionId?: string | null }) {
-	const stack = useStack(sessionId);
+interface StackPanelProps {
+	sessionId?: string | null;
+	onTrackAnalysis?: (analysisSessionId: string, prUrl: string) => void;
+}
+
+export function StackPanel({ sessionId, onTrackAnalysis }: StackPanelProps) {
+	const stack = useStack(sessionId, { onTrackAnalysis });
 
 	if (stack.phase === "idle") {
 		return (
