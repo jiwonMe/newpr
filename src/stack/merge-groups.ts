@@ -150,6 +150,9 @@ export function mergeEmptyGroups(
 
 		for (let j = 0; j < working.length; j++) {
 			working[j]!.order = j;
+			working[j]!.deps = (working[j]!.deps ?? [])
+				.map((dep) => dep === g.id ? neighbor.id : dep)
+				.filter((dep) => working.some((w) => w.id === dep));
 		}
 	}
 
