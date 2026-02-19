@@ -216,8 +216,9 @@ export function useStack(sessionId: string | null | undefined, options?: UseStac
 		});
 
 		es.onerror = () => {
-			es.close();
-			eventSourceRef.current = null;
+			if (es.readyState === EventSource.CLOSED) {
+				eventSourceRef.current = null;
+			}
 		};
 	}, []);
 
