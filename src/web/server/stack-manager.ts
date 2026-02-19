@@ -562,34 +562,34 @@ async function runStackPipeline(
 			files: (balancedGroupFilesAfterConfidence.get(g.name) ?? g.files).sort(),
 		}));
 
-		const layerDeps = new Map<string, string[]>();
 		const groupLayerOrder = new Map<string, number>();
 		for (const g of currentGroups) {
 			const layer = classifyGroupLayer(g, symbolMap);
 			groupLayerOrder.set(g.name, layer === "schema" ? 0 : layer === "refactor" ? 1 : layer === "core" ? 2 : layer === "integration" ? 3 : layer === "ui" ? 4 : layer === "test" ? 5 : 2);
 		}
 
-		const sortedByLayer = [...currentGroups].sort((a, b) => (groupLayerOrder.get(a.name) ?? 2) - (groupLayerOrder.get(b.name) ?? 2));
-		for (let i = 1; i < sortedByLayer.length; i++) {
-			const prev = sortedByLayer[i - 1]!;
-			const curr = sortedByLayer[i]!;
-			if ((groupLayerOrder.get(prev.name) ?? 2) < (groupLayerOrder.get(curr.name) ?? 2)) {
-				const deps = layerDeps.get(curr.name) ?? [];
-				deps.push(prev.name);
-				layerDeps.set(curr.name, deps);
-			}
+		const importDepEdges = new Set<string>();
+		for (const [group, deps] of importDeps.groupDeps) {
+			for (const dep of deps) importDepEdges.add(`${dep}→${group}`);
 		}
 
 		const mergedDeclaredDeps = new Map<string, string[]>();
 		for (const [group, deps] of importDeps.groupDeps) {
 			mergedDeclaredDeps.set(group, [...deps]);
 		}
-		for (const [group, deps] of layerDeps) {
-			const existing = mergedDeclaredDeps.get(group) ?? [];
-			for (const d of deps) {
-				if (!existing.includes(d)) existing.push(d);
+
+		const sortedByLayer = [...currentGroups].sort((a, b) => (groupLayerOrder.get(a.name) ?? 2) - (groupLayerOrder.get(b.name) ?? 2));
+		for (let i = 1; i < sortedByLayer.length; i++) {
+			const prev = sortedByLayer[i - 1]!;
+			const curr = sortedByLayer[i]!;
+			if ((groupLayerOrder.get(prev.name) ?? 2) >= (groupLayerOrder.get(curr.name) ?? 2)) continue;
+			const reverseKey = `${curr.name}→${prev.name}`;
+			if (importDepEdges.has(reverseKey)) continue;
+			const existing = mergedDeclaredDeps.get(curr.name) ?? [];
+			if (!existing.includes(prev.name)) {
+				existing.push(prev.name);
+				mergedDeclaredDeps.set(curr.name, existing);
 			}
-			mergedDeclaredDeps.set(group, existing);
 		}
 
 		emit(session, "partitioning", "Checking feasibility...");

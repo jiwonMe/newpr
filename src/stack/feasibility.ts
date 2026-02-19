@@ -30,7 +30,93 @@ export function checkFeasibility(input: FeasibilityInput): FeasibilityResult {
 	}
 
 	const deduped = deduplicateEdges(edges);
-	const result = topologicalSort(Array.from(allGroups), deduped, deltas, ownership);
+
+	const declaredOnly = deduped.filter((e) => e.kind === "dependency");
+	if (hasCycle([...allGroups], declaredOnly)) {
+		const cycle = findMinimalCycle([...allGroups], buildAdjacency(declaredOnly), [], buildEdgeMap(declaredOnly));
+		return { feasible: false, ordered_group_ids: undefined, cycle };
+	}
+
+	const acyclic = removeConflictingPathOrderEdges(deduped);
+	const result = topologicalSort(Array.from(allGroups), acyclic, deltas, ownership);
+
+	return result;
+}
+
+function buildAdjacency(edges: ConstraintEdge[]): Map<string, string[]> {
+	const adjacency = new Map<string, string[]>();
+	for (const e of edges) {
+		if (!adjacency.has(e.from)) adjacency.set(e.from, []);
+		if (!adjacency.has(e.to)) adjacency.set(e.to, []);
+		adjacency.get(e.from)!.push(e.to);
+	}
+	return adjacency;
+}
+
+function buildEdgeMap(edges: ConstraintEdge[]): Map<string, ConstraintEdge> {
+	const m = new Map<string, ConstraintEdge>();
+	for (const e of edges) m.set(`${e.from}→${e.to}`, e);
+	return m;
+}
+
+function removeConflictingPathOrderEdges(edges: ConstraintEdge[]): ConstraintEdge[] {
+	const depEdgeSet = new Set(edges.filter((e) => e.kind === "dependency").map((e) => `${e.from}→${e.to}`));
+
+	const result: ConstraintEdge[] = [];
+	for (const edge of edges) {
+		if (edge.kind !== "path-order") {
+			result.push(edge);
+			continue;
+		}
+		const reverseKey = `${edge.to}→${edge.from}`;
+		if (depEdgeSet.has(reverseKey)) continue;
+		result.push(edge);
+	}
+
+	return breakRemainingCycles(result);
+}
+
+function hasCycle(groups: string[], edges: ConstraintEdge[]): boolean {
+	const adjacency = new Map<string, string[]>();
+	for (const g of groups) adjacency.set(g, []);
+	for (const e of edges) adjacency.get(e.from)?.push(e.to);
+
+	const WHITE = 0, GRAY = 1, BLACK = 2;
+	const color = new Map<string, number>(groups.map((g) => [g, WHITE]));
+
+	const dfs = (node: string): boolean => {
+		color.set(node, GRAY);
+		for (const neighbor of adjacency.get(node) ?? []) {
+			if (color.get(neighbor) === GRAY) return true;
+			if (color.get(neighbor) === WHITE && dfs(neighbor)) return true;
+		}
+		color.set(node, BLACK);
+		return false;
+	};
+
+	for (const g of groups) {
+		if (color.get(g) === WHITE && dfs(g)) return true;
+	}
+	return false;
+}
+
+function breakRemainingCycles(edges: ConstraintEdge[]): ConstraintEdge[] {
+	const groups = [...new Set(edges.flatMap((e) => [e.from, e.to]))];
+	if (!hasCycle(groups, edges)) return edges;
+
+	const prioritized = [...edges].sort((a, b) => {
+		const kindScore = (e: ConstraintEdge) =>
+			e.kind === "path-order" ? 0 : e.kind === "dependency" ? 1 : 2;
+		return kindScore(a) - kindScore(b);
+	});
+
+	const result: ConstraintEdge[] = [];
+	for (const edge of prioritized) {
+		result.push(edge);
+		if (hasCycle(groups, result)) {
+			result.pop();
+		}
+	}
 
 	return result;
 }
@@ -62,26 +148,24 @@ function addPathOrderEdges(
 
 	for (const [path, seq] of pathEditSequences) {
 		const collapsed = collapseConsecutiveDuplicates(seq);
+		if (collapsed.length < 2) continue;
 
-		for (let i = 0; i < collapsed.length - 1; i++) {
-			const prev = collapsed[i];
-			const next = collapsed[i + 1];
-			if (!prev || !next) continue;
-			if (prev.group_id === next.group_id) continue;
+		const first = collapsed[0]!;
+		const last = collapsed[collapsed.length - 1]!;
+		if (first.group_id === last.group_id) continue;
 
-			edges.push({
-				from: prev.group_id,
-				to: next.group_id,
-				kind: "path-order",
-				evidence: {
-					path,
-					from_commit: prev.sha,
-					to_commit: next.sha,
-					from_commit_index: prev.commit_index,
-					to_commit_index: next.commit_index,
-				},
-			});
-		}
+		edges.push({
+			from: first.group_id,
+			to: last.group_id,
+			kind: "path-order",
+			evidence: {
+				path,
+				from_commit: first.sha,
+				to_commit: last.sha,
+				from_commit_index: first.commit_index,
+				to_commit_index: last.commit_index,
+			},
+		});
 	}
 }
 
@@ -234,8 +318,8 @@ function tieBreaker(
 function findMinimalCycle(
 	allGroups: string[],
 	adjacency: Map<string, string[]>,
-	sorted: string[],
-	edgeMap: Map<string, ConstraintEdge>,
+	sorted: string[] = [],
+	edgeMap: Map<string, ConstraintEdge> = new Map(),
 ): CycleReport {
 	const inCycle = new Set(allGroups.filter((g) => !sorted.includes(g)));
 
