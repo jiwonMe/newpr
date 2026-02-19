@@ -61,12 +61,7 @@ export async function loadConfig(
 ): Promise<NewprConfig> {
 	const stored = await (_readStore ?? readStoredConfig)();
 
-	const apiKey = process.env.OPENROUTER_API_KEY || stored.openrouter_api_key;
-	if (!apiKey) {
-		throw new Error(
-			"OPENROUTER_API_KEY is not set. Run `newpr auth` to configure, or set the environment variable.",
-		);
-	}
+	const apiKey = process.env.OPENROUTER_API_KEY || stored.openrouter_api_key || "";
 
 	const agentVal = stored.agent as NewprConfig["agent"];
 	const rawLang = process.env.NEWPR_LANGUAGE || stored.language || DEFAULT_CONFIG.language;
