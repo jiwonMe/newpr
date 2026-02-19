@@ -19,6 +19,7 @@ import { createStackPlan } from "../../stack/plan.ts";
 import { executeStack } from "../../stack/execute.ts";
 import { verifyStack } from "../../stack/verify.ts";
 import { runStackQualityGate } from "../../stack/quality-gate.ts";
+import { analyzeImportDependencies } from "../../stack/import-deps.ts";
 import { generatePrTitles } from "../../stack/pr-title.ts";
 import { createResilientLlmClient } from "../../llm/resilient-client.ts";
 import { telemetry } from "../../telemetry/index.ts";
@@ -507,8 +508,20 @@ async function runStackPipeline(
 			}
 		}
 
+		emit(session, "partitioning", "Analyzing import dependencies...");
+		const importDeps = await analyzeImportDependencies(
+			repoPath,
+			headSha,
+			changedFiles,
+			mergedOwnership,
+		);
+
 		emit(session, "partitioning", "Checking feasibility...");
-		const feasibility = checkFeasibility({ deltas, ownership: mergedOwnership });
+		const feasibility = checkFeasibility({
+			deltas,
+			ownership: mergedOwnership,
+			declared_deps: importDeps.groupDeps,
+		});
 		const ownershipObj = Object.fromEntries(mergedOwnership);
 
 		session.partition = {
