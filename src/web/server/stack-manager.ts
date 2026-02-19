@@ -66,6 +66,7 @@ export interface StackPlanData {
 	head_sha: string;
 	groups: StackPlan["groups"];
 	expected_trees: Record<string, string>;
+	ancestor_sets?: Record<string, string[]>;
 }
 
 export interface StackVerifyData {
@@ -684,6 +685,7 @@ async function runStackPipeline(
 			head_sha: plan.head_sha,
 			groups: plan.groups,
 			expected_trees: Object.fromEntries(plan.expected_trees),
+			ancestor_sets: Object.fromEntries([...plan.ancestor_sets.entries()].map(([k, v]) => [k, v])),
 		};
 
 		checkAborted(session);

@@ -108,11 +108,17 @@ export async function createStackPlan(input: PlanInput): Promise<StackPlan> {
 		}
 	}
 
+	const ancestorSetsRecord = new Map<string, string[]>();
+	for (const [gid, set] of ancestorSets) {
+		ancestorSetsRecord.set(gid, Array.from(set));
+	}
+
 	return {
 		base_sha,
 		head_sha,
 		groups: stackGroups,
 		expected_trees: expectedTrees,
+		ancestor_sets: ancestorSetsRecord,
 	};
 }
 

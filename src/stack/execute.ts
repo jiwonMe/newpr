@@ -79,12 +79,21 @@ export async function executeStack(input: ExecuteInput): Promise<StackExecResult
 	const groupRank = new Map<string, number>();
 	groupOrder.forEach((gid, idx) => groupRank.set(gid, idx));
 
-	const groupIdSet = new Set(groupOrder);
-	const dagParents = new Map<string, string[]>();
-	for (const g of plan.groups) {
-		dagParents.set(g.id, (g.deps ?? []).filter((dep) => groupIdSet.has(dep)));
+	const ancestorSets = new Map<string, Set<string>>();
+	if (plan.ancestor_sets && plan.ancestor_sets.size > 0) {
+		for (const [gid, ancestors] of plan.ancestor_sets) {
+			ancestorSets.set(gid, new Set(ancestors));
+		}
+	} else {
+		const groupIdSet = new Set(groupOrder);
+		const dagParents = new Map<string, string[]>();
+		for (const g of plan.groups) {
+			dagParents.set(g.id, (g.deps ?? []).filter((dep) => groupIdSet.has(dep)));
+		}
+		for (const [gid, set] of buildAncestorSets(groupOrder, dagParents)) {
+			ancestorSets.set(gid, set);
+		}
 	}
-	const ancestorSets = buildAncestorSets(groupOrder, dagParents);
 
 	try {
 		for (let i = 0; i < groupOrder.length; i++) {

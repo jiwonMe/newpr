@@ -123,7 +123,8 @@ export interface StackPlan {
 	base_sha: string;
 	head_sha: string;
 	groups: StackGroup[];
-	expected_trees: Map<string, string>; // groupId -> treeSha
+	expected_trees: Map<string, string>;
+	ancestor_sets: Map<string, string[]>;
 }
 
 // ============================================================================
