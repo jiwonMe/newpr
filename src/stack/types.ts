@@ -89,6 +89,7 @@ export interface CycleReport {
 export interface FeasibilityResult {
 	feasible: boolean;
 	ordered_group_ids?: string[];
+	dependency_edges?: Array<{ from: string; to: string }>;
 	cycle?: CycleReport;
 	unassigned_paths?: Array<{ path: string; commits: string[] }>;
 	ambiguous_paths?: Array<{ path: string; groups: string[]; commits: string[] }>;

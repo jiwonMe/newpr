@@ -13,15 +13,19 @@ export interface PlanInput {
 	ownership: Map<string, string>;
 	group_order: string[];
 	groups: FileGroup[];
+	dependency_edges?: Array<{ from: string; to: string }>;
 }
 
 export async function createStackPlan(input: PlanInput): Promise<StackPlan> {
-	const { repo_path, base_sha, head_sha, deltas, ownership, group_order, groups } = input;
+	const { repo_path, base_sha, head_sha, deltas, ownership, group_order, groups, dependency_edges } = input;
 
 	const groupRank = new Map<string, number>();
 	group_order.forEach((gid, idx) => groupRank.set(gid, idx));
 
-	const stackGroups = buildStackGroups(groups, group_order, ownership);
+	const dagParents = buildDagParents(group_order, dependency_edges ?? []);
+	const ancestorSets = buildAncestorSets(group_order, dagParents);
+
+	const stackGroups = buildStackGroups(groups, group_order, ownership, dagParents);
 
 	const tmpIndexFiles: string[] = [];
 	const expectedTrees = new Map<string, string>();
@@ -40,33 +44,37 @@ export async function createStackPlan(input: PlanInput): Promise<StackPlan> {
 		for (const delta of deltas) {
 			const batchPerIndex = new Map<number, string[]>();
 
-			for (const change of delta.changes) {
-				const fileGroupId = ownership.get(change.path);
-				if (!fileGroupId) continue;
+		for (const change of delta.changes) {
+			const fileGroupId = ownership.get(change.path);
+			if (!fileGroupId) continue;
 
-				const fileRank = groupRank.get(fileGroupId);
-				if (fileRank === undefined) continue;
+			const fileRank = groupRank.get(fileGroupId);
+			if (fileRank === undefined) continue;
 
-				// Suffix propagation: update index[fileRank] through index[N-1]
-				for (let idxNum = fileRank; idxNum < group_order.length; idxNum++) {
-					let batch = batchPerIndex.get(idxNum);
-					if (!batch) {
-						batch = [];
-						batchPerIndex.set(idxNum, batch);
+			for (let idxNum = 0; idxNum < group_order.length; idxNum++) {
+				const targetGroupId = group_order[idxNum]!;
+				const isOwner = targetGroupId === fileGroupId;
+				const isAncestorOfOwner = ancestorSets.get(targetGroupId)?.has(fileGroupId) ?? false;
+				if (!isOwner && !isAncestorOfOwner) continue;
+
+				let batch = batchPerIndex.get(idxNum);
+				if (!batch) {
+					batch = [];
+					batchPerIndex.set(idxNum, batch);
+				}
+
+				if (change.status === "D") {
+					batch.push(`0 ${"0".repeat(40)}\t${change.path}`);
+				} else if (change.status === "R") {
+					if (change.old_path) {
+						batch.push(`0 ${"0".repeat(40)}\t${change.old_path}`);
 					}
-
-					if (change.status === "D") {
-						batch.push(`0 ${"0".repeat(40)}\t${change.path}`);
-					} else if (change.status === "R") {
-						if (change.old_path) {
-							batch.push(`0 ${"0".repeat(40)}\t${change.old_path}`);
-						}
-						batch.push(`${change.new_mode} ${change.new_blob}\t${change.path}`);
-					} else {
-						batch.push(`${change.new_mode} ${change.new_blob}\t${change.path}`);
-					}
+					batch.push(`${change.new_mode} ${change.new_blob}\t${change.path}`);
+				} else {
+					batch.push(`${change.new_mode} ${change.new_blob}\t${change.path}`);
 				}
 			}
+		}
 
 			for (const [idxNum, lines] of batchPerIndex) {
 				const idxFile = tmpIndexFiles[idxNum];
@@ -108,10 +116,60 @@ export async function createStackPlan(input: PlanInput): Promise<StackPlan> {
 	};
 }
 
+export function buildDagParents(
+	groupOrder: string[],
+	dependencyEdges: Array<{ from: string; to: string }>,
+): Map<string, string[]> {
+	const parents = new Map<string, string[]>();
+	for (const gid of groupOrder) parents.set(gid, []);
+
+	for (const edge of dependencyEdges) {
+		if (!parents.has(edge.to)) continue;
+		const arr = parents.get(edge.to)!;
+		if (!arr.includes(edge.from)) arr.push(edge.from);
+	}
+
+	for (const gid of groupOrder) {
+		if ((parents.get(gid) ?? []).length === 0) {
+			const rank = groupOrder.indexOf(gid);
+			if (rank > 0) {
+				const prev = groupOrder[rank - 1]!;
+				if (!dependencyEdges.some((e) => e.to === gid)) {
+					parents.set(gid, [prev]);
+				}
+			}
+		}
+	}
+
+	return parents;
+}
+
+export function buildAncestorSets(
+	groupOrder: string[],
+	dagParents: Map<string, string[]>,
+): Map<string, Set<string>> {
+	const ancestors = new Map<string, Set<string>>();
+
+	for (const gid of groupOrder) {
+		const set = new Set<string>();
+		const queue = [...(dagParents.get(gid) ?? [])];
+		while (queue.length > 0) {
+			const node = queue.shift()!;
+			if (set.has(node)) continue;
+			set.add(node);
+			for (const p of dagParents.get(node) ?? []) queue.push(p);
+		}
+		ancestors.set(gid, set);
+	}
+
+	return ancestors;
+}
+
 function buildStackGroups(
 	groups: FileGroup[],
 	groupOrder: string[],
 	ownership: Map<string, string>,
+	dagParents: Map<string, string[]>,
 ): StackGroup[] {
 	const groupNameMap = new Map<string, FileGroup>();
 	for (const g of groups) {
@@ -132,7 +190,7 @@ function buildStackGroups(
 			type: (original?.type ?? "chore") as GroupType,
 			description: original?.description ?? "",
 			files: files.sort(),
-			deps: original?.dependencies ?? [],
+			deps: dagParents.get(gid) ?? [],
 			order: idx,
 		};
 	});

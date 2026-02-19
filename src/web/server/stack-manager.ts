@@ -629,6 +629,7 @@ async function runStackPipeline(
 			ownership,
 			group_order: feasibility.ordered_group_ids!,
 			groups: currentGroups,
+			dependency_edges: feasibility.dependency_edges,
 		});
 
 		emit(session, "planning", "Computing group stats...");

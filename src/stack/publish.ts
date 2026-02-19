@@ -24,6 +24,7 @@ export interface StackPublishGroupMeta {
 	order: number;
 	type?: string;
 	pr_title?: string;
+	deps?: string[];
 }
 
 export interface StackPublishPreviewItem {
@@ -458,6 +459,20 @@ export async function publishStack(input: PublishInput): Promise<StackPublishRes
 	const prs: PrInfo[] = [];
 	const total = exec_result.group_commits.length;
 
+	const branchByGroupId = new Map(exec_result.group_commits.map((gc) => [gc.group_id, gc.branch_name]));
+
+	const resolvePrBase = (gc: typeof exec_result.group_commits[number], index: number): string => {
+		const planGroup = plan_groups?.find((g) => g.id === gc.group_id);
+		const directDeps: string[] = planGroup?.deps ?? [];
+		if (directDeps.length > 0) {
+			const depBranch = directDeps
+				.map((dep: string) => branchByGroupId.get(dep))
+				.find((b: string | undefined): b is string => Boolean(b));
+			if (depBranch) return depBranch;
+		}
+		return index === 0 ? base_branch : (exec_result.group_commits[index - 1]?.branch_name ?? base_branch);
+	};
+
 	for (const gc of exec_result.group_commits) {
 		const pushResult = await Bun.$`git -C ${repo_path} push origin refs/heads/${gc.branch_name}:refs/heads/${gc.branch_name} --force-with-lease`.quiet().nothrow();
 
@@ -480,7 +495,7 @@ export async function publishStack(input: PublishInput): Promise<StackPublishRes
 		if (!branchInfo?.pushed) continue;
 
 		const previewItem = previewByGroup.get(gc.group_id);
-		const prBase = previewItem?.base_branch ?? (i === 0 ? base_branch : exec_result.group_commits[i - 1]?.branch_name);
+		const prBase = previewItem?.base_branch ?? resolvePrBase(gc, i);
 		if (!prBase) continue;
 
 		const order = i + 1;

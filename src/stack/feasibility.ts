@@ -190,10 +190,11 @@ function deduplicateEdges(edges: ConstraintEdge[]): ConstraintEdge[] {
 
 function topologicalSort(
 	groups: string[],
-	edges: ConstraintEdge[],
+	acyclicEdges: ConstraintEdge[],
 	deltas: DeltaEntry[],
 	ownership?: Map<string, string>,
 ): FeasibilityResult {
+	const edges = acyclicEdges;
 	const inDegree = new Map<string, number>();
 	const adjacency = new Map<string, string[]>();
 	const edgeMap = new Map<string, ConstraintEdge>();
@@ -238,9 +239,13 @@ function topologicalSort(
 	}
 
 	if (sorted.length === groups.length) {
+		const dependencyEdges = acyclicEdges
+			.filter((e) => e.kind === "dependency" || e.kind === "path-order")
+			.map((e) => ({ from: e.from, to: e.to }));
 		return {
 			feasible: true,
 			ordered_group_ids: sorted,
+			dependency_edges: dependencyEdges,
 		};
 	}
 
