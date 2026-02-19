@@ -288,7 +288,7 @@ async function runStackPipeline(
 		const baseBranch = baseObj.ref as string;
 		const headBranch = headObj.ref as string;
 
-		const repoPath = await ensureRepo(parsed.owner, parsed.repo, token);
+		const repoPath = await ensureRepo(parsed.owner, parsed.repo, token, undefined, [baseSha, headSha]);
 
 		session.context = {
 			repo_path: repoPath,

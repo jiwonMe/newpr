@@ -33,12 +33,18 @@ export async function ensureRepo(
 	repo: string,
 	token: string,
 	onProgress?: (msg: string) => void,
+	requiredShas?: string[],
 ): Promise<string> {
 	const repoPath = bareRepoPath(owner, repo);
 
 	if (existsSync(join(repoPath, "HEAD"))) {
-		if (needsFetch(repoPath)) {
-			onProgress?.("Fetching latest changes...");
+		const stale = needsFetch(repoPath);
+		const missing = !stale && requiredShas?.length
+			? await hasMissingShas(repoPath, requiredShas)
+			: false;
+
+		if (stale || missing) {
+			onProgress?.(missing ? "Fetching new commits..." : "Fetching latest changes...");
 			const fetch = await Bun.$`git -C ${repoPath} fetch --all --prune`.quiet().nothrow();
 			if (fetch.exitCode !== 0) {
 				throw new Error(`git fetch failed (exit ${fetch.exitCode}): ${fetch.stderr.toString().trim()}`);
@@ -62,6 +68,14 @@ export async function ensureRepo(
 	touchFetchStamp(repoPath);
 
 	return repoPath;
+}
+
+async function hasMissingShas(repoPath: string, shas: string[]): Promise<boolean> {
+	for (const sha of shas) {
+		const result = await Bun.$`git -C ${repoPath} cat-file -t ${sha}`.quiet().nothrow();
+		if (result.exitCode !== 0) return true;
+	}
+	return false;
 }
 
 export function getReposDir(): string {
