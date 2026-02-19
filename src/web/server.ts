@@ -17,17 +17,30 @@ interface WebServerOptions {
 
 function getCssPaths() {
 	const webDir = import.meta.dir;
-	const packageRoot = join(webDir, "..", "..");
+
+	let bin: string;
+	try {
+		const resolved = import.meta.resolve("@tailwindcss/cli/package.json");
+		const cliDir = resolved.replace(/^file:\/\//, "").replace(/\/package\.json$/, "");
+		bin = join(cliDir, "dist", "index.mjs");
+	} catch {
+		const packageRoot = join(webDir, "..", "..");
+		bin = join(packageRoot, "node_modules", ".bin", "tailwindcss");
+	}
+
 	return {
 		input: join(webDir, "styles", "globals.css"),
 		output: join(webDir, "styles", "built.css"),
-		bin: join(packageRoot, "node_modules", ".bin", "tailwindcss"),
+		bin,
 	};
 }
 
 async function buildCss(bin: string, input: string, output: string): Promise<void> {
+	const args = bin.endsWith(".mjs") || bin.endsWith(".js")
+		? ["bun", bin, "-i", input, "-o", output, "--minify"]
+		: [bin, "-i", input, "-o", output, "--minify"];
 	const proc = Bun.spawn(
-		[bin, "-i", input, "-o", output, "--minify"],
+		args,
 		{ cwd: process.cwd(), stderr: "pipe", stdout: "pipe" },
 	);
 	const exitCode = await proc.exited;
