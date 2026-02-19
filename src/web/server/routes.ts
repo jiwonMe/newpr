@@ -370,34 +370,47 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 			const stream = new ReadableStream({
 				start(controller) {
 					const encoder = new TextEncoder();
+					let closed = false;
 					const send = (eventType: string, data: string) => {
+						if (closed) return;
 						controller.enqueue(encoder.encode(`event: ${eventType}\ndata: ${data}\n\n`));
 					};
+					const safeClose = () => {
+						if (closed) return;
+						closed = true;
+						clearInterval(heartbeat);
+						setTimeout(() => { try { controller.close(); } catch {} }, 50);
+					};
+
+					const heartbeat = setInterval(() => {
+						if (closed) return;
+						try { controller.enqueue(encoder.encode(":keepalive\n\n")); } catch { safeClose(); }
+					}, 15_000);
 
 					const unsubscribe = subscribe(id, (event) => {
 						try {
 							if ("type" in event && event.type === "done") {
 								send("done", JSON.stringify({}));
-								controller.close();
+								safeClose();
 							} else if ("type" in event && event.type === "error") {
 								send("analysis_error", JSON.stringify({ message: event.data ?? "Unknown error" }));
-								controller.close();
+								safeClose();
 							} else {
 								send("progress", JSON.stringify(event));
 							}
 						} catch {
-							controller.close();
+							safeClose();
 						}
 					});
 
 					if (!unsubscribe) {
 						send("analysis_error", JSON.stringify({ message: "Session not found" }));
-						controller.close();
+						safeClose();
 					}
 
 					req.signal.addEventListener("abort", () => {
 						unsubscribe?.();
-						try { controller.close(); } catch {}
+						safeClose();
 					});
 				},
 			});
@@ -1756,23 +1769,36 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 			const stream = new ReadableStream({
 				start(controller) {
 					const encoder = new TextEncoder();
+					let closed = false;
 					const send = (eventType: string, data: string) => {
+						if (closed) return;
 						controller.enqueue(encoder.encode(`event: ${eventType}\ndata: ${data}\n\n`));
 					};
+					const safeClose = () => {
+						if (closed) return;
+						closed = true;
+						clearInterval(heartbeat);
+						setTimeout(() => { try { controller.close(); } catch {} }, 50);
+					};
+
+					const heartbeat = setInterval(() => {
+						if (closed) return;
+						try { controller.enqueue(encoder.encode(":keepalive\n\n")); } catch { safeClose(); }
+					}, 15_000);
 
 					const unsubscribe = subscribeStack(id, (event) => {
 						try {
 							if ("type" in event && event.type === "done") {
 								send("done", JSON.stringify({ state: getStackState(id) }));
-								controller.close();
+								safeClose();
 							} else if ("type" in event && event.type === "error") {
 								send("stack_error", JSON.stringify({ message: event.data ?? "Unknown error", state: getStackState(id) }));
-								controller.close();
+								safeClose();
 							} else {
 								send("progress", JSON.stringify({ ...event, state: getStackState(id) }));
 							}
 						} catch {
-							controller.close();
+							safeClose();
 						}
 					});
 
@@ -1783,12 +1809,12 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 						} else {
 							send("stack_error", JSON.stringify({ message: "No stack session found" }));
 						}
-						controller.close();
+						safeClose();
 					}
 
 					req.signal.addEventListener("abort", () => {
 						unsubscribe?.();
-						try { controller.close(); } catch {}
+						safeClose();
 					});
 				},
 			});

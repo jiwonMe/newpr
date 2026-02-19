@@ -1,8 +1,16 @@
 import type { FileGroup } from "../types/output.ts";
+import type { StackGroup } from "./types.ts";
 
 export interface MergeResult {
 	groups: FileGroup[];
 	ownership: Map<string, string>;
+	merges: Array<{ absorbed: string; into: string }>;
+}
+
+export interface EmptyMergeResult {
+	groups: StackGroup[];
+	ownership: Map<string, string>;
+	expectedTrees: Map<string, string>;
 	merges: Array<{ absorbed: string; into: string }>;
 }
 
@@ -84,4 +92,66 @@ export function mergeGroups(
 	}
 
 	return { groups: working, ownership: newOwnership, merges };
+}
+
+export function mergeEmptyGroups(
+	groups: StackGroup[],
+	ownership: Map<string, string>,
+	expectedTrees: Map<string, string>,
+): EmptyMergeResult {
+	if (groups.length <= 1) {
+		return { groups: [...groups], ownership: new Map(ownership), expectedTrees: new Map(expectedTrees), merges: [] };
+	}
+
+	const working = groups.map((g) => ({ ...g, files: [...g.files] }));
+	const newOwnership = new Map(ownership);
+	const newTrees = new Map(expectedTrees);
+	const merges: Array<{ absorbed: string; into: string }> = [];
+
+	let i = 0;
+	while (i < working.length) {
+		const g = working[i]!;
+		const stats = g.stats;
+		const totalChanges = stats ? stats.additions + stats.deletions : -1;
+
+		if (totalChanges !== 0 || working.length <= 1) {
+			i++;
+			continue;
+		}
+
+		const neighborIdx = i < working.length - 1 ? i + 1 : i - 1;
+		const neighbor = working[neighborIdx]!;
+
+		for (const file of g.files) {
+			if (!neighbor.files.includes(file)) {
+				neighbor.files.push(file);
+			}
+		}
+
+		if (neighbor.stats && stats) {
+			neighbor.stats = {
+				additions: neighbor.stats.additions + stats.additions,
+				deletions: neighbor.stats.deletions + stats.deletions,
+				files_added: neighbor.stats.files_added + stats.files_added,
+				files_modified: neighbor.stats.files_modified + stats.files_modified,
+				files_deleted: neighbor.stats.files_deleted + stats.files_deleted,
+			};
+		}
+
+		for (const [path, groupId] of newOwnership) {
+			if (groupId === g.id) {
+				newOwnership.set(path, neighbor.id);
+			}
+		}
+
+		newTrees.delete(g.id);
+		merges.push({ absorbed: g.name, into: neighbor.name });
+		working.splice(i, 1);
+
+		for (let j = 0; j < working.length; j++) {
+			working[j]!.order = j;
+		}
+	}
+
+	return { groups: working, ownership: newOwnership, expectedTrees: newTrees, merges };
 }

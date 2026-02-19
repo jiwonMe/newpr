@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
-import { mergeGroups } from "./merge-groups.ts";
+import { mergeGroups, mergeEmptyGroups } from "./merge-groups.ts";
 import type { FileGroup } from "../types/output.ts";
+import type { StackGroup, StackGroupStats } from "./types.ts";
 
 describe("mergeGroups", () => {
 	test("no-op when already at or below target", () => {
@@ -93,5 +94,126 @@ describe("mergeGroups", () => {
 		const result = mergeGroups(groups, ownership, 1);
 		expect(result.groups[0]!.key_changes).toContain("Added auth");
 		expect(result.groups[0]!.key_changes).toContain("Added UI");
+	});
+});
+
+function makeStackGroup(overrides: Partial<StackGroup> & { id: string; name: string }): StackGroup {
+	return {
+		type: "feature",
+		description: "",
+		files: [],
+		deps: [],
+		order: 0,
+		...overrides,
+	};
+}
+
+const zeroStats: StackGroupStats = { additions: 0, deletions: 0, files_added: 0, files_modified: 0, files_deleted: 0 };
+const nonZeroStats: StackGroupStats = { additions: 10, deletions: 5, files_added: 1, files_modified: 1, files_deleted: 0 };
+
+describe("mergeEmptyGroups", () => {
+	test("no-op when no empty groups", () => {
+		const groups: StackGroup[] = [
+			makeStackGroup({ id: "A", name: "A", files: ["a.ts"], order: 0, stats: nonZeroStats }),
+			makeStackGroup({ id: "B", name: "B", files: ["b.ts"], order: 1, stats: nonZeroStats }),
+		];
+		const ownership = new Map([["a.ts", "A"], ["b.ts", "B"]]);
+		const trees = new Map([["A", "tree-a"], ["B", "tree-b"]]);
+
+		const result = mergeEmptyGroups(groups, ownership, trees);
+		expect(result.groups.length).toBe(2);
+		expect(result.merges).toEqual([]);
+	});
+
+	test("merges empty group into next neighbor", () => {
+		const groups: StackGroup[] = [
+			makeStackGroup({ id: "A", name: "A", files: ["a.ts"], order: 0, stats: zeroStats }),
+			makeStackGroup({ id: "B", name: "B", files: ["b.ts"], order: 1, stats: nonZeroStats }),
+		];
+		const ownership = new Map([["a.ts", "A"], ["b.ts", "B"]]);
+		const trees = new Map([["A", "tree-a"], ["B", "tree-b"]]);
+
+		const result = mergeEmptyGroups(groups, ownership, trees);
+		expect(result.groups.length).toBe(1);
+		expect(result.groups[0]!.id).toBe("B");
+		expect(result.groups[0]!.files).toContain("a.ts");
+		expect(result.groups[0]!.files).toContain("b.ts");
+		expect(result.ownership.get("a.ts")).toBe("B");
+		expect(result.expectedTrees.has("A")).toBe(false);
+		expect(result.expectedTrees.has("B")).toBe(true);
+		expect(result.merges).toEqual([{ absorbed: "A", into: "B" }]);
+	});
+
+	test("merges last empty group into previous neighbor", () => {
+		const groups: StackGroup[] = [
+			makeStackGroup({ id: "A", name: "A", files: ["a.ts"], order: 0, stats: nonZeroStats }),
+			makeStackGroup({ id: "B", name: "B", files: ["b.ts"], order: 1, stats: zeroStats }),
+		];
+		const ownership = new Map([["a.ts", "A"], ["b.ts", "B"]]);
+		const trees = new Map([["A", "tree-a"], ["B", "tree-b"]]);
+
+		const result = mergeEmptyGroups(groups, ownership, trees);
+		expect(result.groups.length).toBe(1);
+		expect(result.groups[0]!.id).toBe("A");
+		expect(result.groups[0]!.files).toContain("b.ts");
+		expect(result.ownership.get("b.ts")).toBe("A");
+	});
+
+	test("merges multiple empty groups", () => {
+		const groups: StackGroup[] = [
+			makeStackGroup({ id: "A", name: "A", files: ["a.ts"], order: 0, stats: zeroStats }),
+			makeStackGroup({ id: "B", name: "B", files: ["b.ts"], order: 1, stats: nonZeroStats }),
+			makeStackGroup({ id: "C", name: "C", files: ["c.ts"], order: 2, stats: zeroStats }),
+		];
+		const ownership = new Map([["a.ts", "A"], ["b.ts", "B"], ["c.ts", "C"]]);
+		const trees = new Map([["A", "tree-a"], ["B", "tree-b"], ["C", "tree-c"]]);
+
+		const result = mergeEmptyGroups(groups, ownership, trees);
+		expect(result.groups.length).toBe(1);
+		expect(result.groups[0]!.id).toBe("B");
+		expect(result.groups[0]!.files).toContain("a.ts");
+		expect(result.groups[0]!.files).toContain("b.ts");
+		expect(result.groups[0]!.files).toContain("c.ts");
+		expect(result.merges.length).toBe(2);
+	});
+
+	test("single group is never merged even if empty", () => {
+		const groups: StackGroup[] = [
+			makeStackGroup({ id: "A", name: "A", files: ["a.ts"], order: 0, stats: zeroStats }),
+		];
+		const ownership = new Map([["a.ts", "A"]]);
+		const trees = new Map([["A", "tree-a"]]);
+
+		const result = mergeEmptyGroups(groups, ownership, trees);
+		expect(result.groups.length).toBe(1);
+		expect(result.merges).toEqual([]);
+	});
+
+	test("groups without stats are not considered empty", () => {
+		const groups: StackGroup[] = [
+			makeStackGroup({ id: "A", name: "A", files: ["a.ts"], order: 0 }),
+			makeStackGroup({ id: "B", name: "B", files: ["b.ts"], order: 1, stats: nonZeroStats }),
+		];
+		const ownership = new Map([["a.ts", "A"], ["b.ts", "B"]]);
+		const trees = new Map([["A", "tree-a"], ["B", "tree-b"]]);
+
+		const result = mergeEmptyGroups(groups, ownership, trees);
+		expect(result.groups.length).toBe(2);
+		expect(result.merges).toEqual([]);
+	});
+
+	test("order is recalculated after merges", () => {
+		const groups: StackGroup[] = [
+			makeStackGroup({ id: "A", name: "A", files: ["a.ts"], order: 0, stats: zeroStats }),
+			makeStackGroup({ id: "B", name: "B", files: ["b.ts"], order: 1, stats: nonZeroStats }),
+			makeStackGroup({ id: "C", name: "C", files: ["c.ts"], order: 2, stats: nonZeroStats }),
+		];
+		const ownership = new Map([["a.ts", "A"], ["b.ts", "B"], ["c.ts", "C"]]);
+		const trees = new Map([["A", "tree-a"], ["B", "tree-b"], ["C", "tree-c"]]);
+
+		const result = mergeEmptyGroups(groups, ownership, trees);
+		expect(result.groups.length).toBe(2);
+		expect(result.groups[0]!.order).toBe(0);
+		expect(result.groups[1]!.order).toBe(1);
 	});
 });

@@ -12,7 +12,7 @@ import { partitionGroups } from "../../stack/partition.ts";
 import { applyCouplingRules } from "../../stack/coupling.ts";
 import { splitOversizedGroups } from "../../stack/split.ts";
 import { rebalanceGroups } from "../../stack/balance.ts";
-import { mergeGroups } from "../../stack/merge-groups.ts";
+import { mergeGroups, mergeEmptyGroups } from "../../stack/merge-groups.ts";
 import { checkFeasibility } from "../../stack/feasibility.ts";
 import { createStackPlan } from "../../stack/plan.ts";
 import { executeStack } from "../../stack/execute.ts";
@@ -450,6 +450,32 @@ async function runStackPipeline(
 		for (const group of plan.groups) {
 			const s = groupStats.get(group.id);
 			if (s) group.stats = s;
+		}
+
+		const emptyMerged = mergeEmptyGroups(plan.groups, ownership, plan.expected_trees);
+		if (emptyMerged.merges.length > 0) {
+			plan.groups = emptyMerged.groups;
+			plan.expected_trees = emptyMerged.expectedTrees;
+			for (const [path, groupId] of emptyMerged.ownership) {
+				ownership.set(path, groupId);
+			}
+			const emptyDetails = emptyMerged.merges.map((m) => `"${m.absorbed}" → "${m.into}"`);
+			allWarnings.push(`Merged ${emptyMerged.merges.length} empty group(s): ${emptyDetails.join(", ")}`);
+			allStructuredWarnings.push({
+				category: "grouping",
+				severity: "info",
+				title: `${emptyMerged.merges.length} empty group(s) merged`,
+				message: "Groups with zero effective changes were absorbed into adjacent groups",
+				details: emptyDetails,
+			});
+			emit(session, "planning", `Merged ${emptyMerged.merges.length} empty group(s)...`);
+
+			session.partition = {
+				...session.partition!,
+				ownership: Object.fromEntries(ownership),
+				warnings: allWarnings,
+				structured_warnings: allStructuredWarnings,
+			};
 		}
 
 		emit(session, "planning", "Generating PR titles...");
