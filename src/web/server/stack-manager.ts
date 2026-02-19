@@ -442,22 +442,22 @@ async function runStackPipeline(
 
 		buildReattributionWarnings(partition, analysisSet, allStructuredWarnings);
 
-		const lastGroup = groupOrder[groupOrder.length - 1];
-		if (lastGroup) {
+		const backfillGroup = groupOrder[0] ?? groupOrder[groupOrder.length - 1];
+		if (backfillGroup) {
 			const backfilled: string[] = [];
 			for (const path of deltaFilePaths) {
 				if (!mergedOwnership.has(path)) {
-					mergedOwnership.set(path, lastGroup);
+					mergedOwnership.set(path, backfillGroup);
 					backfilled.push(path);
 				}
 			}
 			if (backfilled.length > 0) {
-				allWarnings.push(`Files still unassigned after AI classification, fallback to "${lastGroup}": ${backfilled.join(", ")}`);
+				allWarnings.push(`Files still unassigned after AI classification, fallback to "${backfillGroup}": ${backfilled.join(", ")}`);
 				allStructuredWarnings.push({
 					category: "assignment",
 					severity: "warn",
-					title: `${backfilled.length} file(s) fell back to last group`,
-					message: `AI could not classify these files — assigned to "${lastGroup}" as fallback`,
+					title: `${backfilled.length} file(s) fell back to first group`,
+					message: `AI could not classify these files — assigned to "${backfillGroup}" as fallback`,
 					details: backfilled,
 				});
 			}
@@ -476,6 +476,13 @@ async function runStackPipeline(
 		for (const [path, groupId] of balanced.ownership) {
 			mergedOwnership.set(path, groupId);
 		}
+		const balancedGroupFiles = new Map<string, string[]>();
+		for (const [path, groupId] of mergedOwnership) {
+			const files = balancedGroupFiles.get(groupId) ?? [];
+			files.push(path);
+			balancedGroupFiles.set(groupId, files);
+		}
+		currentGroups = currentGroups.map((g) => ({ ...g, files: (balancedGroupFiles.get(g.name) ?? g.files).sort() }));
 		allStructuredWarnings.push(...balanced.warnings);
 
 		if (session.maxGroups && session.maxGroups > 0 && currentGroups.length > session.maxGroups) {
