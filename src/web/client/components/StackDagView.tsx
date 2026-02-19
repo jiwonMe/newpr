@@ -110,9 +110,7 @@ function buildDagNodes(groups: DagGroup[]): DagNode[] {
 	return result;
 }
 
-function buildLines(nodes: DagNode[], rowHeights: number[]): Array<{ x1: number; y1: number; x2: number; y2: number }> {
-	const lines: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
-
+function buildPaths(nodes: DagNode[], rowHeights: number[]): string[] {
 	let cumulativeY = 0;
 	const dotY = nodes.map((_, i) => {
 		const y = cumulativeY + (rowHeights[i] ?? ROW_HEIGHT) / 2;
@@ -121,24 +119,22 @@ function buildLines(nodes: DagNode[], rowHeights: number[]): Array<{ x1: number;
 	});
 
 	const idToIndex = new Map(nodes.map((n, i) => [n.group.id, i]));
+	const paths: string[] = [];
 
 	for (let i = 0; i < nodes.length; i++) {
 		const node = nodes[i]!;
 		const parentIdx = node.parentId !== null ? idToIndex.get(node.parentId) : undefined;
 		if (parentIdx === undefined) continue;
 
-		const px = node.indent * INDENT - INDENT + DOT_CX;
-		const cy = dotY[i]!;
-		const py = dotY[parentIdx]!;
-		const cx = node.indent * INDENT + DOT_CX;
+		const parentX = (node.indent - 1) * INDENT + DOT_CX;
+		const childX = node.indent * INDENT + DOT_CX;
+		const parentY = dotY[parentIdx]!;
+		const childY = dotY[i]!;
 
-		const midY = py + (cy - py) * 0.6;
-
-		lines.push({ x1: px, y1: py, x2: px, y2: midY });
-		lines.push({ x1: px, y1: midY, x2: cx - DOT_RADIUS, y2: cy });
+		paths.push(`M ${parentX} ${parentY + DOT_RADIUS} L ${parentX} ${childY} L ${childX - DOT_RADIUS} ${childY}`);
 	}
 
-	return lines;
+	return paths;
 }
 
 function DagNodeCard({
@@ -275,7 +271,7 @@ export function StackDagView({
 		return () => ro.disconnect();
 	}, [nodes.length]);
 
-	const lines = rowHeights.length === nodes.length ? buildLines(nodes, rowHeights) : [];
+	const paths = rowHeights.length === nodes.length ? buildPaths(nodes, rowHeights) : [];
 
 	let cumulativeY = 0;
 	const dotPositions = nodes.map((node, i) => {
@@ -301,9 +297,10 @@ export function StackDagView({
 						width={svgWidth}
 						height={svgHeight}
 					>
-						{lines.map((l, i) => (
-							<line key={i} x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2}
-								stroke="currentColor" strokeOpacity="0.3" strokeWidth="1.5"
+						{paths.map((d, i) => (
+							<path key={i} d={d}
+								stroke="currentColor" strokeOpacity="0.35" strokeWidth="1.5"
+								fill="none" strokeLinejoin="round"
 								className="text-border" />
 						))}
 						{dotPositions.map(({ y, cx, node }) => {
