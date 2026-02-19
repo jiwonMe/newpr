@@ -110,10 +110,13 @@ function buildDagNodes(groups: DagGroup[]): DagNode[] {
 	return result;
 }
 
+const BUTTON_HEIGHT = 36;
+const DOT_TOP_OFFSET = BUTTON_HEIGHT / 2;
+
 function buildPaths(nodes: DagNode[], rowHeights: number[]): string[] {
 	let cumulativeY = 0;
 	const dotY = nodes.map((_, i) => {
-		const y = cumulativeY + (rowHeights[i] ?? ROW_HEIGHT) / 2;
+		const y = cumulativeY + DOT_TOP_OFFSET;
 		cumulativeY += rowHeights[i] ?? ROW_HEIGHT;
 		return y;
 	});
@@ -276,7 +279,7 @@ export function StackDagView({
 	let cumulativeY = 0;
 	const dotPositions = nodes.map((node, i) => {
 		const h = rowHeights[i] ?? ROW_HEIGHT;
-		const y = cumulativeY + h / 2;
+		const y = cumulativeY + DOT_TOP_OFFSET;
 		cumulativeY += h;
 		return { y, cx: node.indent * INDENT + DOT_CX, node };
 	});
