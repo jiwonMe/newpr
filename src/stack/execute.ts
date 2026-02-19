@@ -99,37 +99,37 @@ export async function executeStack(input: ExecuteInput): Promise<StackExecResult
 		for (const delta of deltas) {
 			const batchPerIndex = new Map<number, string[]>();
 
-		for (const change of delta.changes) {
-			const fileGroupId = ownership.get(change.path);
-			if (!fileGroupId) continue;
+			for (const change of delta.changes) {
+				const fileGroupId = ownership.get(change.path);
+				if (!fileGroupId) continue;
 
-			const fileRank = groupRank.get(fileGroupId);
-			if (fileRank === undefined) continue;
+				const fileRank = groupRank.get(fileGroupId);
+				if (fileRank === undefined) continue;
 
-			for (let idxNum = 0; idxNum < groupOrder.length; idxNum++) {
-				const targetGroupId = groupOrder[idxNum]!;
-				const isOwner = targetGroupId === fileGroupId;
-				const isAncestorOfOwner = ancestorSets.get(targetGroupId)?.has(fileGroupId) ?? false;
-				if (!isOwner && !isAncestorOfOwner) continue;
+				for (let idxNum = 0; idxNum < groupOrder.length; idxNum++) {
+					const targetGroupId = groupOrder[idxNum]!;
+					const isOwner = targetGroupId === fileGroupId;
+					const isAncestorOfOwner = ancestorSets.get(targetGroupId)?.has(fileGroupId) ?? false;
+					if (!isOwner && !isAncestorOfOwner) continue;
 
-				let batch = batchPerIndex.get(idxNum);
-				if (!batch) {
-					batch = [];
-					batchPerIndex.set(idxNum, batch);
-				}
-
-				if (change.status === "D") {
-					batch.push(`0 ${"0".repeat(40)}\t${change.path}`);
-				} else if (change.status === "R") {
-					if (change.old_path) {
-						batch.push(`0 ${"0".repeat(40)}\t${change.old_path}`);
+					let batch = batchPerIndex.get(idxNum);
+					if (!batch) {
+						batch = [];
+						batchPerIndex.set(idxNum, batch);
 					}
-					batch.push(`${change.new_mode} ${change.new_blob}\t${change.path}`);
-				} else {
-					batch.push(`${change.new_mode} ${change.new_blob}\t${change.path}`);
+
+					if (change.status === "D") {
+						batch.push(`0 ${"0".repeat(40)}\t${change.path}`);
+					} else if (change.status === "R") {
+						if (change.old_path) {
+							batch.push(`0 ${"0".repeat(40)}\t${change.old_path}`);
+						}
+						batch.push(`${change.new_mode} ${change.new_blob}\t${change.path}`);
+					} else {
+						batch.push(`${change.new_mode} ${change.new_blob}\t${change.path}`);
+					}
 				}
 			}
-		}
 
 			for (const [idxNum, lines] of batchPerIndex) {
 				const idxFile = tmpIndexFiles[idxNum];
