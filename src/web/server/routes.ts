@@ -332,7 +332,7 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 			const body = await req.json() as { pr: string; reuseSessionId?: string };
 			if (!body.pr) return json({ error: "Missing 'pr' field" }, 400);
 
-			const result = startAnalysis(body.pr, token, config);
+			const result = startAnalysis(body.pr, token, config, body.reuseSessionId);
 			if ("error" in result) return json({ error: result.error }, result.status);
 
 			return json({

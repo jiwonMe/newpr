@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { memo, useState, useEffect, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -12,6 +12,7 @@ interface MarkdownProps {
 	children: string;
 	onAnchorClick?: (kind: "group" | "file" | "line", id: string) => void;
 	activeId?: string | null;
+	streaming?: boolean;
 }
 
 function useHighlighter(): Highlighter | null {
@@ -185,8 +186,8 @@ function preprocess(text: string): string {
 	return processed.replace(/\x00MATH_BLOCK_(\d+)\x00/g, (_, idx) => mathBlocks[Number(idx)]!);
 }
 
-export function Markdown({ children, onAnchorClick, activeId }: MarkdownProps) {
-	const processed = preprocess(children);
+export const Markdown = memo(function Markdown({ children, onAnchorClick, activeId, streaming = false }: MarkdownProps) {
+	const processed = useMemo(() => preprocess(children), [children]);
 	const hl = useHighlighter();
 	const dark = useDarkMode();
 
@@ -202,6 +203,12 @@ export function Markdown({ children, onAnchorClick, activeId }: MarkdownProps) {
 		strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
 		em: ({ children }) => <em className="italic">{children}</em>,
 		code: ({ children, className }) => {
+			if (streaming) {
+				if (className?.includes("language-")) {
+					return <code className="text-xs font-mono">{children}</code>;
+				}
+				return <code className="px-1.5 py-0.5 rounded bg-muted text-xs font-mono">{children}</code>;
+			}
 			const lang = langFromClassName(className);
 			if (lang && hl) {
 				const code = String(children).replace(/\n$/, "");
@@ -330,5 +337,11 @@ export function Markdown({ children, onAnchorClick, activeId }: MarkdownProps) {
 		td: ({ children }) => <td className="border-b border-border px-3 py-1.5 text-sm">{children}</td>,
 	};
 
-	return <ReactMarkdown remarkPlugins={[[remarkMath, { singleDollarTextMath: true }], remarkGfm]} rehypePlugins={[[rehypeRaw, { passThrough: ["math", "inlineMath"] }], [rehypeKatex, { throwOnError: false, strict: false, output: "html" }]]} components={components}>{processed}</ReactMarkdown>;
-}
+	return <ReactMarkdown
+		remarkPlugins={streaming ? [remarkGfm] : [[remarkMath, { singleDollarTextMath: true }], remarkGfm]}
+		rehypePlugins={streaming
+			? [[rehypeRaw, { passThrough: ["math", "inlineMath"] }]]
+			: [[rehypeRaw, { passThrough: ["math", "inlineMath"] }], [rehypeKatex, { throwOnError: false, strict: false, output: "html" }]]}
+		components={components}
+	>{processed}</ReactMarkdown>;
+});

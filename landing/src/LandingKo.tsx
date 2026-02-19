@@ -330,6 +330,7 @@ export function LandingKo() {
 					<a href="/newpr/ko/" className="font-mono text-sm font-semibold tracking-tight">newpr</a>
 					<div className="flex items-center gap-5">
 						<a href="#stacking" className="hidden sm:block text-[13px] text-zinc-500 hover:text-zinc-200 transition-colors">{"\uc2a4\ud0dc\ud0b9"}</a>
+						<a href="/newpr/ko/stacking-principles.html" className="hidden sm:block text-[13px] text-zinc-500 hover:text-zinc-200 transition-colors">{"\uc544\ud2f0\ud074"}</a>
 						<a href="#features" className="hidden sm:block text-[13px] text-zinc-500 hover:text-zinc-200 transition-colors">{"\uae30\ub2a5"}</a>
 						<a href="#how" className="hidden sm:block text-[13px] text-zinc-500 hover:text-zinc-200 transition-colors">{"\uc791\ub3d9 \ubc29\uc2dd"}</a>
 						<a href="#tools" className="hidden sm:block text-[13px] text-zinc-500 hover:text-zinc-200 transition-colors">{"\ub3c4\uad6c"}</a>
@@ -413,6 +414,9 @@ export function LandingKo() {
 							<p className="text-[15px] text-zinc-400 max-w-[560px] mx-auto leading-relaxed">
 								{"AI\uac00 \ud30c\uc77c \uc758\uc874\uc131\uc744 \ubd84\uc11d\ud558\uace0, \uad00\uc2ec\uc0ac\ubcc4\ub85c \ubcc0\uacbd\uc0ac\ud56d\uc744 \uadf8\ub8f9\ud654\ud558\uace0, \uc791\uace0 \uc9d1\uc911\ub41c PR \uccb4\uc778\uc744 \uc0dd\uc131\ud569\ub2c8\ub2e4 \u2014 \uac01\uac01 \uc774\uc804 PR \uc704\uc5d0 \uc313\uc785\ub2c8\ub2e4."}
 							</p>
+							<a href="/newpr/ko/stacking-principles.html" className="inline-flex items-center gap-1.5 mt-4 text-[13px] text-blue-400 hover:text-blue-300 transition-colors">
+								{"원리 아티클 읽기"} <ArrowRight className="w-3.5 h-3.5" />
+							</a>
 						</div>
 					</FadeIn>
 					<FadeIn delay={200}>

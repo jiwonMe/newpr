@@ -92,35 +92,6 @@ function segmentsFromMessage(msg: ChatMessage): ChatSegment[] {
 	return segs;
 }
 
-function ThrottledMarkdown({ content, onAnchorClick, activeId }: {
-	content: string;
-	onAnchorClick?: (kind: "group" | "file" | "line", id: string) => void;
-	activeId?: string | null;
-}) {
-	const [rendered, setRendered] = useState(content);
-	const pendingRef = useRef(content);
-	const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-	useEffect(() => {
-		pendingRef.current = content;
-		if (!timerRef.current) {
-			timerRef.current = setTimeout(() => {
-				setRendered(pendingRef.current);
-				timerRef.current = null;
-			}, 150);
-		}
-	}, [content]);
-
-	useEffect(() => {
-		return () => {
-			if (timerRef.current) clearTimeout(timerRef.current);
-			setRendered(pendingRef.current);
-		};
-	}, []);
-
-	return <Markdown onAnchorClick={onAnchorClick} activeId={activeId}>{rendered}</Markdown>;
-}
-
 function AssistantMessage({ segments, activeToolName, isStreaming, onAnchorClick, activeId }: {
 	segments: ChatSegment[];
 	activeToolName?: string;
@@ -137,10 +108,12 @@ function AssistantMessage({ segments, activeToolName, isStreaming, onAnchorClick
 					return <ToolCallDisplay key={seg.toolCall.id} tc={seg.toolCall} />;
 				}
 				if (!seg.content) return null;
+				const isTrailingSegment = i === segments.length - 1;
+				const isStreamingTail = isStreaming && isTrailingSegment;
 				return (
 					<div key={`text-${i}`} className="text-xs leading-relaxed">
-						{isStreaming ? (
-							<ThrottledMarkdown content={seg.content} onAnchorClick={onAnchorClick} activeId={activeId} />
+						{isStreamingTail ? (
+							<Markdown streaming onAnchorClick={onAnchorClick} activeId={activeId}>{seg.content}</Markdown>
 						) : (
 							<Markdown onAnchorClick={onAnchorClick} activeId={activeId}>{seg.content}</Markdown>
 						)}

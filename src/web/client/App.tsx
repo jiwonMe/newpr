@@ -200,7 +200,7 @@ export function App() {
 					cartoonEnabled={features.cartoon}
 					sessionId={diffSessionId}
 					onTabChange={handleTabChange}
-					onReanalyze={(prUrl: string) => { analysis.start(prUrl); }}
+					onReanalyze={(prUrl: string) => { analysis.start(prUrl, { reuseSessionId: diffSessionId }); }}
 					enabledPlugins={features.enabledPlugins}
 					onTrackAnalysis={bgAnalyses.track}
 				/>

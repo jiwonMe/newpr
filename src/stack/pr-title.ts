@@ -2,6 +2,24 @@ import type { LlmClient } from "../llm/client.ts";
 import type { StackGroup } from "./types.ts";
 
 const MAX_TITLE_LENGTH = 72;
+const TYPE_PREFIX: Record<string, string> = {
+	feature: "feat",
+	feat: "feat",
+	bugfix: "fix",
+	fix: "fix",
+	refactor: "refactor",
+	chore: "chore",
+	docs: "docs",
+	test: "test",
+	config: "chore",
+	perf: "perf",
+	style: "style",
+	ci: "ci",
+};
+
+function normalizeTypePrefix(type: string): string {
+	return TYPE_PREFIX[type] ?? "chore";
+}
 
 function sanitizeTitle(raw: string): string {
 	let title = raw.trim().replace(/\.+$/, "");
@@ -13,13 +31,13 @@ function sanitizeTitle(raw: string): string {
 
 function fallbackTitle(g: StackGroup): string {
 	const desc = g.description || g.name;
-	const cleaned = desc.replace(/[^\w\s\-/.,()]/g, " ").replace(/\s+/g, " ").trim();
-	const prefix = `${g.type}: `;
+	const cleaned = desc.replace(/[^\p{L}\p{N}\s\-/.,()]/gu, " ").replace(/\s+/g, " ").trim();
+	const prefix = `${normalizeTypePrefix(g.type)}: `;
 	const maxDesc = MAX_TITLE_LENGTH - prefix.length;
 	const truncated = cleaned.length > maxDesc
 		? cleaned.slice(0, maxDesc).replace(/\s\S*$/, "").trimEnd()
 		: cleaned;
-	return truncated ? `${prefix}${truncated}` : `${g.type}: ${g.name}`;
+	return truncated ? `${prefix}${truncated}` : `${prefix}${g.name}`;
 }
 
 export async function generatePrTitles(
@@ -37,7 +55,12 @@ export async function generatePrTitles(
 		].join("\n"))
 		.join("\n\n");
 
-	const lang = language && language !== "English" ? language : null;
+	const hasKoreanContext = /[가-힣]/.test(prTitle) || groups.some((g) => /[가-힣]/.test(`${g.name} ${g.description}`));
+	const lang = language && language !== "English" && language !== "auto"
+		? language
+		: hasKoreanContext
+			? "Korean"
+			: null;
 	const langRule = lang
 		? `- Write the description part in ${lang}. Keep the type prefix (feat/fix/etc.) in English.`
 		: "- Write the description in English.";
@@ -85,7 +108,14 @@ Generate a descriptive PR title (40-72 chars) for each group. Return JSON array:
 
 	try {
 		const cleaned = response.content.replace(/```(?:json)?\s*/g, "").replace(/```\s*/g, "").trim();
-		const parsed = JSON.parse(cleaned) as Array<{ group_id: string; title: string }>;
+		let parsed: Array<{ group_id: string; title: string }> = [];
+		try {
+			parsed = JSON.parse(cleaned) as Array<{ group_id: string; title: string }>;
+		} catch {
+			const arrayMatch = cleaned.match(/\[[\s\S]*\]/);
+			if (!arrayMatch) throw new Error("No JSON array found in response");
+			parsed = JSON.parse(arrayMatch[0]) as Array<{ group_id: string; title: string }>;
+		}
 		for (const item of parsed) {
 			if (item.group_id && item.title?.trim()) {
 				titles.set(item.group_id, sanitizeTitle(item.title));

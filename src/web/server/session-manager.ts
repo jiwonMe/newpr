@@ -3,7 +3,7 @@ import type { NewprOutput } from "../../types/output.ts";
 import type { ProgressEvent } from "../../analyzer/progress.ts";
 import { analyzePr } from "../../analyzer/pipeline.ts";
 import { parsePrInput } from "../../github/parse-pr.ts";
-import { saveSession, savePatchesSidecar } from "../../history/store.ts";
+import { saveSession, savePatchesSidecar, loadSession, loadChatSidecar, saveChatSidecar } from "../../history/store.ts";
 import { telemetry } from "../../telemetry/index.ts";
 
 type SessionStatus = "running" | "done" | "error" | "canceled";
@@ -15,6 +15,7 @@ interface AnalysisSession {
 	events: ProgressEvent[];
 	result?: NewprOutput;
 	historyId?: string;
+	reuseSessionId?: string;
 	error?: string;
 	startedAt: number;
 	finishedAt?: number;
@@ -47,6 +48,7 @@ export function startAnalysis(
 	prInput: string,
 	token: string,
 	config: NewprConfig,
+	reuseSessionId?: string,
 ): { sessionId: string } | { error: string; status: number } {
 	if (runningCount() >= MAX_CONCURRENT) {
 		return { error: "Too many concurrent analyses. Try again later.", status: 429 };
@@ -58,6 +60,7 @@ export function startAnalysis(
 	const session: AnalysisSession = {
 		id,
 		prInput,
+		reuseSessionId,
 		status: "running",
 		events: [],
 		startedAt: Date.now(),
@@ -115,6 +118,15 @@ async function runPipeline(
 			session.historyId = record.id;
 			if (Object.keys(capturedPatches).length > 0) {
 				await savePatchesSidecar(record.id, capturedPatches).catch(() => {});
+			}
+			if (session.reuseSessionId) {
+				const prior = await loadSession(session.reuseSessionId).catch(() => null);
+				if (prior?.meta.pr_url === result.meta.pr_url) {
+					const priorChat = await loadChatSidecar(session.reuseSessionId).catch(() => null);
+					if (priorChat && priorChat.length > 0) {
+						await saveChatSidecar(record.id, priorChat).catch(() => {});
+					}
+				}
 			}
 		}
 	} catch (err) {
