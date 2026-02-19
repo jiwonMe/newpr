@@ -10,9 +10,33 @@ export interface PublishInput {
 	repo: string;
 }
 
+const PR_TEMPLATE_PATHS = [
+	".github/PULL_REQUEST_TEMPLATE.md",
+	".github/pull_request_template.md",
+	".github/PULL_REQUEST_TEMPLATE",
+	"PULL_REQUEST_TEMPLATE.md",
+	"PULL_REQUEST_TEMPLATE",
+	"docs/PULL_REQUEST_TEMPLATE.md",
+	"docs/pull_request_template.md",
+];
+
+async function readPrTemplate(repoPath: string, headSha: string): Promise<string | null> {
+	for (const path of PR_TEMPLATE_PATHS) {
+		const result = await Bun.$`git -C ${repoPath} show ${headSha}:${path}`.quiet().nothrow();
+		if (result.exitCode === 0) {
+			const content = result.stdout.toString().trim();
+			if (content) return content;
+		}
+	}
+	return null;
+}
+
 export async function publishStack(input: PublishInput): Promise<StackPublishResult> {
 	const { repo_path, exec_result, pr_meta, base_branch, owner, repo } = input;
 	const ghRepo = `${owner}/${repo}`;
+
+	const headSha = exec_result.group_commits.at(-1)?.commit_sha ?? "HEAD";
+	const prTemplate = await readPrTemplate(repo_path, headSha);
 
 	const branches: BranchInfo[] = [];
 	const prs: PrInfo[] = [];
@@ -68,17 +92,17 @@ export async function publishStack(input: PublishInput): Promise<StackPublishRes
 		}
 	}
 
-	await updatePrBodies(ghRepo, prs, pr_meta);
+	await updatePrBodies(ghRepo, prs, pr_meta, prTemplate);
 
 	return { branches, prs };
 }
 
-async function updatePrBodies(ghRepo: string, prs: PrInfo[], prMeta: PrMeta): Promise<void> {
+async function updatePrBodies(ghRepo: string, prs: PrInfo[], prMeta: PrMeta, prTemplate: string | null): Promise<void> {
 	if (prs.length === 0) return;
 
 	for (let i = 0; i < prs.length; i++) {
 		const pr = prs[i]!;
-		const body = buildFullBody(pr, i, prs, prMeta);
+		const body = buildFullBody(pr, i, prs, prMeta, prTemplate);
 
 		await Bun.$`gh pr edit ${pr.number} --repo ${ghRepo} --body ${body}`.quiet().nothrow();
 	}
@@ -105,6 +129,7 @@ function buildFullBody(
 	index: number,
 	allPrs: PrInfo[],
 	prMeta: PrMeta,
+	prTemplate: string | null,
 ): string {
 	const total = allPrs.length;
 	const order = index + 1;
@@ -125,7 +150,7 @@ function buildFullBody(
 		? `➡️ Next: [#${allPrs[index + 1]!.number}](${allPrs[index + 1]!.url})`
 		: "➡️ Next: top of stack";
 
-	return [
+	const lines = [
 		`> **Stack ${order}/${total}** — This PR is part of a stacked PR chain created by [newpr](https://github.com/jiwonMe/newpr).`,
 		`> Source: #${prMeta.pr_number} ${prMeta.pr_title}`,
 		``,
@@ -142,7 +167,13 @@ function buildFullBody(
 		`## ${current.group_id}`,
 		``,
 		`*From PR [#${prMeta.pr_number}](${prMeta.pr_url}): ${prMeta.pr_title}*`,
-	].join("\n");
+	];
+
+	if (prTemplate) {
+		lines.push(``, `---`, ``, prTemplate);
+	}
+
+	return lines.join("\n");
 }
 
 function statusEmoji(prIndex: number, currentIndex: number): string {
