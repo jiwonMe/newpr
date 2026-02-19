@@ -52,7 +52,7 @@ interface DagNode {
 
 const INDENT = 18;
 const DOT_CX = 8;
-const DOT_RADIUS = 4;
+const DOT_RADIUS = 2.5;
 const ROW_HEIGHT = 36;
 
 function buildDagNodes(groups: DagGroup[]): DagNode[] {
@@ -310,8 +310,8 @@ export function StackDagView({
 							const colors = TYPE_COLORS[node.group.type] ?? TYPE_COLORS.chore!;
 							const colorClass = colors.dot;
 							return (
-								<circle key={node.group.id} cx={cx} cy={y} r={DOT_RADIUS}
-									className={colorClass} fill="currentColor" />
+							<circle key={node.group.id} cx={cx} cy={y} r={DOT_RADIUS}
+								className={colorClass} fill="currentColor" fillOpacity="0.7" />
 							);
 						})}
 					</svg>
