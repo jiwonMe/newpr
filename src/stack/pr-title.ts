@@ -1,16 +1,25 @@
 import type { LlmClient } from "../llm/client.ts";
 import type { StackGroup } from "./types.ts";
 
-function truncateTitle(type: string, text: string): string {
-	const words = text.split(/\s+/).filter(Boolean);
-	const kept = words.slice(0, 5).join(" ");
-	const title = `${type}: ${kept}`;
-	return title.length > 40 ? title.slice(0, 40).trimEnd() : title;
+const MAX_TITLE_LENGTH = 72;
+
+function sanitizeTitle(raw: string): string {
+	let title = raw.trim().replace(/\.+$/, "");
+	if (title.length > MAX_TITLE_LENGTH) {
+		title = title.slice(0, MAX_TITLE_LENGTH).replace(/\s\S*$/, "").trimEnd();
+	}
+	return title;
 }
 
 function fallbackTitle(g: StackGroup): string {
-	const slug = g.name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-	return truncateTitle(g.type, slug);
+	const desc = g.description || g.name;
+	const cleaned = desc.replace(/[^\w\s\-/.,()]/g, " ").replace(/\s+/g, " ").trim();
+	const prefix = `${g.type}: `;
+	const maxDesc = MAX_TITLE_LENGTH - prefix.length;
+	const truncated = cleaned.length > maxDesc
+		? cleaned.slice(0, maxDesc).replace(/\s\S*$/, "").trimEnd()
+		: cleaned;
+	return truncated ? `${prefix}${truncated}` : `${g.type}: ${g.name}`;
 }
 
 export async function generatePrTitles(
@@ -27,38 +36,40 @@ export async function generatePrTitles(
 		].join("\n"))
 		.join("\n\n");
 
-	const system = `You generate short PR titles for stacked PRs — like real GitHub PR titles.
+	const system = `You generate PR titles for stacked PRs — concise but descriptive, like titles written by a senior engineer.
 
 Rules:
 - Format: "type: description"
-- type must be one of: feat | fix | refactor | chore | docs | test | perf
-- description: 2-5 words MAX. Imperative mood, lowercase, no period
-- HARD LIMIT: entire title must be under 40 characters total
-- Cut aggressively. Think of it as a git branch name in prose form
-- NO scope parentheses, NO filler words (add, implement, introduce, update, support, handle, ensure)
+- type must be one of: feat | fix | refactor | chore | docs | test | perf | style | ci
+- description: 5-12 words, imperative mood, lowercase, no trailing period
+- Target length: 40-72 characters total
+- Be specific about WHAT changed, not vague
 - Each title must be unique across the set
+- Never leave description empty
 
 Good examples:
-- "feat: jwt token refresh"
-- "fix: null user crash"
-- "refactor: shared validators"
-- "chore: eslint config"
-- "test: auth edge cases"
-- "feat: loop node schema"
-- "refactor: canvas renderer"
+- "feat: add JWT token refresh middleware for auth flow"
+- "fix: prevent null user crash on session expiry"
+- "refactor: extract shared validation logic into helpers"
+- "chore: migrate eslint config to flat format"
+- "feat: implement drag-and-drop reordering for canvas nodes"
+- "test: add integration tests for payment webhook handler"
+- "refactor: split monolithic API router into domain modules"
 
-Bad examples (TOO LONG):
-- "feat: add jwt token refresh middleware for authentication" (way too long)
-- "feat: implement loop node support for workflow editor" (too many words)
-- "refactor: update canvas rendering logic to support new shapes" (sentence, not title)
+Bad examples:
+- "feat: auth" (too vague)
+- "fix: bug" (meaningless)
+- "refactor: code" (says nothing)
+- "feat: jwt" (just a keyword, not a title)
+- "" (empty)
 
-Return ONLY JSON array: [{"group_id": "...", "title": "..."}]`;
+Return ONLY a JSON array: [{"group_id": "...", "title": "..."}]`;
 
 	const user = `Original PR: "${prTitle}"
 
 ${groupSummaries}
 
-Generate a unique, short PR title for each group (<40 chars). Return JSON array:
+Generate a descriptive PR title (40-72 chars) for each group. Return JSON array:
 [{"group_id": "...", "title": "..."}]`;
 
 	const response = await llmClient.complete(system, user);
@@ -69,9 +80,8 @@ Generate a unique, short PR title for each group (<40 chars). Return JSON array:
 		const cleaned = response.content.replace(/```(?:json)?\s*/g, "").replace(/```\s*/g, "").trim();
 		const parsed = JSON.parse(cleaned) as Array<{ group_id: string; title: string }>;
 		for (const item of parsed) {
-			if (item.group_id && item.title) {
-				const t = item.title.length > 40 ? truncateTitle(item.title.split(":")[0] ?? "chore", item.title.split(":").slice(1).join(":").trim()) : item.title;
-				titles.set(item.group_id, t);
+			if (item.group_id && item.title?.trim()) {
+				titles.set(item.group_id, sanitizeTitle(item.title));
 			}
 		}
 	} catch {
@@ -81,7 +91,7 @@ Generate a unique, short PR title for each group (<40 chars). Return JSON array:
 	}
 
 	for (const g of groups) {
-		if (!titles.has(g.id)) {
+		if (!titles.has(g.id) || !titles.get(g.id)) {
 			titles.set(g.id, fallbackTitle(g));
 		}
 	}
