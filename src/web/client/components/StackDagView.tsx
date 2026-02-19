@@ -257,10 +257,23 @@ export function StackDagView({
 	const svgWidth = (maxIndent + 1) * INDENT + DOT_CX * 2;
 
 	useLayoutEffect(() => {
-		const heights = rowRefs.current.map((el) => el?.getBoundingClientRect().height ?? ROW_HEIGHT);
-		setRowHeights(heights);
-		setSvgHeight(heights.reduce((a, b) => a + b, 0));
-	});
+		const measure = () => {
+			const heights = rowRefs.current.map((el) => el?.getBoundingClientRect().height ?? ROW_HEIGHT);
+			const total = heights.reduce((a, b) => a + b, 0);
+			setRowHeights((prev) => {
+				if (prev.length === heights.length && prev.every((h, i) => h === heights[i])) return prev;
+				return heights;
+			});
+			setSvgHeight((prev) => prev === total ? prev : total);
+		};
+
+		measure();
+
+		const ro = new ResizeObserver(measure);
+		const container = containerRef.current;
+		if (container) ro.observe(container);
+		return () => ro.disconnect();
+	}, [nodes.length]);
 
 	const lines = rowHeights.length === nodes.length ? buildLines(nodes, rowHeights) : [];
 
