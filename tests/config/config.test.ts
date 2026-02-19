@@ -18,8 +18,9 @@ describe("loadConfig", () => {
 		process.env = { ...originalEnv };
 	});
 
-	test("throws when OPENROUTER_API_KEY is missing", async () => {
-		await expect(loadConfig(undefined, emptyStore)).rejects.toThrow("OPENROUTER_API_KEY");
+	test("returns empty api key when OPENROUTER_API_KEY is missing", async () => {
+		const config = await loadConfig(undefined, emptyStore);
+		expect(config.openrouter_api_key).toBe("");
 	});
 
 	test("returns defaults when only API key is set", async () => {
