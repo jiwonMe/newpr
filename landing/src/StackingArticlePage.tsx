@@ -1,5 +1,22 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight, Sparkles } from "lucide-react";
+import { createHighlighterCore, type HighlighterCore } from "shiki/core";
+import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
+
+// Singleton highlighter — loaded once, shared across all CodeBlock instances
+let _highlighter: HighlighterCore | null = null;
+let _highlighterPromise: Promise<HighlighterCore> | null = null;
+
+function getHighlighter(): Promise<HighlighterCore> {
+	if (_highlighter) return Promise.resolve(_highlighter);
+	if (_highlighterPromise) return _highlighterPromise;
+	_highlighterPromise = createHighlighterCore({
+		themes: [import("@shikijs/themes/github-dark")],
+		langs: [import("@shikijs/langs/typescript")],
+		engine: createJavaScriptRegexEngine(),
+	}).then((h) => { _highlighter = h; return h; });
+	return _highlighterPromise;
+}
 
 // ============================================================================
 // Types
@@ -972,8 +989,10 @@ const KO_CONTENT: ArticleContent = {
 // Rendering Components
 // ============================================================================
 
+const RICH_TEXT_RE = /(`[^`]+`|\*\*[^*]+\*\*|\[[^\]]+\]\([^)]+\)|\[\d+\])/g;
+
 function RichText({ text }: { text: string }) {
-	const parts = text.split(/(`[^`]+`|\[[^\]]+\]\([^)]+\))/g);
+	const parts = text.split(RICH_TEXT_RE);
 	return (
 		<>
 			{parts.map((part, i) => {
@@ -984,11 +1003,26 @@ function RichText({ text }: { text: string }) {
 						</code>
 					);
 				}
+				if (part.startsWith("**") && part.endsWith("**")) {
+					return (
+						<strong key={i} className="font-semibold text-zinc-100">
+							{part.slice(2, -2)}
+						</strong>
+					);
+				}
 				const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
 				if (linkMatch) {
 					return (
 						<a key={i} href={linkMatch[2]} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 underline underline-offset-2 decoration-blue-400/30">
 							{linkMatch[1]}
+						</a>
+					);
+				}
+				const refMatch = part.match(/^\[(\d+)\]$/);
+				if (refMatch) {
+					return (
+						<a key={i} href="#references" className="text-blue-400/70 hover:text-blue-300 text-[12px] align-super no-underline">
+							[{refMatch[1]}]
 						</a>
 					);
 				}
@@ -999,12 +1033,38 @@ function RichText({ text }: { text: string }) {
 }
 
 function CodeBlock({ code, caption }: { code: string; caption?: string }) {
+	const [html, setHtml] = useState<string | null>(null);
+
+	useEffect(() => {
+		let cancelled = false;
+		getHighlighter().then((h) => {
+			if (cancelled) return;
+			const result = h.codeToHtml(code, { lang: "typescript", theme: "github-dark" });
+			setHtml(result);
+		});
+		return () => { cancelled = true; };
+	}, [code]);
+
 	return (
-		<div className="rounded-xl border border-zinc-800 bg-zinc-950 p-4 sm:p-5 my-4">
+		<div className="rounded-xl border border-zinc-800 bg-[#0d1117] p-4 sm:p-5 my-4">
 			{caption && (
-				<p className="text-[11px] text-zinc-500 font-mono mb-3">{caption}</p>
+				<div className="flex items-center gap-2 mb-3 pb-2.5 border-b border-zinc-800/60">
+					<div className="flex gap-1.5">
+						<span className="w-2.5 h-2.5 rounded-full bg-zinc-700/60" />
+						<span className="w-2.5 h-2.5 rounded-full bg-zinc-700/60" />
+						<span className="w-2.5 h-2.5 rounded-full bg-zinc-700/60" />
+					</div>
+					<p className="text-[11px] text-zinc-500 font-mono">{caption}</p>
+				</div>
 			)}
-			<pre className="text-[12px] sm:text-[13px] text-zinc-300 font-mono leading-6 whitespace-pre-wrap overflow-x-auto">{code}</pre>
+			{html ? (
+				<div
+					className="shiki-wrapper text-[12px] sm:text-[13px] font-mono leading-6 overflow-x-auto [&_pre]:!bg-transparent [&_pre]:!m-0 [&_pre]:!p-0 [&_code]:!text-[inherit] [&_code]:!leading-[inherit]"
+					dangerouslySetInnerHTML={{ __html: html }}
+				/>
+			) : (
+				<pre className="text-[12px] sm:text-[13px] text-zinc-300 font-mono leading-6 whitespace-pre-wrap overflow-x-auto">{code}</pre>
+			)}
 		</div>
 	);
 }
