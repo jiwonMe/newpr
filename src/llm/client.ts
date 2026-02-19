@@ -231,12 +231,32 @@ function createOpenRouterClient(options: LlmClientOptions): LlmClient {
 }
 
 export function createLlmClient(options: LlmClientOptions): LlmClient {
+	// if the caller provided an API key use OpenRouter for full model choice
 	if (options.api_key) {
 		return createOpenRouterClient(options);
 	}
 
-	const { createClaudeCodeClient: create } = require("./claude-code-client.ts");
-	return create(options.timeout);
+	// no key, fall back to a local CLI-based LLM. prefer Claude Code if
+	// available, otherwise try the Codex CLI. both modules will lazily verify
+	// that the binary exists when the client is first used.
+	try {
+		const { createClaudeCodeClient: create } = require("./claude-code-client.ts");
+		return create(options.timeout);
+	} catch {
+		// require can fail if the file doesn't exist, otherwise the client may
+		// still throw later when executed; we ignore here and try codex instead.
+	}
+
+	try {
+		const { createCodexClient: create } = require("./codex-client.ts");
+		return create(options.timeout);
+	} catch {
+		// if codex-client isn't present we'll fall through to error below
+	}
+
+	throw new Error(
+		"No LLM backend available. Set OPENROUTER_API_KEY or install Claude Code or Codex (npm install -g @anthropic-ai/claude-code or @openai/codex).",
+	);
 }
 
 export function hasApiKey(options: LlmClientOptions): boolean {

@@ -8,6 +8,7 @@ const MOCK_RESPONSE = {
 };
 
 const originalFetch = globalThis.fetch;
+const originalRequire = (globalThis as any).require;
 
 function mockFetch(handler: (url: string, init: RequestInit) => Response | Promise<Response>) {
 	(globalThis as Record<string, unknown>).fetch = async (
@@ -112,6 +113,90 @@ describe("createLlmClient", () => {
 
 		expect(result.usage.prompt_tokens).toBe(0);
 		expect(result.usage.completion_tokens).toBe(0);
+	});
+
+	// fallback behaviour when there is no API key
+	describe("fallbacks without api_key", () => {
+		afterEach(() => {
+			// restore original require after each sub-test
+			(globalThis as any).require = originalRequire;
+		});
+
+		test("uses Claude Code when available", async () => {
+			const orig = originalRequire;
+			(globalThis as any).require = (path: string) => {
+				if (path.endsWith("claude-code-client.ts")) {
+					return {
+						createClaudeCodeClient: (timeout: number) => ({
+							async complete() {
+								return {
+									content: "claude result",
+									model: "claude-code",
+									usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+								};
+							},
+							async completeStream(_s, _u, onChunk) {
+								onChunk("claude result", "claude result");
+								return {
+									content: "claude result",
+									model: "claude-code",
+									usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+								};
+							},
+						}),
+					};
+				}
+				return orig(path);
+			};
+
+			const client = createLlmClient({ api_key: "", model: "x", timeout: 5 });
+			const r = await client.complete("a", "b");
+			expect(r.content).toBe("claude result");
+		});
+
+		test("falls back to Codex when Claude missing", async () => {
+			const orig = originalRequire;
+			(globalThis as any).require = (path: string) => {
+				if (path.endsWith("claude-code-client.ts")) {
+					throw new Error("not found");
+				}
+				if (path.endsWith("codex-client.ts")) {
+					return {
+						createCodexClient: (timeout: number) => ({
+							async complete() {
+								return {
+									content: "codex result",
+									model: "codex",
+									usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+								};
+							},
+							async completeStream(_s, _u, onChunk) {
+								onChunk("codex result", "codex result");
+								return {
+									content: "codex result",
+									model: "codex",
+									usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+								};
+							},
+						}),
+					};
+				}
+				return orig(path);
+			};
+
+			const client = createLlmClient({ api_key: "", model: "x", timeout: 5 });
+			const r = await client.complete("a", "b");
+			expect(r.content).toBe("codex result");
+		});
+
+		test("throws when no backend is available", () => {
+			(globalThis as any).require = () => {
+				throw new Error("nope");
+			};
+			expect(() => createLlmClient({ api_key: "", model: "m", timeout: 1 })).toThrow(
+				"No LLM backend available",
+			);
+		});
 	});
 });
 
