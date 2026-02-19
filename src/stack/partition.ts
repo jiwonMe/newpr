@@ -2,6 +2,7 @@ import type { FileGroup } from "../types/output.ts";
 import type { PrCommit } from "../types/github.ts";
 import type { LlmClient } from "../llm/client.ts";
 import type { PartitionResult, ReattributedFile, StackWarning } from "./types.ts";
+import { safeParseJson } from "./json-utils.ts";
 
 interface FileSummaryInput {
 	path: string;
@@ -135,9 +136,36 @@ export async function partitionGroups(
 	);
 
 	const response = await client.complete(prompt.system, prompt.user);
-	const parsed = parsePartitionResponse(response.content, report, groups);
+	try {
+		return parsePartitionResponse(response.content, report, groups);
+	} catch {
+		const ownership = new Map(report.exclusive);
+		const fallbackGroup = groups[groups.length - 1]?.name;
+		if (fallbackGroup) {
+			for (const entry of report.ambiguous) {
+				ownership.set(entry.path, fallbackGroup);
+			}
+			for (const path of report.unassigned) {
+				ownership.set(path, fallbackGroup);
+			}
+		}
 
-	return parsed;
+		const affected = [...report.ambiguous.map((a) => a.path), ...report.unassigned];
+		return {
+			ownership,
+			reattributed: [],
+			warnings: [
+				`AI partition response could not be parsed; fallback assignment applied${fallbackGroup ? ` to "${fallbackGroup}"` : ""}`,
+			],
+			structured_warnings: [{
+				category: "system",
+				severity: "warn",
+				title: "AI partition parse failed; fallback assignment applied",
+				message: "Response contained non-JSON artifacts; ambiguous/unassigned files were auto-assigned",
+				details: affected,
+			}],
+		};
+	}
 }
 
 function parsePartitionResponse(
@@ -145,8 +173,9 @@ function parsePartitionResponse(
 	report: AmbiguityReport,
 	groups: FileGroup[],
 ): PartitionResult {
-	const jsonStr = extractJson(raw);
-	const parsed: unknown = JSON.parse(jsonStr);
+	const result = safeParseJson(raw);
+	if (!result.ok) throw new Error(`Partition parse failed: ${result.error}`);
+	const parsed: unknown = result.data;
 
 	if (!parsed || typeof parsed !== "object") {
 		throw new Error("Expected JSON object for partition response");
@@ -164,7 +193,25 @@ function parsePartitionResponse(
 	const warnings: string[] = [];
 	const structuredWarnings: StackWarning[] = [];
 
-	const validGroupNames = new Set(groups.map((g) => g.name));
+	let sharedFoundation: FileGroup | undefined;
+	if (data.shared_foundation && typeof data.shared_foundation === "object") {
+		const sf = data.shared_foundation as Record<string, unknown>;
+		sharedFoundation = {
+			name: String(sf.name ?? "Shared Foundation"),
+			type: "chore",
+			description: String(sf.description ?? "Common infrastructure changes"),
+			files: Array.isArray(sf.files) ? sf.files.map(String) : [],
+		};
+	}
+
+	const groupNameLookup = new Map<string, string>();
+	for (const group of groups) {
+		groupNameLookup.set(group.name.toLowerCase(), group.name);
+	}
+	if (sharedFoundation) {
+		groupNameLookup.set(sharedFoundation.name.toLowerCase(), sharedFoundation.name);
+		groupNameLookup.set("shared foundation", sharedFoundation.name);
+	}
 
 	for (const item of assignments) {
 		const entry = item as Record<string, unknown>;
@@ -177,7 +224,26 @@ function parsePartitionResponse(
 			continue;
 		}
 
-		if (!validGroupNames.has(group)) {
+		const normalizedGroup = group.toLowerCase().replace(/["'`]/g, "").trim();
+		const isSharedFoundationAlias = /shared[\s_-]*foundation/.test(normalizedGroup);
+		let canonicalGroup = groupNameLookup.get(normalizedGroup);
+		if (!canonicalGroup && isSharedFoundationAlias) {
+			if (!sharedFoundation) {
+				sharedFoundation = {
+					name: "Shared Foundation",
+					type: "chore",
+					description: "Common infrastructure changes",
+					files: [],
+				};
+			}
+			groupNameLookup.set(sharedFoundation.name.toLowerCase(), sharedFoundation.name);
+			groupNameLookup.set("shared-foundation", sharedFoundation.name);
+			groupNameLookup.set("shared_foundation", sharedFoundation.name);
+			groupNameLookup.set("shared foundation", sharedFoundation.name);
+			canonicalGroup = sharedFoundation.name;
+		}
+
+		if (!canonicalGroup) {
 			warnings.push(`Unknown group "${group}" for file "${path}", skipping`);
 			structuredWarnings.push({
 				category: "system",
@@ -195,19 +261,22 @@ function parsePartitionResponse(
 			reattributed.push({
 				path,
 				from_groups: ambiguousEntry.groups,
-				to_group: group,
+				to_group: canonicalGroup,
 				reason,
 			});
 		} else if (isUnassigned) {
 			reattributed.push({
 				path,
 				from_groups: [],
-				to_group: group,
+				to_group: canonicalGroup,
 				reason,
 			});
 		}
 
-		ownership.set(path, group);
+		ownership.set(path, canonicalGroup);
+		if (sharedFoundation && canonicalGroup === sharedFoundation.name && !sharedFoundation.files.includes(path)) {
+			sharedFoundation.files.push(path);
+		}
 	}
 
 	const stillUnassigned = report.unassigned.filter((p) => !ownership.has(p));
@@ -245,18 +314,6 @@ function parsePartitionResponse(
 		});
 	}
 
-	let sharedFoundation: FileGroup | undefined;
-	if (data.shared_foundation && typeof data.shared_foundation === "object") {
-		const sf = data.shared_foundation as Record<string, unknown>;
-		sharedFoundation = {
-			name: String(sf.name ?? "Shared Foundation"),
-			type: "chore",
-			description: String(sf.description ?? "Common infrastructure changes"),
-			files: Array.isArray(sf.files) ? sf.files.map(String) : [],
-		};
-		validGroupNames.add(sharedFoundation.name);
-	}
-
 	return {
 		ownership,
 		reattributed,
@@ -264,10 +321,4 @@ function parsePartitionResponse(
 		warnings,
 		structured_warnings: structuredWarnings,
 	};
-}
-
-function extractJson(raw: string): string {
-	const codeBlockMatch = raw.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
-	if (codeBlockMatch?.[1]) return codeBlockMatch[1].trim();
-	return raw.trim();
 }

@@ -79,6 +79,33 @@ interface PublishResultData {
 		base_branch: string;
 		head_branch: string;
 	}>;
+	publishedAt?: number;
+	cleanupResult?: {
+		mode: "close" | "delete";
+		completedAt: number;
+		items: Array<{
+			group_id: string;
+			number: number;
+			head_branch: string;
+			closed: boolean;
+			branch_deleted: boolean;
+			message?: string;
+		}>;
+	};
+}
+
+interface PublishPreviewData {
+	template_path: string | null;
+	generatedAt?: number;
+	items: Array<{
+		group_id: string;
+		title: string;
+		base_branch: string;
+		head_branch: string;
+		order: number;
+		total: number;
+		body: string;
+	}>;
 }
 
 interface ServerStackState {
@@ -92,6 +119,8 @@ interface ServerStackState {
 	plan: PlanData | null;
 	execResult: ExecResultData | null;
 	verifyResult: VerifyResultData | null;
+	publishResult: PublishResultData | null;
+	publishPreview: PublishPreviewData | null;
 	startedAt: number;
 	finishedAt: number | null;
 }
@@ -107,6 +136,11 @@ export interface StackState {
 	execResult: ExecResultData | null;
 	verifyResult: VerifyResultData | null;
 	publishResult: PublishResultData | null;
+	publishPreview: PublishPreviewData | null;
+	publishPreviewLoading: boolean;
+	publishPreviewError: string | null;
+	publishCleanupLoading: boolean;
+	publishCleanupError: string | null;
 	progressMessage: string | null;
 }
 
@@ -130,6 +164,8 @@ function applyServerState(server: ServerStackState): Partial<StackState> {
 		plan: server.plan,
 		execResult: server.execResult,
 		verifyResult: server.verifyResult,
+		publishResult: server.publishResult,
+		publishPreview: server.publishPreview,
 	};
 }
 
@@ -149,6 +185,11 @@ export function useStack(sessionId: string | null | undefined, options?: UseStac
 		execResult: null,
 		verifyResult: null,
 		publishResult: null,
+		publishPreview: null,
+		publishPreviewLoading: false,
+		publishPreviewError: null,
+		publishCleanupLoading: false,
+		publishCleanupError: null,
 		progressMessage: null,
 	});
 
@@ -248,22 +289,41 @@ export function useStack(sessionId: string | null | undefined, options?: UseStac
 
 	const startPublish = useCallback(async () => {
 		if (!sessionId) return;
-		setState((s) => ({ ...s, phase: "publishing" }));
+		setState((s) => ({
+			...s,
+			phase: "publishing",
+			error: null,
+			progressMessage: "Publishing draft PRs... this can take around a minute.",
+		}));
 		try {
 			const res = await fetch("/api/stack/publish", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ sessionId }),
 			});
-			const data = await res.json();
-			if (!res.ok) throw new Error(data.error ?? "Publishing failed");
+			const raw = await res.text();
+			let data: Record<string, unknown> = {};
+			try {
+				data = raw ? JSON.parse(raw) as Record<string, unknown> : {};
+			} catch {
+				if (!res.ok) throw new Error(raw || "Publishing failed");
+				throw new Error("Invalid server response while publishing stack");
+			}
+			if (!res.ok) {
+				const message = typeof data.error === "string" ? data.error : "Publishing failed";
+				throw new Error(message);
+			}
 
 			const publishResult = data.publish_result as PublishResultData;
+			const serverState = (data as { state?: ServerStackState }).state;
+			const nextPublishResult = serverState?.publishResult ?? publishResult;
 
 			setState((s) => ({
 				...s,
+				...(serverState ? applyServerState(serverState) : {}),
 				phase: "done",
-				publishResult,
+				publishResult: nextPublishResult,
+				progressMessage: null,
 			}));
 
 			if (options?.onTrackAnalysis && publishResult?.prs?.length > 0) {
@@ -286,9 +346,118 @@ export function useStack(sessionId: string | null | undefined, options?: UseStac
 				...s,
 				phase: "error",
 				error: err instanceof Error ? err.message : String(err),
+				progressMessage: null,
 			}));
 		}
 	}, [sessionId, options]);
+
+	const loadPublishPreview = useCallback(async (force = false) => {
+		if (!sessionId) return;
+
+		setState((s) => {
+			if (!force && s.publishPreviewLoading) return s;
+			return { ...s, publishPreviewLoading: true, publishPreviewError: null };
+		});
+
+		try {
+			const res = await fetch("/api/stack/publish/preview", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ sessionId }),
+			});
+			const raw = await res.text();
+			let data: { preview?: PublishPreviewData; state?: ServerStackState; error?: string } = {};
+			try {
+				data = raw ? JSON.parse(raw) as { preview?: PublishPreviewData; state?: ServerStackState; error?: string } : {};
+			} catch {
+				if (!res.ok) throw new Error(raw || "Failed to load publish preview");
+				throw new Error("Invalid server response while loading publish preview");
+			}
+			if (!res.ok || !data.preview) throw new Error(data.error ?? "Failed to load publish preview");
+			const serverState = data.state;
+
+			setState((s) => ({
+				...s,
+				...(serverState ? applyServerState(serverState) : {}),
+				publishPreview: serverState?.publishPreview ?? data.preview!,
+				publishPreviewLoading: false,
+				publishPreviewError: null,
+			}));
+		} catch (err) {
+			setState((s) => ({
+				...s,
+				publishPreviewLoading: false,
+				publishPreviewError: err instanceof Error ? err.message : String(err),
+			}));
+		}
+	}, [sessionId]);
+
+	const cleanupPublished = useCallback(async (mode: "close" | "delete") => {
+		if (!sessionId) return;
+
+		setState((s) => ({
+			...s,
+			publishCleanupLoading: true,
+			publishCleanupError: null,
+			progressMessage: mode === "delete"
+				? "Closing draft PRs and deleting stack branches..."
+				: "Closing draft PRs...",
+		}));
+
+		try {
+			const res = await fetch("/api/stack/publish/cleanup", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ sessionId, mode }),
+			});
+
+			const raw = await res.text();
+			let data: { cleanup_result?: PublishResultData["cleanupResult"]; state?: ServerStackState; error?: string } = {};
+			try {
+				data = raw ? JSON.parse(raw) as { cleanup_result?: PublishResultData["cleanupResult"]; state?: ServerStackState; error?: string } : {};
+			} catch {
+				if (!res.ok) throw new Error(raw || "Failed to cleanup stack PRs");
+				throw new Error("Invalid server response while cleaning up stack PRs");
+			}
+
+			if (!res.ok) throw new Error(data.error ?? "Failed to cleanup stack PRs");
+
+			const serverState = data.state;
+			setState((s) => {
+				const fallbackPublishResult = s.publishResult
+					? {
+						...s.publishResult,
+						cleanupResult: data.cleanup_result ?? s.publishResult.cleanupResult,
+					}
+					: s.publishResult;
+
+				return {
+					...s,
+					...(serverState ? applyServerState(serverState) : {}),
+					publishResult: serverState?.publishResult ?? fallbackPublishResult,
+					publishCleanupLoading: false,
+					publishCleanupError: null,
+					progressMessage: null,
+				};
+			});
+		} catch (err) {
+			setState((s) => ({
+				...s,
+				publishCleanupLoading: false,
+				publishCleanupError: err instanceof Error ? err.message : String(err),
+				progressMessage: null,
+			}));
+		}
+	}, [sessionId]);
+
+	useEffect(() => {
+		if (!sessionId) return;
+		if (state.phase !== "done") return;
+		if (!state.execResult) return;
+		if (state.publishResult) return;
+		if (state.publishPreview || state.publishPreviewLoading || state.publishPreviewError) return;
+		loadPublishPreview();
+	}, [sessionId, state.phase, state.execResult, state.publishResult, state.publishPreview, state.publishPreviewLoading, state.publishPreviewError, loadPublishPreview]);
 
 	const reset = useCallback(() => {
 		eventSourceRef.current?.close();
@@ -304,6 +473,11 @@ export function useStack(sessionId: string | null | undefined, options?: UseStac
 			execResult: null,
 			verifyResult: null,
 			publishResult: null,
+			publishPreview: null,
+			publishPreviewLoading: false,
+			publishPreviewError: null,
+			publishCleanupLoading: false,
+			publishCleanupError: null,
 			progressMessage: null,
 		}));
 	}, []);
@@ -319,6 +493,8 @@ export function useStack(sessionId: string | null | undefined, options?: UseStac
 		setMaxGroups,
 		runFullPipeline,
 		startPublish,
+		loadPublishPreview,
+		cleanupPublished,
 		reset,
 	};
 }

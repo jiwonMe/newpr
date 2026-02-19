@@ -31,8 +31,34 @@ function generateAlphanumericId(length = 6): string {
 	return result;
 }
 
+function slugifyBranchPart(value: string | undefined, fallback: string, maxLen: number): string {
+	const normalized = (value ?? "")
+		.normalize("NFKD")
+		.toLowerCase()
+		.replace(/[\u0300-\u036f]/g, "");
+
+	const slug = normalized
+		.replace(/[^a-z0-9]+/g, "-")
+		.replace(/-+/g, "-")
+		.replace(/^-+|-+$/g, "")
+		.slice(0, maxLen)
+		.replace(/-+$/g, "");
+
+	return slug || fallback;
+}
+
+function buildStackBranchName(prNumber: number, headBranch: string, group: StackPlan["groups"][number]): string {
+	const sourceSlug = slugifyBranchPart(headBranch, "source", 24);
+	const typeSlug = slugifyBranchPart(group.type, "group", 16);
+	const topicSource = group.pr_title ?? group.name ?? group.description;
+	const topicSlug = slugifyBranchPart(topicSource, `group-${group.order}`, 36);
+	const orderSlug = String(group.order).padStart(2, "0");
+	const randomSuffix = generateAlphanumericId(6);
+	return `newpr-stack/pr-${prNumber}/${sourceSlug}/${orderSlug}-${typeSlug}-${topicSlug}-${randomSuffix}`;
+}
+
 export async function executeStack(input: ExecuteInput): Promise<StackExecResult> {
-	const { repo_path, plan, deltas, ownership, pr_author, pr_number, head_branch: _head_branch } = input;
+	const { repo_path, plan, deltas, ownership, pr_author, pr_number, head_branch } = input;
 
 	const runId = `newpr-stack-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 	const tmpIndexFiles: string[] = [];
@@ -150,7 +176,7 @@ export async function executeStack(input: ExecuteInput): Promise<StackExecResult
 			}
 			const commitSha = commitTree.stdout.toString().trim();
 
-			const branchName = `newpr-stack/pr-${pr_number}/${group.order}-${generateAlphanumericId()}`;
+			const branchName = buildStackBranchName(pr_number, head_branch, group);
 
 			const updateRef = await Bun.$`git -C ${repo_path} update-ref refs/heads/${branchName} ${commitSha}`.quiet().nothrow();
 			if (updateRef.exitCode !== 0) {

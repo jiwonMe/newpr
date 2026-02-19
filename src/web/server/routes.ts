@@ -13,10 +13,11 @@ import { generateCartoon } from "../../llm/cartoon.ts";
 import { generateSlides } from "../../llm/slides.ts";
 import { getPlugin, getAllPlugins } from "../../plugins/registry.ts";
 import { chatWithTools, createLlmClient, type ChatTool, type ChatStreamEvent } from "../../llm/client.ts";
+import { createResilientLlmClient } from "../../llm/resilient-client.ts";
 import { detectAgents, runAgent } from "../../workspace/agent.ts";
 import { randomBytes } from "node:crypto";
-import { publishStack } from "../../stack/publish.ts";
-import { startStack, getStackState, cancelStack, subscribeStack, restoreCompletedStacks } from "./stack-manager.ts";
+import { publishStack, buildStackPublishPreview } from "../../stack/publish.ts";
+import { startStack, getStackState, cancelStack, subscribeStack, restoreCompletedStacks, setStackPublishResult, setStackPublishPreview, setStackPublishCleanupResult } from "./stack-manager.ts";
 import { getTelemetryConsent, setTelemetryConsent, telemetry } from "../../telemetry/index.ts";
 
 function json(data: unknown, status = 200): Response {
@@ -40,6 +41,28 @@ export function createRoutes(token: string, config: NewprConfig, options: RouteO
 		"User-Agent": "newpr-cli",
 		"Content-Type": "application/json",
 	};
+	const SESSION_PR_STATE_TTL_MS = 90_000;
+	const sessionPrStateCache = new Map<string, { state: string; checkedAt: number }>();
+
+	function normalizePrState(data: { state?: string; draft?: boolean; merged?: boolean }): string {
+		if (data.merged) return "merged";
+		if (data.state === "closed") return "closed";
+		if (data.draft) return "draft";
+		return "open";
+	}
+
+	async function fetchPrState(prUrl: string): Promise<string | null> {
+		if (!token) return null;
+		try {
+			const pr = parsePrInput(prUrl);
+			const res = await fetch(`https://api.github.com/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}`, { headers: ghHeaders });
+			if (!res.ok) return null;
+			const data = await res.json() as { state?: string; draft?: boolean; merged?: boolean };
+			return normalizePrState(data);
+		} catch {
+			return null;
+		}
+	}
 
 	async function resolvePrUrl(sessionId: string): Promise<string | null> {
 		const stored = await loadSession(sessionId);
@@ -432,9 +455,30 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 			return json({ ok });
 		},
 
-		"GET /api/sessions": async () => {
+		"GET /api/sessions": async (req: Request) => {
+			const url = new URL(req.url);
+			const shouldRefreshState = url.searchParams.get("refresh") !== "0";
 			const sessions = await listSessions(50);
-			return json(sessions);
+			const now = Date.now();
+
+			const hydrated = await Promise.all(sessions.map(async (session) => {
+				const currentState = session.pr_state;
+				if (currentState === "merged" || currentState === "closed") return session;
+				if (!shouldRefreshState) return session;
+
+				const cached = sessionPrStateCache.get(session.id);
+				if (cached && now - cached.checkedAt < SESSION_PR_STATE_TTL_MS) {
+					return { ...session, pr_state: cached.state };
+				}
+
+				const state = await fetchPrState(session.pr_url);
+				if (!state) return session;
+
+				sessionPrStateCache.set(session.id, { state, checkedAt: now });
+				return { ...session, pr_state: state };
+			}));
+
+			return json(hydrated.filter((session) => session.pr_state !== "merged" && session.pr_state !== "closed"));
 		},
 
 		"GET /api/sessions/:id": async (req: Request) => {
@@ -1614,7 +1658,8 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 		},
 
 		"POST /api/slides": async (req: Request) => {
-			if (!config.openrouter_api_key) return json({ error: "OpenRouter API key required" }, 400);
+			const apiKey = config.openrouter_api_key;
+			if (!apiKey) return json({ error: "OpenRouter API key required" }, 400);
 
 			const body = await req.json() as { sessionId?: string; language?: string; resume?: boolean };
 			const sessionId = body.sessionId;
@@ -1634,7 +1679,7 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 			(async () => {
 				try {
 					const deck = await generateSlides(
-						config.openrouter_api_key,
+						apiKey,
 						data,
 						config.model,
 						body.language ?? config.language,
@@ -1705,7 +1750,8 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 			const body = await req.json() as { sessionId?: string; resume?: boolean };
 			const sessionId = body.sessionId;
 			if (!sessionId) return json({ error: "Missing sessionId" }, 400);
-			if (!config.openrouter_api_key) return json({ error: "API key required" }, 400);
+			const apiKey = config.openrouter_api_key;
+			if (!apiKey) return json({ error: "API key required" }, 400);
 
 			const plugin = getPlugin(pluginId);
 			if (!plugin) return json({ error: `Unknown plugin: ${pluginId}` }, 404);
@@ -1726,7 +1772,7 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 			(async () => {
 				try {
 					const result = await plugin.generate(
-						{ apiKey: config.openrouter_api_key, sessionId, data, language: config.language },
+						{ apiKey, sessionId, data, language: config.language },
 						(event) => { job.message = event.message; job.current = event.current; job.total = event.total; },
 						existingData,
 					);
@@ -1869,6 +1915,10 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 
 				const stored = await loadSession(body.sessionId);
 				if (!stored) return json({ error: "Session not found" }, 404);
+				const llmClient = createResilientLlmClient(
+					{ api_key: config.openrouter_api_key, model: config.model, timeout: config.timeout },
+					{ preferredAgent: config.agent },
+				);
 
 				const result = await publishStack({
 					repo_path: state.context.repo_path,
@@ -1877,9 +1927,156 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 					base_branch: state.context.base_branch,
 					owner: state.context.owner,
 					repo: state.context.repo,
+					plan_groups: state.plan?.groups,
+					llm_client: llmClient,
+					language: config.language,
+					publish_preview: state.publishPreview,
 				});
+				await setStackPublishResult(body.sessionId, result);
+				telemetry.stackPublished(result.prs.length);
 
-				return json({ publish_result: result });
+				return json({ publish_result: result, state: getStackState(body.sessionId) });
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				return json({ error: msg }, 500);
+			}
+		},
+
+		"POST /api/stack/publish/cleanup": async (req: Request) => {
+			try {
+				const body = await req.json() as { sessionId: string; mode?: "close" | "delete" };
+				if (!body.sessionId) return json({ error: "Missing sessionId" }, 400);
+				const mode = body.mode === "delete" ? "delete" : "close";
+
+				let state = getStackState(body.sessionId);
+				if (!state) {
+					await restoreCompletedStacks([body.sessionId]);
+					state = getStackState(body.sessionId);
+				}
+				if (!state) return json({ error: "No stack state found" }, 404);
+				if (!state.context) return json({ error: "Missing context" }, 400);
+				if (!state.publishResult?.prs?.length) return json({ error: "No published stack PRs found" }, 400);
+
+				const ghRepo = `${state.context.owner}/${state.context.repo}`;
+				const items: Array<{
+					group_id: string;
+					number: number;
+					head_branch: string;
+					closed: boolean;
+					branch_deleted: boolean;
+					message?: string;
+				}> = [];
+
+				for (const pr of state.publishResult.prs) {
+					let closed = false;
+					let branchDeleted = false;
+					const notes: string[] = [];
+
+					if (pr.number > 0) {
+						const closeResult = await Bun.$`gh api repos/${ghRepo}/pulls/${pr.number} -X PATCH -f state=closed`.quiet().nothrow();
+						if (closeResult.exitCode === 0) {
+							closed = true;
+						} else {
+							const viewResult = await Bun.$`gh pr view ${pr.number} --repo ${ghRepo} --json state`.quiet().nothrow();
+							if (viewResult.exitCode === 0) {
+								try {
+									const payload = JSON.parse(viewResult.stdout.toString()) as { state?: string };
+									closed = payload.state === "CLOSED" || payload.state === "MERGED";
+								} catch {}
+							}
+							if (!closed) {
+								const stderr = closeResult.stderr.toString().trim();
+								notes.push(stderr || "failed to close PR");
+							}
+						}
+					} else {
+						notes.push("missing PR number");
+					}
+
+					if (mode === "delete") {
+						const deleteResult = await Bun.$`git -C ${state.context.repo_path} push origin :${pr.head_branch}`.quiet().nothrow();
+						if (deleteResult.exitCode === 0) {
+							branchDeleted = true;
+						} else {
+							const stderr = deleteResult.stderr.toString().trim();
+							if (/remote ref does not exist|cannot lock ref|unable to delete/i.test(stderr)) {
+								branchDeleted = true;
+							} else {
+								notes.push(stderr || "failed to delete branch");
+							}
+						}
+					}
+
+					items.push({
+						group_id: pr.group_id,
+						number: pr.number,
+						head_branch: pr.head_branch,
+						closed,
+						branch_deleted: branchDeleted,
+						message: notes.length > 0 ? notes.join(" | ") : undefined,
+					});
+				}
+
+				const cleanupResult: {
+					mode: "close" | "delete";
+					completedAt: number;
+					items: Array<{
+						group_id: string;
+						number: number;
+						head_branch: string;
+						closed: boolean;
+						branch_deleted: boolean;
+						message?: string;
+					}>;
+				} = {
+					mode,
+					completedAt: Date.now(),
+					items,
+				};
+
+				await setStackPublishCleanupResult(body.sessionId, cleanupResult);
+				return json({ cleanup_result: cleanupResult, state: getStackState(body.sessionId) });
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				return json({ error: msg }, 500);
+			}
+		},
+
+		"POST /api/stack/publish/preview": async (req: Request) => {
+			try {
+				const body = await req.json() as { sessionId: string };
+				if (!body.sessionId) return json({ error: "Missing sessionId" }, 400);
+
+				let state = getStackState(body.sessionId);
+				if (!state) {
+					await restoreCompletedStacks([body.sessionId]);
+					state = getStackState(body.sessionId);
+				}
+				if (!state) return json({ error: "No stack state found" }, 404);
+				if (!state.execResult) return json({ error: "Stack not executed yet" }, 400);
+				if (!state.context) return json({ error: "Missing context" }, 400);
+
+				const stored = await loadSession(body.sessionId);
+				if (!stored) return json({ error: "Session not found" }, 404);
+				const llmClient = createResilientLlmClient(
+					{ api_key: config.openrouter_api_key, model: config.model, timeout: config.timeout },
+					{ preferredAgent: config.agent },
+				);
+
+				const preview = await buildStackPublishPreview({
+					repo_path: state.context.repo_path,
+					exec_result: state.execResult,
+					pr_meta: stored.meta,
+					base_branch: state.context.base_branch,
+					owner: state.context.owner,
+					repo: state.context.repo,
+					plan_groups: state.plan?.groups,
+					llm_client: llmClient,
+					language: config.language,
+				});
+				await setStackPublishPreview(body.sessionId, preview);
+
+				return json({ preview, state: getStackState(body.sessionId) });
 			} catch (err) {
 				const msg = err instanceof Error ? err.message : String(err);
 				return json({ error: msg }, 500);

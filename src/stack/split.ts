@@ -1,6 +1,7 @@
 import type { LlmClient } from "../llm/client.ts";
 import type { FileGroup, GroupType } from "../types/output.ts";
 import type { StackWarning } from "./types.ts";
+import { safeParseJson } from "./json-utils.ts";
 
 export interface SplitResult {
 	groups: FileGroup[];
@@ -99,13 +100,15 @@ Split this into ${suggestedCount}-${suggestedCount + 1} smaller, cohesive sub-gr
 
 		try {
 			const response = await llmClient.complete(system, user);
-			const cleaned = response.content.replace(/```(?:json)?\s*/g, "").replace(/```\s*/g, "").trim();
-			const parsed = JSON.parse(cleaned) as Array<{
+			const result = safeParseJson<Array<{
 				name: string;
 				type: string;
 				description: string;
 				files: string[];
-			}>;
+			}>>(response.content);
+
+			if (!result.ok) throw new Error(result.error);
+			const parsed = result.data;
 
 			if (!Array.isArray(parsed) || parsed.length < 2) {
 				newGroups.push(candidate.group);

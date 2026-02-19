@@ -62,9 +62,21 @@ async function sendEvents(events: Array<{ name: string; params?: Record<string, 
 	const cfg = await loadConfig();
 	if (cfg.consent !== "granted") return;
 
+	const timestampMicros = String(Date.now() * 1000);
+	const enrichedEvents = events.map((e) => ({
+		name: e.name,
+		params: {
+			...e.params,
+			engagement_time_msec: "100",
+			session_id: cfg.client_id.replace(/-/g, "").slice(0, 16),
+		},
+	}));
+
 	const body = {
 		client_id: cfg.client_id,
-		events,
+		timestamp_micros: timestampMicros,
+		non_personalized_ads: true,
+		events: enrichedEvents,
 	};
 
 	try {
@@ -74,7 +86,6 @@ async function sendEvents(events: Array<{ name: string; params?: Record<string, 
 			body: JSON.stringify(body),
 		});
 	} catch {
-		// Fire-and-forget — network failures are silent
 	}
 }
 

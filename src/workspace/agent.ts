@@ -111,13 +111,23 @@ function isRateLimitError(text: string): boolean {
 }
 
 function validateResult(agent: AgentTool, result: AgentResult): AgentResult {
-	if (isRateLimitError(result.answer)) {
-		throw new AgentError(agent.name, "rate_limit", `${agent.name}: rate limited — ${result.answer.slice(0, 200)}`);
+	const cleanedAnswer = result.answer
+		.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "")
+		.replace(/\u001b/g, "")
+		.trim();
+
+	const normalized: AgentResult = {
+		...result,
+		answer: cleanedAnswer,
+	};
+
+	if (isRateLimitError(normalized.answer)) {
+		throw new AgentError(agent.name, "rate_limit", `${agent.name}: rate limited — ${normalized.answer.slice(0, 200)}`);
 	}
-	if (!result.answer.trim()) {
+	if (!normalized.answer.trim()) {
 		throw new AgentError(agent.name, "empty_answer", `${agent.name}: returned empty answer`);
 	}
-	return result;
+	return normalized;
 }
 
 export async function runAgentWithFallback(

@@ -98,6 +98,7 @@ function MediaEmbed({ src }: { src: string }) {
 const ANCHOR_RE = /\[\[(group|file):(.*?)\]\]/g;
 
 const BOLD_CJK_RE = /\*\*(.+?)\*\*/g;
+const MAX_LINE_LABEL_LENGTH = 180;
 
 function hasCJK(text: string): boolean {
 	return /[가-힣ぁ-ヿ一-鿿]/.test(text);
@@ -112,11 +113,30 @@ function formatLineLabel(id: string): string {
 	return `${fileName}:${lineRef}`;
 }
 
-function inlineMarkdownToHtml(text: string): string {
+function escapeInlineHtml(text: string): string {
 	return text
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;");
+}
+
+function inlineMarkdownToHtml(text: string): string {
+	const escaped = escapeInlineHtml(text);
+	return escaped
 		.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
 		.replace(/\*(.+?)\*/g, "<em>$1</em>")
 		.replace(/`([^`]+)`/g, "<code>$1</code>");
+}
+
+function isLineLabelCandidate(text: string): boolean {
+	const trimmed = text.trim();
+	if (!trimmed) return false;
+	if (trimmed.length > MAX_LINE_LABEL_LENGTH) return false;
+	if (trimmed.includes("\n")) return false;
+	if (trimmed.includes("[[")) return false;
+	const backtickCount = (trimmed.match(/`/g) ?? []).length;
+	if (backtickCount % 2 !== 0) return false;
+	return true;
 }
 
 function replaceLineAnchors(text: string): string {
@@ -145,14 +165,18 @@ function replaceLineAnchors(text: string): string {
 		if (text[afterClose] === "(") {
 			let depth = 1;
 			let end = afterClose + 1;
-			while (end < text.length && depth > 0) {
+			const scanLimit = Math.min(text.length, afterClose + MAX_LINE_LABEL_LENGTH + 2);
+			while (end < scanLimit && depth > 0) {
 				if (text[end] === "(") depth++;
 				else if (text[end] === ")") depth--;
 				end++;
 			}
 			if (depth === 0) {
-				label = text.slice(afterClose + 1, end - 1);
-				afterClose = end;
+				const candidate = text.slice(afterClose + 1, end - 1);
+				if (isLineLabelCandidate(candidate)) {
+					label = candidate;
+					afterClose = end;
+				}
 			}
 		}
 

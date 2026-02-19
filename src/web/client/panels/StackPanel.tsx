@@ -1,4 +1,4 @@
-import { Loader2, Play, Upload, RotateCcw, CheckCircle2, AlertTriangle, Circle, GitPullRequestArrow, ArrowRight, Layers } from "lucide-react";
+import { Loader2, Play, Upload, RotateCcw, CheckCircle2, AlertTriangle, Circle, GitPullRequestArrow, ArrowRight, Layers, FileText, RefreshCw, XCircle, Trash2 } from "lucide-react";
 import { useStack } from "../hooks/useStack.ts";
 import { FeasibilityAlert } from "../components/FeasibilityAlert.tsx";
 import { StackGroupCard } from "../components/StackGroupCard.tsx";
@@ -10,10 +10,11 @@ const PIPELINE_STEPS = [
 	{ phase: "partitioning" as const, label: "Partition", description: "Assigning files to groups" },
 	{ phase: "planning" as const, label: "Plan", description: "Building stack plan" },
 	{ phase: "executing" as const, label: "Execute", description: "Creating commits" },
+	{ phase: "publishing" as const, label: "Publish", description: "Pushing branches and creating draft PRs" },
 ] as const;
 
 function getStepState(stepPhase: string, currentPhase: StackPhase, isDone: boolean) {
-	const order = ["partitioning", "planning", "executing"];
+	const order = ["partitioning", "planning", "executing", "publishing"];
 	const stepIdx = order.indexOf(stepPhase);
 	const currentIdx = order.indexOf(currentPhase);
 
@@ -23,7 +24,7 @@ function getStepState(stepPhase: string, currentPhase: StackPhase, isDone: boole
 }
 
 function PipelineTimeline({ phase }: { phase: StackPhase }) {
-	const isDone = phase === "done" || phase === "publishing";
+	const isDone = phase === "done";
 
 	return (
 		<div className="relative flex flex-col gap-0 py-1">
@@ -75,6 +76,19 @@ interface StackPanelProps {
 
 export function StackPanel({ sessionId, onTrackAnalysis }: StackPanelProps) {
 	const stack = useStack(sessionId, { onTrackAnalysis });
+	const publishedCount = stack.publishResult?.prs.length ?? 0;
+	const pushedCount = stack.publishResult?.branches.filter((b) => b.pushed).length ?? 0;
+	const publishFailures = stack.publishResult
+		? stack.publishResult.branches.filter((branch) => {
+			if (!branch.pushed) return true;
+			return !stack.publishResult?.prs.some((pr) => pr.head_branch === branch.name);
+		})
+		: [];
+	const previewItems = stack.publishPreview?.items ?? [];
+	const cleanupResult = stack.publishResult?.cleanupResult;
+	const cleanupItems = cleanupResult?.items ?? [];
+	const cleanupClosedCount = cleanupItems.filter((item) => item.closed).length;
+	const cleanupDeletedCount = cleanupItems.filter((item) => item.branch_deleted).length;
 
 	if (stack.phase === "idle") {
 		return (
@@ -162,6 +176,13 @@ export function StackPanel({ sessionId, onTrackAnalysis }: StackPanelProps) {
 			{isRunning && (
 				<>
 					<PipelineTimeline phase={stack.phase} />
+					{stack.phase === "publishing" && (
+						<div className="rounded-lg bg-blue-500/[0.05] px-3.5 py-2.5">
+							<p className="text-[10px] text-blue-700/80 dark:text-blue-300/80 leading-relaxed">
+								Uploading stack branches and opening draft PRs. Please wait until publish results appear below.
+							</p>
+						</div>
+					)}
 					{stack.progressMessage && (
 						<p className="text-[10px] text-muted-foreground/30 px-1 -mt-2">{stack.progressMessage}</p>
 					)}
@@ -253,6 +274,67 @@ export function StackPanel({ sessionId, onTrackAnalysis }: StackPanelProps) {
 			)}
 
 			{stack.phase === "done" && stack.execResult && !stack.publishResult && (
+				<div className="space-y-2 rounded-lg border border-border/70 bg-foreground/[0.015] p-2.5">
+					<div className="flex items-center justify-between px-1">
+						<div className="flex items-center gap-2">
+							<FileText className="h-3.5 w-3.5 text-muted-foreground/60" />
+							<span className="text-[11px] font-medium text-foreground/80">Description Preview</span>
+						</div>
+						<button
+							type="button"
+							onClick={() => stack.loadPublishPreview(true)}
+							className="inline-flex items-center gap-1 text-[10px] text-muted-foreground/45 hover:text-foreground/70 transition-colors"
+						>
+							<RefreshCw className="h-3 w-3" />
+							Refresh
+						</button>
+					</div>
+
+					<p className="text-[10px] text-muted-foreground/35 px-1">
+						Template: {stack.publishPreview?.template_path ?? "(none found, using stack metadata body only)"}
+					</p>
+
+					{stack.publishPreviewLoading && (
+						<div className="flex items-center gap-2 px-2.5 py-2 text-[10px] text-muted-foreground/45">
+							<Loader2 className="h-3 w-3 animate-spin" />
+							Preparing preview bodies...
+						</div>
+					)}
+
+					{stack.publishPreviewError && (
+						<div className="rounded-md bg-red-500/[0.06] px-2.5 py-2 text-[10px] text-red-600/80 dark:text-red-400/80">
+							{stack.publishPreviewError}
+						</div>
+					)}
+
+					{!stack.publishPreviewLoading && !stack.publishPreviewError && previewItems.length > 0 && (
+						<div className="space-y-1.5">
+							{previewItems.map((item) => (
+								<details key={`${item.group_id}-${item.order}`} className="rounded-md border border-border/60 bg-background/40">
+									<summary className="cursor-pointer list-none px-2.5 py-2 hover:bg-accent/25 transition-colors">
+										<div className="flex items-center justify-between gap-2">
+											<span className="text-[11px] font-medium truncate">{item.title}</span>
+											<span className="text-[10px] text-muted-foreground/35 tabular-nums shrink-0">{item.order}/{item.total}</span>
+										</div>
+										<div className="flex items-center gap-1 mt-0.5">
+											<span className="text-[10px] font-mono text-muted-foreground/30">{item.base_branch}</span>
+											<ArrowRight className="h-2.5 w-2.5 text-muted-foreground/20" />
+											<span className="text-[10px] font-mono text-muted-foreground/30">{item.head_branch}</span>
+										</div>
+									</summary>
+									<div className="px-2.5 pb-2.5">
+										<pre className="whitespace-pre-wrap break-words text-[10px] leading-relaxed text-foreground/75 bg-muted/40 rounded-md p-2.5 overflow-x-auto">
+											{item.body}
+										</pre>
+									</div>
+								</details>
+							))}
+						</div>
+					)}
+				</div>
+			)}
+
+			{stack.phase === "done" && stack.execResult && !stack.publishResult && (
 				<button
 					type="button"
 					onClick={stack.startPublish}
@@ -263,30 +345,104 @@ export function StackPanel({ sessionId, onTrackAnalysis }: StackPanelProps) {
 				</button>
 			)}
 
-			{stack.publishResult && stack.publishResult.prs.length > 0 && (
-				<div className="space-y-1.5">
-					{stack.publishResult.prs.map((pr) => (
-						<a
-							key={pr.number}
-							href={pr.url}
-							target="_blank"
-							rel="noopener noreferrer"
-							className="group flex items-center gap-3 rounded-lg px-3.5 py-2.5 hover:bg-accent/30 transition-colors"
+			{stack.publishResult && (
+				<div className="space-y-2 rounded-lg border border-border/70 bg-foreground/[0.015] p-2.5">
+					<div className="flex items-center justify-between px-1">
+						<div className="flex items-center gap-2">
+							<GitPullRequestArrow className="h-3.5 w-3.5 text-green-600/70 dark:text-green-400/70" />
+							<span className="text-[11px] font-medium text-foreground/80">Draft Publish Results</span>
+						</div>
+						<span className="text-[10px] text-muted-foreground/35 tabular-nums">{publishedCount}/{pushedCount} created</span>
+					</div>
+
+					<div className="flex flex-wrap items-center gap-2 px-1">
+						<button
+							type="button"
+							onClick={() => {
+								if (!confirm("Close all stacked draft PRs?")) return;
+								stack.cleanupPublished("close");
+							}}
+							disabled={stack.publishCleanupLoading}
+							className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-border text-[10px] text-foreground/70 hover:bg-accent/30 transition-colors disabled:opacity-50"
 						>
-							<GitPullRequestArrow className="h-3.5 w-3.5 text-green-600/60 dark:text-green-400/60 shrink-0" />
-							<div className="flex-1 min-w-0">
-								<div className="flex items-center gap-2">
-									<span className="text-[11px] font-medium truncate">{pr.title}</span>
-									<span className="text-[10px] text-muted-foreground/25 tabular-nums shrink-0">#{pr.number}</span>
+							{stack.publishCleanupLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <XCircle className="h-3 w-3" />}
+							Close all
+						</button>
+						<button
+							type="button"
+							onClick={() => {
+								if (!confirm("Close all stacked draft PRs and delete stack branches?")) return;
+								stack.cleanupPublished("delete");
+							}}
+							disabled={stack.publishCleanupLoading}
+							className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-red-500/25 text-[10px] text-red-600/80 dark:text-red-300/80 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+						>
+							{stack.publishCleanupLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+							Close + delete branches
+						</button>
+					</div>
+
+					{stack.publishCleanupError && (
+						<div className="rounded-md bg-red-500/[0.06] px-2.5 py-2 text-[10px] text-red-600/80 dark:text-red-400/80">
+							{stack.publishCleanupError}
+						</div>
+					)}
+
+					{cleanupResult && (
+						<div className="rounded-md bg-foreground/[0.03] px-2.5 py-2 space-y-1">
+							<p className="text-[10px] text-muted-foreground/45">
+								Cleanup ({cleanupResult.mode}) · closed {cleanupClosedCount}/{cleanupItems.length}
+								{cleanupResult.mode === "delete" ? ` · branches deleted ${cleanupDeletedCount}/${cleanupItems.length}` : ""}
+							</p>
+							{cleanupItems.filter((item) => item.message).map((item) => (
+								<p key={`${item.group_id}-${item.number}`} className="text-[10px] text-yellow-700/80 dark:text-yellow-300/80 break-all">
+									#{item.number || "-"} {item.message}
+								</p>
+							))}
+						</div>
+					)}
+
+					{stack.publishResult.prs.length > 0 ? (
+						<div className="space-y-1.5">
+							{stack.publishResult.prs.map((pr) => (
+								<a
+									key={pr.number}
+									href={pr.url}
+									target="_blank"
+									rel="noopener noreferrer"
+									className="group flex items-center gap-3 rounded-lg px-2.5 py-2 hover:bg-accent/30 transition-colors"
+								>
+									<GitPullRequestArrow className="h-3.5 w-3.5 text-green-600/60 dark:text-green-400/60 shrink-0" />
+									<div className="flex-1 min-w-0">
+										<div className="flex items-center gap-2">
+											<span className="text-[11px] font-medium truncate">{pr.title}</span>
+											<span className="text-[10px] text-muted-foreground/25 tabular-nums shrink-0">#{pr.number}</span>
+										</div>
+										<div className="flex items-center gap-1 mt-0.5">
+											<span className="text-[10px] font-mono text-muted-foreground/25">{pr.base_branch}</span>
+											<ArrowRight className="h-2.5 w-2.5 text-muted-foreground/20" />
+											<span className="text-[10px] font-mono text-muted-foreground/25">{pr.head_branch}</span>
+										</div>
+									</div>
+								</a>
+							))}
+						</div>
+					) : (
+						<p className="text-[10px] text-muted-foreground/35 px-2.5 py-2">No draft PR URLs were returned.</p>
+					)}
+
+					{publishFailures.length > 0 && (
+						<div className="rounded-md bg-yellow-500/[0.06] px-2.5 py-2 space-y-1">
+							<p className="text-[10px] text-yellow-700/80 dark:text-yellow-300/80">
+								Some branches were pushed but PR creation did not complete.
+							</p>
+							{publishFailures.map((branch) => (
+								<div key={branch.name} className="text-[10px] font-mono text-yellow-700/70 dark:text-yellow-300/70 truncate">
+									{branch.name}
 								</div>
-								<div className="flex items-center gap-1 mt-0.5">
-									<span className="text-[10px] font-mono text-muted-foreground/25">{pr.base_branch}</span>
-									<ArrowRight className="h-2.5 w-2.5 text-muted-foreground/20" />
-									<span className="text-[10px] font-mono text-muted-foreground/25">{pr.head_branch}</span>
-								</div>
-							</div>
-						</a>
-					))}
+							))}
+						</div>
+					)}
 				</div>
 			)}
 		</div>

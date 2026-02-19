@@ -30,7 +30,7 @@ export function checkFeasibility(input: FeasibilityInput): FeasibilityResult {
 	}
 
 	const deduped = deduplicateEdges(edges);
-	const result = topologicalSort(Array.from(allGroups), deduped, deltas);
+	const result = topologicalSort(Array.from(allGroups), deduped, deltas, ownership);
 
 	return result;
 }
@@ -137,6 +137,7 @@ function topologicalSort(
 	groups: string[],
 	edges: ConstraintEdge[],
 	deltas: DeltaEntry[],
+	ownership?: Map<string, string>,
 ): FeasibilityResult {
 	const inDegree = new Map<string, number>();
 	const adjacency = new Map<string, string[]>();
@@ -156,7 +157,7 @@ function topologicalSort(
 		edgeMap.set(`${edge.from}→${edge.to}`, edge);
 	}
 
-	const firstCommitDate = buildFirstCommitDateMap(groups, deltas);
+	const firstCommitDate = buildFirstCommitDateMap(groups, deltas, ownership);
 
 	const queue: string[] = [];
 	for (const [g, deg] of inDegree) {
@@ -200,6 +201,7 @@ function topologicalSort(
 function buildFirstCommitDateMap(
 	groups: string[],
 	deltas: DeltaEntry[],
+	ownership?: Map<string, string>,
 ): Map<string, string> {
 	const result = new Map<string, string>();
 	for (const g of groups) {
@@ -207,12 +209,11 @@ function buildFirstCommitDateMap(
 	}
 	for (const delta of deltas) {
 		for (const change of delta.changes) {
-			const g = change.path;
-			if (result.has(g)) {
-				const current = result.get(g);
-				if (!current || delta.date < current) {
-					result.set(g, delta.date);
-				}
+			const groupId = ownership?.get(change.path);
+			if (!groupId) continue;
+			const current = result.get(groupId);
+			if (current && delta.date < current) {
+				result.set(groupId, delta.date);
 			}
 		}
 	}

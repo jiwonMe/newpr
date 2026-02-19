@@ -1,7 +1,8 @@
 import type { NewprConfig } from "../../types/config.ts";
 import type { FileGroup } from "../../types/output.ts";
-import type { StackWarning, FeasibilityResult, StackExecResult } from "../../stack/types.ts";
+import type { StackWarning, FeasibilityResult, StackExecResult, StackPublishResult } from "../../stack/types.ts";
 import type { StackPlan } from "../../stack/types.ts";
+import type { StackPublishPreviewResult } from "../../stack/publish.ts";
 import { loadSession } from "../../history/store.ts";
 import { saveStackSidecar, loadStackSidecar } from "../../history/store.ts";
 import { parsePrInput } from "../../github/parse-pr.ts";
@@ -17,8 +18,10 @@ import { checkFeasibility } from "../../stack/feasibility.ts";
 import { createStackPlan } from "../../stack/plan.ts";
 import { executeStack } from "../../stack/execute.ts";
 import { verifyStack } from "../../stack/verify.ts";
+import { runStackQualityGate } from "../../stack/quality-gate.ts";
 import { generatePrTitles } from "../../stack/pr-title.ts";
-import { createLlmClient } from "../../llm/client.ts";
+import { createResilientLlmClient } from "../../llm/resilient-client.ts";
+import { telemetry } from "../../telemetry/index.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -68,6 +71,34 @@ export interface StackVerifyData {
 	structured_warnings: StackWarning[];
 }
 
+export interface StackPublishData {
+	branches: StackPublishResult["branches"];
+	prs: StackPublishResult["prs"];
+	publishedAt: number;
+	cleanupResult?: StackPublishCleanupData;
+}
+
+export interface StackPublishCleanupItem {
+	group_id: string;
+	number: number;
+	head_branch: string;
+	closed: boolean;
+	branch_deleted: boolean;
+	message?: string;
+}
+
+export interface StackPublishCleanupData {
+	mode: "close" | "delete";
+	completedAt: number;
+	items: StackPublishCleanupItem[];
+}
+
+export interface StackPublishPreviewData {
+	template_path: StackPublishPreviewResult["template_path"];
+	items: StackPublishPreviewResult["items"];
+	generatedAt: number;
+}
+
 export interface StackStateSnapshot {
 	status: StackStatus;
 	phase: StackPhase | null;
@@ -79,6 +110,8 @@ export interface StackStateSnapshot {
 	plan: StackPlanData | null;
 	execResult: StackExecResult | null;
 	verifyResult: StackVerifyData | null;
+	publishResult: StackPublishData | null;
+	publishPreview: StackPublishPreviewData | null;
 	startedAt: number;
 	finishedAt: number | null;
 }
@@ -95,6 +128,8 @@ interface StackSession {
 	plan: StackPlanData | null;
 	execResult: StackExecResult | null;
 	verifyResult: StackVerifyData | null;
+	publishResult: StackPublishData | null;
+	publishPreview: StackPublishPreviewData | null;
 	events: StackEvent[];
 	subscribers: Set<(event: StackEvent | { type: "done" | "error"; data?: string }) => void>;
 	startedAt: number;
@@ -131,6 +166,8 @@ function toSnapshot(session: StackSession): StackStateSnapshot {
 		plan: session.plan,
 		execResult: session.execResult,
 		verifyResult: session.verifyResult,
+		publishResult: session.publishResult,
+		publishPreview: session.publishPreview,
 		startedAt: session.startedAt,
 		finishedAt: session.finishedAt,
 	};
@@ -173,6 +210,8 @@ export function startStack(
 		plan: null,
 		execResult: null,
 		verifyResult: null,
+		publishResult: null,
+		publishPreview: null,
 		events: [],
 		subscribers: new Set(),
 		startedAt: Date.now(),
@@ -235,17 +274,67 @@ export async function restoreCompletedStacks(sessionIds: string[]): Promise<void
 			context: snapshot.context,
 			partition: snapshot.partition,
 			feasibility: snapshot.feasibility,
-			plan: snapshot.plan,
-			execResult: snapshot.execResult,
-			verifyResult: snapshot.verifyResult,
-			events: [],
-			subscribers: new Set(),
-			startedAt: snapshot.startedAt,
+		plan: snapshot.plan,
+		execResult: snapshot.execResult,
+		verifyResult: snapshot.verifyResult,
+		publishResult: snapshot.publishResult ?? null,
+		publishPreview: snapshot.publishPreview ?? null,
+		events: [],
+		subscribers: new Set(),
+		startedAt: snapshot.startedAt,
 			finishedAt: snapshot.finishedAt ?? Date.now(),
 			abortController: new AbortController(),
 		};
 		sessions.set(id, session);
 	}
+}
+
+export async function setStackPublishResult(
+	analysisSessionId: string,
+	result: StackPublishResult,
+): Promise<void> {
+	const session = sessions.get(analysisSessionId);
+	if (!session) return;
+
+	session.publishResult = {
+		branches: result.branches,
+		prs: result.prs,
+		publishedAt: Date.now(),
+		cleanupResult: undefined,
+	};
+
+	await saveStackSidecar(session.analysisSessionId, toSnapshot(session)).catch(() => {});
+}
+
+export async function setStackPublishCleanupResult(
+	analysisSessionId: string,
+	cleanupResult: StackPublishCleanupData,
+): Promise<void> {
+	const session = sessions.get(analysisSessionId);
+	if (!session?.publishResult) return;
+
+	session.publishResult = {
+		...session.publishResult,
+		cleanupResult,
+	};
+
+	await saveStackSidecar(session.analysisSessionId, toSnapshot(session)).catch(() => {});
+}
+
+export async function setStackPublishPreview(
+	analysisSessionId: string,
+	preview: StackPublishPreviewResult,
+): Promise<void> {
+	const session = sessions.get(analysisSessionId);
+	if (!session) return;
+
+	session.publishPreview = {
+		template_path: preview.template_path,
+		items: preview.items,
+		generatedAt: Date.now(),
+	};
+
+	await saveStackSidecar(session.analysisSessionId, toSnapshot(session)).catch(() => {});
 }
 
 // ---------------------------------------------------------------------------
@@ -267,6 +356,7 @@ async function runStackPipeline(
 
 		// ---- Partition phase ----
 		session.phase = "partitioning";
+		telemetry.stackStarted();
 		emit(session, "partitioning", "Fetching PR data...");
 
 		const ghHeaders: Record<string, string> = {
@@ -324,10 +414,15 @@ async function runStackPipeline(
 		const changedFiles = [...analysisFiles, ...deltaOnlyFiles];
 
 		emit(session, "partitioning", "Classifying files into groups...");
-		const llmClient = createLlmClient({
+		const llmClient = createResilientLlmClient({
 			api_key: config.openrouter_api_key,
 			model: config.model,
 			timeout: config.timeout,
+		}, {
+			preferredAgent: config.agent,
+			onFallback: (reason) => {
+				emit(session, session.phase ?? "partitioning", `${reason}. Falling back to local agent...`);
+			},
 		});
 		const partition = await partitionGroups(
 			llmClient,
@@ -532,10 +627,25 @@ async function runStackPipeline(
 			throw new Error(`Verification failed: ${verifyResult.errors.join(", ")}`);
 		}
 
+		emit(session, "executing", "Running lint/build quality gate for each stack PR...");
+		const qualityGateResult = await runStackQualityGate({
+			repo_path: repoPath,
+			exec_result: execResult,
+			onProgress: (message) => emit(session, "executing", message),
+			checkAborted: () => checkAborted(session),
+		});
+
+		if (qualityGateResult.skippedReason) {
+			emit(session, "executing", `Quality gate skipped: ${qualityGateResult.skippedReason}`);
+		} else if (qualityGateResult.ran) {
+			emit(session, "executing", "Quality gate passed for all stack PRs");
+		}
+
 		// ---- Done ----
 		session.phase = "done";
 		session.status = "done";
 		session.finishedAt = Date.now();
+		telemetry.stackCompleted(execResult.group_commits.length);
 		emit(session, "done", "Stack ready");
 
 		for (const sub of session.subscribers) sub({ type: "done" });

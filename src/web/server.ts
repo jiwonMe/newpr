@@ -206,6 +206,12 @@ export async function startWebServer(options: WebServerOptions): Promise<void> {
 			if (path === "/api/stack/publish" && req.method === "POST") {
 				return routes["POST /api/stack/publish"](req);
 			}
+			if (path === "/api/stack/publish/cleanup" && req.method === "POST") {
+				return routes["POST /api/stack/publish/cleanup"](req);
+			}
+			if (path === "/api/stack/publish/preview" && req.method === "POST") {
+				return routes["POST /api/stack/publish/preview"](req);
+			}
 			if (path.match(/^\/api\/stack\/[^/]+\/events$/) && req.method === "GET") {
 				return routes["GET /api/stack/:id/events"](req);
 			}
