@@ -75,7 +75,8 @@ const EN_CONTENT: ArticleContent = {
 	},
 	problemParagraphs: [
 		"Large pull requests fail for a predictable reason: review bandwidth does not scale with diff size. Past a few hundred lines, reviewers switch from understanding intent to scanning for obvious mistakes. Important architecture changes get buried.",
-		"PR stacking solves this by preserving one logical feature while splitting delivery into smaller review units. Instead of asking reviewers to validate 40 files at once, it presents a dependency-ordered DAG where each PR has a narrower concern and clearer boundary.",
+		"Google's engineering practices explicitly state that 'small, simple CLs are reviewed more quickly, more thoroughly, and are less likely to introduce bugs' ([Google Engineering Practices](https://google.github.io/eng-practices/review/developer/small-cls.html)). Yet, as codebase complexity grows, so does the natural size of feature branches.",
+		"PR stacking solves this by preserving one logical feature while splitting delivery into smaller review units. Instead of asking reviewers to validate 40 files at once, it presents a dependency-ordered DAG where each PR has a narrower concern and clearer boundary. Research shows that keeping PRs under 200 lines results in optimal review quality ([Graphite](https://graphite.com/guides/break-up-large-pull-requests)).",
 		"Earlier versions of the stacking algorithm produced a simple linear chain. Real-world PRs, however, often have independent concerns — a schema change and a UI refactor that don't depend on each other. Forcing these into a single sequence creates unnecessary review bottlenecks. The current algorithm builds a DAG (Directed Acyclic Graph) instead, allowing independent groups to be reviewed and merged in parallel while preserving correct ordering for actual dependencies.",
 		"The hard part is correctness. If splitting changes behavior, stacking becomes dangerous. So the algorithm is built around invariants that guarantee the final result is equivalent to the original pull request.",
 	],
@@ -222,7 +223,8 @@ const KO_CONTENT: ArticleContent = {
 	},
 	problemParagraphs: [
 		"대형 PR이 어려운 이유는 단순합니다. 변경량이 커질수록 리뷰어의 이해 비용이 선형이 아니라 급격히 증가합니다. 결국 설계 의도 검증 대신 표면적인 오류 탐지에 머무르게 됩니다.",
-		"PR stacking은 하나의 기능 흐름은 유지하면서 리뷰 단위를 작게 나눕니다. 리뷰어는 40개 파일을 한 번에 보는 대신, 의존성이 정리된 DAG 순서대로 작은 PR을 검토할 수 있습니다.",
+		"구글의 엔지니어링 가이드라인에서도 '작고 단순한 변경(CL)이 더 빨리, 더 철저하게 리뷰되며 버그 가능성이 낮다'고 명시합니다 ([Google Engineering Practices](https://google.github.io/eng-practices/review/developer/small-cls.html)). 하지만 기능의 복잡도가 증가함에 따라 PR의 크기도 자연스럽게 커지기 마련입니다.",
+		"PR stacking은 하나의 기능 흐름은 유지하면서 리뷰 단위를 작게 나눕니다. 리뷰어는 40개 파일을 한 번에 보는 대신, 의존성이 정리된 DAG 순서대로 작은 PR을 검토할 수 있습니다. 연구에 따르면 200줄 미만의 PR이 가장 높은 리뷰 품질을 유지한다고 합니다 ([Graphite](https://graphite.com/guides/break-up-large-pull-requests)).",
 		"이전 버전의 스택 알고리즘은 단순한 선형 체인을 생성했습니다. 하지만 실제 PR에는 서로 독립적인 관심사 — 예를 들어 스키마 변경과 무관한 UI 리팩토링 — 가 함께 존재합니다. 이를 하나의 순서로 강제하면 불필요한 리뷰 병목이 생깁니다. 현재 알고리즘은 DAG(방향 비순환 그래프)를 만들어, 독립 그룹은 병렬로 리뷰·머지하고 실제 의존이 있는 그룹만 순서를 유지합니다.",
 		"중요한 건 정확성입니다. 분할 과정에서 동작이 달라지면 stacking은 오히려 위험해집니다. 그래서 newpr의 스택 파이프라인은 결과 동일성 보장을 최우선 불변조건으로 둡니다.",
 	],
