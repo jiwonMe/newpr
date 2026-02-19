@@ -46,9 +46,9 @@ export async function publishStack(input: PublishInput): Promise<StackPublishRes
 			? `[${order}/${total}] ${gc.pr_title}`
 			: `[Stack ${order}/${total}] ${gc.group_id}`;
 
-		const body = buildPrBody(gc.group_id, order, total, exec_result, pr_meta);
+		const placeholder = buildPlaceholderBody(gc.group_id, order, total, pr_meta);
 
-		const prResult = await Bun.$`gh pr create --repo ${ghRepo} --base ${prBase} --head ${gc.branch_name} --title ${title} --body ${body} --draft`.quiet().nothrow();
+		const prResult = await Bun.$`gh pr create --repo ${ghRepo} --base ${prBase} --head ${gc.branch_name} --title ${title} --body ${placeholder} --draft`.quiet().nothrow();
 
 		if (prResult.exitCode === 0) {
 			const prUrl = prResult.stdout.toString().trim();
@@ -68,29 +68,84 @@ export async function publishStack(input: PublishInput): Promise<StackPublishRes
 		}
 	}
 
+	await updatePrBodies(ghRepo, prs, pr_meta);
+
 	return { branches, prs };
 }
 
-function buildPrBody(
+async function updatePrBodies(ghRepo: string, prs: PrInfo[], prMeta: PrMeta): Promise<void> {
+	if (prs.length === 0) return;
+
+	for (let i = 0; i < prs.length; i++) {
+		const pr = prs[i]!;
+		const body = buildFullBody(pr, i, prs, prMeta);
+
+		await Bun.$`gh pr edit ${pr.number} --repo ${ghRepo} --body ${body}`.quiet().nothrow();
+	}
+}
+
+function buildPlaceholderBody(
 	groupId: string,
 	order: number,
 	total: number,
-	_execResult: StackExecResult,
 	prMeta: PrMeta,
 ): string {
-	const prevPr = order > 1 ? `Previous: Stack ${order - 1}/${total}` : "Previous: (base branch)";
-	const nextPr = order < total ? `Next: Stack ${order + 1}/${total}` : "Next: (top of stack)";
-
-	const lines = [
-		`> This is part of a stacked PR chain created by [newpr](${prMeta.pr_url})`,
-		`>`,
-		`> **Stack order**: ${order}/${total}`,
-		`> **${prevPr}** | **${nextPr}**`,
+	return [
+		`> This is part of a stacked PR chain created by [newpr](https://github.com/jiwonMe/newpr).`,
+		`> Stack order: ${order}/${total} — body will be updated with links shortly.`,
 		``,
 		`## ${groupId}`,
 		``,
 		`*From PR #${prMeta.pr_number}: ${prMeta.pr_title}*`,
-	];
+	].join("\n");
+}
 
-	return lines.join("\n");
+function buildFullBody(
+	current: PrInfo,
+	index: number,
+	allPrs: PrInfo[],
+	prMeta: PrMeta,
+): string {
+	const total = allPrs.length;
+	const order = index + 1;
+
+	const stackTable = allPrs.map((pr, i) => {
+		const num = i + 1;
+		const isCurrent = i === index;
+		const marker = isCurrent ? "👉" : statusEmoji(i, index);
+		const link = `[#${pr.number}](${pr.url})`;
+		const titleText = pr.title.replace(/^\[\d+\/\d+\]\s*/, "");
+		return `| ${marker} | ${num}/${total} | ${link} | ${titleText} |`;
+	}).join("\n");
+
+	const prev = index > 0
+		? `⬅️ Previous: [#${allPrs[index - 1]!.number}](${allPrs[index - 1]!.url})`
+		: "⬅️ Previous: base branch";
+	const next = index < total - 1
+		? `➡️ Next: [#${allPrs[index + 1]!.number}](${allPrs[index + 1]!.url})`
+		: "➡️ Next: top of stack";
+
+	return [
+		`> **Stack ${order}/${total}** — This PR is part of a stacked PR chain created by [newpr](https://github.com/jiwonMe/newpr).`,
+		`> Source: #${prMeta.pr_number} ${prMeta.pr_title}`,
+		``,
+		`### 📚 Stack Navigation`,
+		``,
+		`| | Order | PR | Title |`,
+		`|---|---|---|---|`,
+		stackTable,
+		``,
+		`${prev} | ${next}`,
+		``,
+		`---`,
+		``,
+		`## ${current.group_id}`,
+		``,
+		`*From PR [#${prMeta.pr_number}](${prMeta.pr_url}): ${prMeta.pr_title}*`,
+	].join("\n");
+}
+
+function statusEmoji(prIndex: number, currentIndex: number): string {
+	if (prIndex < currentIndex) return "✅";
+	return "⬜";
 }
