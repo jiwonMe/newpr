@@ -102,22 +102,22 @@ function FileRow({
 				</button>
 				<Icon className={`h-2.5 w-2.5 shrink-0 ${STATUS_COLOR[file.status]}`} />
 				<span className="flex-1 min-w-0 flex items-baseline overflow-hidden" title={file.path}>
-					{dir && <span className="text-[11px] text-muted-foreground/30 font-mono truncate shrink">{dir}</span>}
-					<span className="text-[11px] font-mono shrink-0">{name}</span>
-				</span>
-				<span className="text-[10px] tabular-nums text-green-600 dark:text-green-400 shrink-0 w-7 text-right">+{file.additions}</span>
-				<span className="text-[10px] tabular-nums text-red-600 dark:text-red-400 shrink-0 w-7 text-right">-{file.deletions}</span>
-			</div>
-			{open && (
-				<div className="pb-2 pt-0.5" style={{ paddingLeft: `${(indent ?? 0) * 14 + 36}px` }}>
-					<p className="text-[11px] text-muted-foreground/50 leading-relaxed break-words">{file.summary}</p>
-					{file.groups.length > 0 && (
-						<div className="flex flex-wrap gap-1 mt-1.5">
-							{file.groups.map((g) => (
-								<span key={g} className="text-[10px] text-muted-foreground/40 bg-accent/50 px-1.5 py-0.5 rounded">{g}</span>
-							))}
-						</div>
-					)}
+				{dir && <span className="text-xs text-muted-foreground/30 font-mono truncate shrink">{dir}</span>}
+				<span className="text-xs font-mono shrink-0">{name}</span>
+			</span>
+			<span className="text-xs tabular-nums text-green-600 dark:text-green-400 shrink-0 w-7 text-right">+{file.additions}</span>
+			<span className="text-xs tabular-nums text-red-600 dark:text-red-400 shrink-0 w-7 text-right">-{file.deletions}</span>
+		</div>
+		{open && (
+			<div className="pb-2 pt-0.5" style={{ paddingLeft: `${(indent ?? 0) * 14 + 36}px` }}>
+				<p className="text-xs text-muted-foreground/50 leading-relaxed break-words">{file.summary}</p>
+				{file.groups.length > 0 && (
+					<div className="flex flex-wrap gap-1 mt-1.5">
+						{file.groups.map((g) => (
+							<span key={g} className="text-xs text-muted-foreground/40 bg-accent/50 px-1.5 py-0.5 rounded">{g}</span>
+						))}
+					</div>
+				)}
 				</div>
 			)}
 		</div>
@@ -172,7 +172,7 @@ function TreeView({
 							className="flex items-center gap-1.5 h-7 cursor-pointer hover:bg-accent/30 rounded-md transition-colors"
 						>
 							<ChevronRight className={`h-3 w-3 text-muted-foreground/40 shrink-0 transition-transform ${isOpen ? "rotate-90" : ""}`} />
-							<span className="text-[11px] font-mono text-muted-foreground/60">{dir.name}</span>
+							<span className="text-xs font-mono text-muted-foreground/60">{dir.name}</span>
 						</div>
 						{isOpen && (
 							<TreeView
@@ -269,15 +269,15 @@ function GroupView({
 							}`}
 						>
 							<ChevronRight className={`h-3 w-3 text-muted-foreground/40 shrink-0 transition-transform ${isOpen ? "rotate-90" : ""}`} />
-							<span className="text-xs font-medium flex-1 min-w-0 truncate">{displayName}</span>
-							<span className="text-[10px] text-muted-foreground/30 tabular-nums shrink-0">{groupFiles.length}</span>
-							<span className="text-[10px] tabular-nums text-green-600 dark:text-green-400 shrink-0 w-7 text-right">+{totalAdd}</span>
-							<span className="text-[10px] tabular-nums text-red-600 dark:text-red-400 shrink-0 w-7 text-right">-{totalDel}</span>
+						<span className="text-sm font-medium flex-1 min-w-0 truncate">{displayName}</span>
+						<span className="text-xs text-muted-foreground/30 tabular-nums shrink-0">{groupFiles.length}</span>
+						<span className="text-xs tabular-nums text-green-600 dark:text-green-400 shrink-0 w-7 text-right">+{totalAdd}</span>
+						<span className="text-xs tabular-nums text-red-600 dark:text-red-400 shrink-0 w-7 text-right">-{totalDel}</span>
 						</div>
 						{isOpen && (
 							<div className="pl-3">
 								{meta?.description && (
-									<p className="text-[11px] text-muted-foreground/40 pl-5 pb-1.5 pt-0.5 leading-relaxed">{meta.description}</p>
+									<p className="text-xs text-muted-foreground/40 pl-5 pb-1.5 pt-0.5 leading-relaxed">{meta.description}</p>
 								)}
 								{groupFiles.map((file) => (
 									<FileRow
@@ -403,9 +403,9 @@ export function FilesPanel({
 		<div className="pt-5">
 			<div className="flex items-center justify-between mb-3">
 				<div className="flex items-center gap-2">
-					<span className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider">{files.length} files</span>
-					<span className="text-[10px] tabular-nums text-green-600 dark:text-green-400">+{totalAdd}</span>
-					<span className="text-[10px] tabular-nums text-red-600 dark:text-red-400">-{totalDel}</span>
+				<span className="text-xs font-medium text-muted-foreground/40 uppercase tracking-wider">{files.length} files</span>
+				<span className="text-xs tabular-nums text-green-600 dark:text-green-400">+{totalAdd}</span>
+				<span className="text-xs tabular-nums text-red-600 dark:text-red-400">-{totalDel}</span>
 				</div>
 				<div className="flex items-center gap-px rounded-md border p-0.5">
 					{VIEW_MODES.map(({ value, icon: ModeIcon, label }) => (
@@ -414,7 +414,7 @@ export function FilesPanel({
 							type="button"
 							onClick={() => setViewMode(value)}
 							title={label}
-							className={`inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] transition-colors ${
+							className={`inline-flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors ${
 								viewMode === value
 									? "bg-accent text-foreground font-medium"
 									: "text-muted-foreground/50 hover:text-foreground"

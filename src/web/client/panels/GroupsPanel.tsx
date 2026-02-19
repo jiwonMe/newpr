@@ -25,9 +25,9 @@ export function GroupsPanel({ groups }: { groups: FileGroup[] }) {
 
 	return (
 		<div className="pt-5">
-			<div className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider mb-3">
-				{groups.length} groups
-			</div>
+		<div className="text-xs font-medium text-muted-foreground/40 uppercase tracking-wider mb-3">
+			{groups.length} groups
+		</div>
 			<div className="space-y-px">
 				{groups.map((group, i) => {
 					const isOpen = expanded.has(i);
@@ -42,31 +42,31 @@ export function GroupsPanel({ groups }: { groups: FileGroup[] }) {
 							>
 								<ChevronRight className={`h-3 w-3 text-muted-foreground/40 shrink-0 transition-transform ${isOpen ? "rotate-90" : ""}`} />
 								<span className={`h-1.5 w-1.5 rounded-full shrink-0 ${TYPE_DOT[group.type] ?? TYPE_DOT.chore}`} />
-								<span className="text-xs font-medium flex-1 min-w-0 truncate">{group.name}</span>
-								<span className="text-[10px] text-muted-foreground/30 shrink-0">{group.type}</span>
-								<span className="text-[10px] text-muted-foreground/30 shrink-0 tabular-nums">{group.files.length}</span>
+						<span className="text-sm font-medium flex-1 min-w-0 truncate">{group.name}</span>
+							<span className="text-xs text-muted-foreground/30 shrink-0">{group.type}</span>
+							<span className="text-xs text-muted-foreground/30 shrink-0 tabular-nums">{group.files.length}</span>
 							</button>
 							{isOpen && (
 								<div className="pl-[34px] pr-2 pb-3 pt-1 space-y-2.5">
-									<p className="text-[11px] text-muted-foreground/60 leading-relaxed">{group.description}</p>
-									{group.key_changes && group.key_changes.length > 0 && (
-										<ul className="space-y-1">
-											{group.key_changes.map((change, ci) => (
-												<li key={ci} className="flex gap-1.5 text-[11px] text-muted-foreground/50 leading-relaxed">
-													<span className="text-muted-foreground/25 shrink-0">·</span>
-													<span>{change}</span>
-												</li>
-											))}
-										</ul>
-									)}
-									{group.risk && (
-										<p className="text-[10px] text-muted-foreground/40 leading-relaxed">{group.risk}</p>
-									)}
-									<div className="space-y-0.5">
-										{group.files.map((f) => (
-											<div
-												key={f}
-												className="text-[11px] font-mono text-muted-foreground/50 truncate py-0.5"
+								<p className="text-sm text-muted-foreground/60 leading-relaxed">{group.description}</p>
+								{group.key_changes && group.key_changes.length > 0 && (
+									<ul className="space-y-1">
+										{group.key_changes.map((change, ci) => (
+											<li key={ci} className="flex gap-1.5 text-sm text-muted-foreground/50 leading-relaxed">
+												<span className="text-muted-foreground/25 shrink-0">·</span>
+												<span>{change}</span>
+											</li>
+										))}
+									</ul>
+								)}
+								{group.risk && (
+									<p className="text-xs text-muted-foreground/40 leading-relaxed">{group.risk}</p>
+								)}
+								<div className="space-y-0.5">
+									{group.files.map((f) => (
+										<div
+											key={f}
+											className="text-xs font-mono text-muted-foreground/50 truncate py-0.5"
 												title={f}
 											>
 												{f}

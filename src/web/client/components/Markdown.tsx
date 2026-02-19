@@ -70,7 +70,7 @@ function MediaEmbed({ src }: { src: string }) {
 	}
 
 	if (mode === "link") {
-		return <a href={src} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline break-all text-sm">{src}</a>;
+		return <a href={src} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline break-all text-base">{src}</a>;
 	}
 
 	if (mode === "video") {
@@ -219,11 +219,11 @@ export const Markdown = memo(function Markdown({ children, onAnchorClick, active
 		h1: ({ children }) => <h1 className="text-xl font-bold mt-6 mb-3 break-words">{children}</h1>,
 		h2: ({ children }) => <h2 className="text-lg font-semibold mt-6 mb-2 break-words">{children}</h2>,
 		h3: ({ children }) => <h3 className="text-base font-medium mt-4 mb-1 break-words">{children}</h3>,
-		h4: ({ children }) => <h4 className="text-sm font-medium mt-3 mb-1 break-words">{children}</h4>,
-		p: ({ children }) => <p className="text-sm leading-relaxed text-foreground/90 break-words mb-3">{children}</p>,
+		h4: ({ children }) => <h4 className="text-base font-medium mt-3 mb-1 break-words">{children}</h4>,
+		p: ({ children }) => <p className="text-base leading-relaxed text-foreground/90 break-words mb-3">{children}</p>,
 		ul: ({ children }) => <ul className="space-y-1 mb-3">{children}</ul>,
-		ol: ({ children }) => <ol className="list-decimal pl-5 space-y-1 mb-3 text-sm text-foreground/90">{children}</ol>,
-		li: ({ children }) => <li className="text-sm text-muted-foreground ml-4 break-words leading-relaxed">{children}</li>,
+		ol: ({ children }) => <ol className="list-decimal pl-5 space-y-1 mb-3 text-base text-foreground/90">{children}</ol>,
+		li: ({ children }) => <li className="text-base text-muted-foreground ml-4 break-words leading-relaxed">{children}</li>,
 		strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
 		em: ({ children }) => <em className="italic">{children}</em>,
 		code: ({ children, className }) => {
@@ -343,22 +343,22 @@ export const Markdown = memo(function Markdown({ children, onAnchorClick, active
 		);
 		},
 		blockquote: ({ children }) => (
-			<blockquote className="border-l-2 border-muted-foreground/30 pl-4 text-sm text-muted-foreground italic mb-3">{children}</blockquote>
+			<blockquote className="border-l-2 border-muted-foreground/30 pl-4 text-base text-muted-foreground italic mb-3">{children}</blockquote>
 		),
 		details: ({ children, ...rest }) => (
 			<details className="rounded-lg border border-border mb-3 open:pb-2" {...rest}>{children}</details>
 		),
 		summary: ({ children }) => (
-			<summary className="px-3 py-2 text-sm font-medium cursor-pointer select-none hover:bg-muted/50 rounded-lg">{children}</summary>
+			<summary className="px-3 py-2 text-base font-medium cursor-pointer select-none hover:bg-muted/50 rounded-lg">{children}</summary>
 		),
 		hr: () => <hr className="border-border my-4" />,
 		table: ({ children }) => (
 			<div className="overflow-x-auto mb-3">
-				<table className="text-sm w-full border-collapse">{children}</table>
+				<table className="text-base w-full border-collapse">{children}</table>
 			</div>
 		),
-		th: ({ children }) => <th className="border-b border-border px-3 py-1.5 text-left text-xs font-medium text-muted-foreground">{children}</th>,
-		td: ({ children }) => <td className="border-b border-border px-3 py-1.5 text-sm">{children}</td>,
+		th: ({ children }) => <th className="border-b border-border px-3 py-1.5 text-left text-sm font-medium text-muted-foreground">{children}</th>,
+		td: ({ children }) => <td className="border-b border-border px-3 py-1.5 text-base">{children}</td>,
 	};
 
 	return <ReactMarkdown

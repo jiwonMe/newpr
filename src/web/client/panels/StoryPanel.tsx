@@ -26,33 +26,33 @@ export function StoryPanel({
 	return (
 		<div className="pt-5 space-y-6">
 			<div className="space-y-4">
-				<p className="text-xs text-foreground/80 leading-relaxed">{summary.purpose}</p>
+			<p className="text-sm text-foreground/80 leading-relaxed">{summary.purpose}</p>
 
-				<div className="grid grid-cols-2 gap-x-6 gap-y-3">
-					<div>
-						<div className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider mb-1">Scope</div>
-						<p className="text-[11px] text-muted-foreground/70 leading-relaxed">{summary.scope}</p>
-					</div>
-					<div>
-						<div className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider mb-1">Impact</div>
-						<p className="text-[11px] text-muted-foreground/70 leading-relaxed">{summary.impact}</p>
-					</div>
+			<div className="grid grid-cols-2 gap-x-6 gap-y-3">
+				<div>
+					<div className="text-xs font-medium text-muted-foreground/40 uppercase tracking-wider mb-1">Scope</div>
+					<p className="text-sm text-muted-foreground/70 leading-relaxed">{summary.scope}</p>
 				</div>
+				<div>
+					<div className="text-xs font-medium text-muted-foreground/40 uppercase tracking-wider mb-1">Impact</div>
+					<p className="text-sm text-muted-foreground/70 leading-relaxed">{summary.impact}</p>
+				</div>
+			</div>
 
-				<div className="flex flex-wrap gap-1.5">
-					{groups.map((g) => {
-						const isActive = activeId === `group:${g.name}`;
-						return (
-							<button
-								key={g.name}
-								type="button"
-								onClick={() => onAnchorClick("group", g.name)}
-								className={`inline-flex items-center gap-1.5 text-[11px] px-2 py-0.5 rounded-md transition-colors ${
-									isActive
-										? "bg-accent text-foreground font-medium"
-										: "text-muted-foreground/60 hover:text-foreground hover:bg-accent/40"
-								}`}
-							>
+			<div className="flex flex-wrap gap-1.5">
+				{groups.map((g) => {
+					const isActive = activeId === `group:${g.name}`;
+					return (
+						<button
+							key={g.name}
+							type="button"
+							onClick={() => onAnchorClick("group", g.name)}
+							className={`inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-md transition-colors ${
+								isActive
+									? "bg-accent text-foreground font-medium"
+									: "text-muted-foreground/60 hover:text-foreground hover:bg-accent/40"
+							}`}
+						>
 								<span className={`h-1.5 w-1.5 rounded-full shrink-0 ${TYPE_DOT[g.type] ?? TYPE_DOT.chore}`} />
 								{g.name}
 							</button>
@@ -62,7 +62,7 @@ export function StoryPanel({
 			</div>
 
 			<div className="border-t pt-5">
-				<div className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider mb-4">Walkthrough</div>
+				<div className="text-xs font-medium text-muted-foreground/40 uppercase tracking-wider mb-4">Walkthrough</div>
 				<Markdown onAnchorClick={onAnchorClick} activeId={activeId}>
 					{narrative}
 				</Markdown>

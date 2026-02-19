@@ -111,7 +111,7 @@ function AssistantMessage({ segments, activeToolName, isStreaming, onAnchorClick
 				const isTrailingSegment = i === segments.length - 1;
 				const isStreamingTail = isStreaming && isTrailingSegment;
 				return (
-					<div key={`text-${i}`} className="text-xs leading-relaxed">
+					<div key={`text-${i}`} className="text-sm leading-relaxed">
 						{isStreamingTail ? (
 							<Markdown streaming onAnchorClick={onAnchorClick} activeId={activeId}>{seg.content}</Markdown>
 						) : (
