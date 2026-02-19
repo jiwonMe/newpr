@@ -1,4 +1,4 @@
-import { join, dirname } from "node:path";
+import { join } from "node:path";
 import type { NewprConfig } from "../types/config.ts";
 import { createRoutes } from "./server/routes.ts";
 import index from "./index.html";
@@ -16,11 +16,12 @@ interface WebServerOptions {
 }
 
 function getCssPaths() {
-	const webDir = dirname(Bun.resolveSync("./src/web/index.html", process.cwd()));
+	const webDir = import.meta.dir;
+	const packageRoot = join(webDir, "..", "..");
 	return {
 		input: join(webDir, "styles", "globals.css"),
 		output: join(webDir, "styles", "built.css"),
-		bin: join(process.cwd(), "node_modules", ".bin", "tailwindcss"),
+		bin: join(packageRoot, "node_modules", ".bin", "tailwindcss"),
 	};
 }
 
@@ -86,7 +87,7 @@ export async function startWebServer(options: WebServerOptions): Promise<void> {
 			const path = url.pathname;
 
 			if (path.startsWith("/assets/")) {
-				const webDir = dirname(Bun.resolveSync("./src/web/index.html", process.cwd()));
+				const webDir = import.meta.dir;
 				const filePath = join(webDir, path);
 				const file = Bun.file(filePath);
 				return file.exists().then((exists) => {
