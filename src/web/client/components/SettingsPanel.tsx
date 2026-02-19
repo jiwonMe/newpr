@@ -100,7 +100,7 @@ export function SettingsPanel({ onClose, onFeaturesChange }: { onClose: () => vo
 	return (
 		<div>
 			<div className="flex items-center justify-between mb-6">
-				<h2 className="text-xs font-semibold">Settings</h2>
+				<h2 className="text-sm font-semibold">Settings</h2>
 				<div className="flex items-center gap-2">
 					{saving && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/40" />}
 					{saved && <Check className="h-3 w-3 text-green-500" />}
