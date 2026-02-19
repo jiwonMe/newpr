@@ -953,9 +953,22 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 			const encoder = new TextEncoder();
 			const stream = new ReadableStream({
 				async start(controller) {
+					let closed = false;
 					const send = (eventType: string, data: string) => {
+						if (closed) return;
 						controller.enqueue(encoder.encode(`event: ${eventType}\ndata: ${data}\n\n`));
 					};
+					const safeClose = () => {
+						if (closed) return;
+						closed = true;
+						clearInterval(heartbeat);
+						setTimeout(() => { try { controller.close(); } catch {} }, 50);
+					};
+					const heartbeat = setInterval(() => {
+						if (closed) return;
+						try { controller.enqueue(encoder.encode(":keepalive\n\n")); } catch { safeClose(); }
+					}, 15_000);
+
 					try {
 						if (config.openrouter_api_key) {
 							await chatWithTools(
@@ -999,7 +1012,7 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 					} catch (err) {
 						send("chat_error", JSON.stringify({ message: err instanceof Error ? err.message : String(err) }));
 					} finally {
-						controller.close();
+						safeClose();
 					}
 				},
 			});
@@ -1424,9 +1437,21 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 			const encoder = new TextEncoder();
 			const stream = new ReadableStream({
 				async start(controller) {
+					let closed = false;
 					const send = (eventType: string, data: string) => {
+						if (closed) return;
 						controller.enqueue(encoder.encode(`event: ${eventType}\ndata: ${data}\n\n`));
 					};
+					const safeClose = () => {
+						if (closed) return;
+						closed = true;
+						clearInterval(heartbeat);
+						setTimeout(() => { try { controller.close(); } catch {} }, 50);
+					};
+					const heartbeat = setInterval(() => {
+						if (closed) return;
+						try { controller.enqueue(encoder.encode(":keepalive\n\n")); } catch { safeClose(); }
+					}, 15_000);
 
 					let fullText = "";
 					const collectedToolCalls: ChatToolCall[] = [];
@@ -1526,7 +1551,7 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 					} catch (err) {
 						send("chat_error", JSON.stringify({ message: err instanceof Error ? err.message : String(err) }));
 					} finally {
-						controller.close();
+						safeClose();
 					}
 				},
 			});
