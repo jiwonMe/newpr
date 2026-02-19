@@ -20,6 +20,9 @@ import { executeStack } from "../../stack/execute.ts";
 import { verifyStack } from "../../stack/verify.ts";
 import { runStackQualityGate } from "../../stack/quality-gate.ts";
 import { analyzeImportDependencies } from "../../stack/import-deps.ts";
+import { extractSymbols } from "../../stack/symbol-flow.ts";
+import { buildCoChangePairs, buildHistoricalCoChangePairs } from "../../stack/co-change.ts";
+import { computeConfidenceReassignments, classifyGroupLayer } from "../../stack/confidence-score.ts";
 import { generatePrTitles } from "../../stack/pr-title.ts";
 import { createResilientLlmClient } from "../../llm/resilient-client.ts";
 import { telemetry } from "../../telemetry/index.ts";
@@ -510,19 +513,90 @@ async function runStackPipeline(
 			}
 		}
 
-		emit(session, "partitioning", "Analyzing import dependencies...");
-		const importDeps = await analyzeImportDependencies(
-			repoPath,
-			headSha,
-			changedFiles,
+		emit(session, "partitioning", "Analyzing symbol flow and import dependencies...");
+		const [symbolMap, coChangeResult, importDeps] = await Promise.all([
+			extractSymbols(repoPath, headSha, changedFiles),
+			buildHistoricalCoChangePairs(repoPath, changedFiles, 150),
+			analyzeImportDependencies(repoPath, headSha, changedFiles, mergedOwnership),
+		]);
+
+		const prCoChange = buildCoChangePairs(deltas);
+		const mergedCoChangePairs = new Map(coChangeResult.pairs);
+		for (const [key, count] of prCoChange.pairs) {
+			mergedCoChangePairs.set(key, (mergedCoChangePairs.get(key) ?? 0) + count * 2);
+		}
+		const totalCommits = coChangeResult.totalCommits + prCoChange.totalCommits;
+
+		emit(session, "partitioning", "Scoring file-group confidence...");
+		const confidenceResult = computeConfidenceReassignments(
 			mergedOwnership,
+			currentGroups,
+			symbolMap,
+			mergedCoChangePairs,
+			totalCommits,
 		);
+
+		let reassignCount = 0;
+		for (const [file, newGroup] of confidenceResult.reassigned) {
+			mergedOwnership.set(file, newGroup);
+			reassignCount++;
+		}
+		if (reassignCount > 0) {
+			allStructuredWarnings.push({
+				category: "assignment",
+				severity: "info",
+				title: `${reassignCount} file(s) reassigned by confidence scoring`,
+				message: "Files were moved to better-matching groups based on import, symbol, directory, and co-change signals",
+				details: confidenceResult.warnings.map((w) => `${w.file}: ${w.from} → ${w.to} (conf: ${w.confidence.toFixed(2)})`),
+			});
+		}
+
+		const balancedGroupFilesAfterConfidence = new Map<string, string[]>();
+		for (const [path, groupId] of mergedOwnership) {
+			const arr = balancedGroupFilesAfterConfidence.get(groupId) ?? [];
+			arr.push(path);
+			balancedGroupFilesAfterConfidence.set(groupId, arr);
+		}
+		currentGroups = currentGroups.map((g) => ({
+			...g,
+			files: (balancedGroupFilesAfterConfidence.get(g.name) ?? g.files).sort(),
+		}));
+
+		const layerDeps = new Map<string, string[]>();
+		const groupLayerOrder = new Map<string, number>();
+		for (const g of currentGroups) {
+			const layer = classifyGroupLayer(g, symbolMap);
+			groupLayerOrder.set(g.name, layer === "schema" ? 0 : layer === "refactor" ? 1 : layer === "core" ? 2 : layer === "integration" ? 3 : layer === "ui" ? 4 : layer === "test" ? 5 : 2);
+		}
+
+		const sortedByLayer = [...currentGroups].sort((a, b) => (groupLayerOrder.get(a.name) ?? 2) - (groupLayerOrder.get(b.name) ?? 2));
+		for (let i = 1; i < sortedByLayer.length; i++) {
+			const prev = sortedByLayer[i - 1]!;
+			const curr = sortedByLayer[i]!;
+			if ((groupLayerOrder.get(prev.name) ?? 2) < (groupLayerOrder.get(curr.name) ?? 2)) {
+				const deps = layerDeps.get(curr.name) ?? [];
+				deps.push(prev.name);
+				layerDeps.set(curr.name, deps);
+			}
+		}
+
+		const mergedDeclaredDeps = new Map<string, string[]>();
+		for (const [group, deps] of importDeps.groupDeps) {
+			mergedDeclaredDeps.set(group, [...deps]);
+		}
+		for (const [group, deps] of layerDeps) {
+			const existing = mergedDeclaredDeps.get(group) ?? [];
+			for (const d of deps) {
+				if (!existing.includes(d)) existing.push(d);
+			}
+			mergedDeclaredDeps.set(group, existing);
+		}
 
 		emit(session, "partitioning", "Checking feasibility...");
 		const feasibility = checkFeasibility({
 			deltas,
 			ownership: mergedOwnership,
-			declared_deps: importDeps.groupDeps,
+			declared_deps: mergedDeclaredDeps,
 		});
 		const ownershipObj = Object.fromEntries(mergedOwnership);
 
