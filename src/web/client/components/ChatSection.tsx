@@ -109,11 +109,13 @@ function ThrottledMarkdown({ content, onAnchorClick, activeId }: {
 				timerRef.current = null;
 			}, 150);
 		}
-		return () => {};
 	}, [content]);
 
 	useEffect(() => {
-		return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+		return () => {
+			if (timerRef.current) clearTimeout(timerRef.current);
+			setRendered(pendingRef.current);
+		};
 	}, []);
 
 	return <Markdown onAnchorClick={onAnchorClick} activeId={activeId}>{rendered}</Markdown>;
@@ -148,7 +150,11 @@ function AssistantMessage({ segments, activeToolName, isStreaming, onAnchorClick
 			{activeToolName && (
 				<div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-accent/40 text-[11px] text-muted-foreground/50">
 					<Loader2 className="h-2.5 w-2.5 animate-spin" />
-					<span className="font-mono">{activeToolName}</span>
+					{activeToolName === "thinking" ? (
+						<span>Thinking…</span>
+					) : (
+						<span className="font-mono">{activeToolName}</span>
+					)}
 				</div>
 			)}
 			{isStreaming && !hasContent && !activeToolName && segments.length === 0 && (

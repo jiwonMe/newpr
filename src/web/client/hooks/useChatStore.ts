@@ -140,7 +140,7 @@ class ChatStore {
 							case "tool_result": {
 								const tc = allToolCalls.find((c) => c.id === data.id);
 								if (tc) tc.result = data.result;
-								this.update(sessionId, { streaming: { segments: [...orderedSegments] } });
+								this.update(sessionId, { streaming: { segments: [...orderedSegments], activeToolName: "thinking" } });
 								break;
 							}
 							case "done": break;

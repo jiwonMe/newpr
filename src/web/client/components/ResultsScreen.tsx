@@ -69,6 +69,10 @@ export function ResultsScreen({
 	const [reviewOpen, setReviewOpen] = useState(false);
 	const outdated = useOutdatedCheck(sessionId);
 
+	useEffect(() => {
+		onTabChange?.(tab);
+	}, []);
+
 	const stickyRef = useRef<HTMLDivElement>(null);
 	const collapsibleRef = useRef<HTMLDivElement>(null);
 	const compactRef = useRef<HTMLDivElement>(null);
