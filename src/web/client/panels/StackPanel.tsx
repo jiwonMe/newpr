@@ -1,7 +1,7 @@
 import { Loader2, Play, Upload, RotateCcw, CheckCircle2, AlertTriangle, Circle, GitPullRequestArrow, ArrowRight, Layers, FileText, RefreshCw, XCircle, Trash2 } from "lucide-react";
 import { useStack } from "../hooks/useStack.ts";
 import { FeasibilityAlert } from "../components/FeasibilityAlert.tsx";
-import { StackGroupCard } from "../components/StackGroupCard.tsx";
+import { StackDagView } from "../components/StackDagView.tsx";
 import { StackWarnings } from "../components/StackWarnings.tsx";
 
 type StackPhase = "idle" | "partitioning" | "planning" | "executing" | "publishing" | "done" | "error";
@@ -228,21 +228,11 @@ export function StackPanel({ sessionId, onTrackAnalysis }: StackPanelProps) {
 							</span>
 						)}
 					</div>
-		<div className="space-y-0">
-					{stack.plan.groups.map((group) => {
-						const commit = stack.execResult?.group_commits.find((gc) => gc.group_id === group.id);
-						const pr = stack.publishResult?.prs.find((p) => p.group_id === group.id);
-						return (
-							<StackGroupCard
-								key={group.id}
-								group={group}
-								commit={commit}
-								pr={pr}
-								allGroups={stack.plan!.groups}
-							/>
-						);
-					})}
-				</div>
+		<StackDagView
+					groups={stack.plan.groups}
+					groupCommits={stack.execResult?.group_commits}
+					publishedPrs={stack.publishResult?.prs}
+				/>
 				</div>
 			)}
 

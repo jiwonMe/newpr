@@ -633,11 +633,13 @@ async function runStackPipeline(
 		});
 
 		emit(session, "planning", "Computing group stats...");
+		const planDagParents = new Map(plan.groups.map((g) => [g.id, g.deps ?? []]));
 		const groupStats = await computeGroupStats(
 			repoPath,
 			baseSha,
 			feasibility.ordered_group_ids!,
 			plan.expected_trees,
+			planDagParents,
 		);
 		for (const group of plan.groups) {
 			const s = groupStats.get(group.id);
