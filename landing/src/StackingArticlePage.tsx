@@ -1046,24 +1046,24 @@ function CodeBlock({ code, caption }: { code: string; caption?: string }) {
 	}, [code]);
 
 	return (
-		<div className="rounded-xl border border-zinc-800 bg-[#0d1117] p-4 sm:p-5 my-4">
+		<div className="rounded-lg sm:rounded-xl border border-zinc-800 bg-[#0d1117] p-3 sm:p-5 my-3 sm:my-4 -mx-4 sm:mx-0">
 			{caption && (
-				<div className="flex items-center gap-2 mb-3 pb-2.5 border-b border-zinc-800/60">
-					<div className="flex gap-1.5">
+				<div className="flex items-center gap-2 mb-2.5 sm:mb-3 pb-2 sm:pb-2.5 border-b border-zinc-800/60">
+					<div className="hidden sm:flex gap-1.5">
 						<span className="w-2.5 h-2.5 rounded-full bg-zinc-700/60" />
 						<span className="w-2.5 h-2.5 rounded-full bg-zinc-700/60" />
 						<span className="w-2.5 h-2.5 rounded-full bg-zinc-700/60" />
 					</div>
-					<p className="text-[11px] text-zinc-500 font-mono">{caption}</p>
+					<p className="text-[10px] sm:text-[11px] text-zinc-500 font-mono truncate">{caption}</p>
 				</div>
 			)}
 			{html ? (
 				<div
-					className="shiki-wrapper text-[12px] sm:text-[13px] font-mono leading-6 overflow-x-auto [&_pre]:!bg-transparent [&_pre]:!m-0 [&_pre]:!p-0 [&_code]:!text-[inherit] [&_code]:!leading-[inherit]"
+					className="shiki-wrapper text-[11px] sm:text-[13px] font-mono leading-5 sm:leading-6 overflow-x-auto [&_pre]:!bg-transparent [&_pre]:!m-0 [&_pre]:!p-0 [&_code]:!text-[inherit] [&_code]:!leading-[inherit]"
 					dangerouslySetInnerHTML={{ __html: html }}
 				/>
 			) : (
-				<pre className="text-[12px] sm:text-[13px] text-zinc-300 font-mono leading-6 whitespace-pre-wrap overflow-x-auto">{code}</pre>
+				<pre className="text-[11px] sm:text-[13px] text-zinc-300 font-mono leading-5 sm:leading-6 whitespace-pre overflow-x-auto">{code}</pre>
 			)}
 		</div>
 	);
@@ -1071,11 +1071,11 @@ function CodeBlock({ code, caption }: { code: string; caption?: string }) {
 
 function NoteBlock({ title, text }: { title?: string; text: string }) {
 	return (
-		<div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-4 sm:p-5 my-4">
+		<div className="rounded-lg sm:rounded-xl border border-blue-500/20 bg-blue-500/5 p-3.5 sm:p-5 my-3 sm:my-4">
 			{title && (
-				<p className="text-[13px] font-semibold text-blue-300 mb-2">{title}</p>
+				<p className="text-[12px] sm:text-[13px] font-semibold text-blue-300 mb-2">{title}</p>
 			)}
-			<p className="text-[13px] text-zinc-300/85 leading-7">
+			<p className="text-[12px] sm:text-[13px] text-zinc-300/85 leading-6 sm:leading-7">
 				<RichText text={text} />
 			</p>
 		</div>
@@ -1086,7 +1086,7 @@ function ContentBlockRenderer({ block }: { block: ContentBlock }) {
 	switch (block.kind) {
 		case "p":
 			return (
-				<p className="text-[15px] text-zinc-300/90 leading-8">
+				<p className="text-[14px] sm:text-[15px] text-zinc-300/90 leading-7 sm:leading-8">
 					<RichText text={block.text} />
 				</p>
 			);
@@ -1099,7 +1099,7 @@ function ContentBlockRenderer({ block }: { block: ContentBlock }) {
 
 function SectionHeader({ id, title }: { id: string; title: string }) {
 	return (
-		<h2 id={id} className="scroll-mt-28 text-[26px] sm:text-[30px] font-bold tracking-tight mb-5">
+		<h2 id={id} className="scroll-mt-24 sm:scroll-mt-28 text-[22px] sm:text-[26px] md:text-[30px] font-bold tracking-tight mb-4 sm:mb-5">
 			{title}
 		</h2>
 	);
@@ -1112,53 +1112,52 @@ function SectionHeader({ id, title }: { id: string; title: string }) {
 export function StackingArticlePage({ locale }: { locale: Locale }) {
 	const c = locale === "ko" ? KO_CONTENT : EN_CONTENT;
 	const homePath = locale === "ko" ? "/newpr/ko/" : "/newpr/";
+	const [tocOpen, setTocOpen] = useState(false);
 
 	return (
 		<>
-			<div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-center gap-3 bg-[#0d1b33]/90 backdrop-blur-sm py-1.5 border-b border-blue-500/10">
-				<a href="https://www.sionic.ai" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2.5 opacity-75 hover:opacity-100 transition-opacity">
-					<span className="text-[11px] text-zinc-400 uppercase tracking-widest">Sponsored by</span>
+			<div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-center gap-2 sm:gap-3 bg-[#0d1b33]/90 backdrop-blur-sm py-1.5 border-b border-blue-500/10">
+				<a href="https://www.sionic.ai" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 sm:gap-2.5 opacity-75 hover:opacity-100 transition-opacity">
+					<span className="text-[10px] sm:text-[11px] text-zinc-400 uppercase tracking-widest">Sponsored by</span>
 					<img src="https://www.sionic.ai/favicon.ico" alt="Sionic AI" className="h-4 w-4" />
-					<span className="text-[13px] text-zinc-200 font-medium">Sionic AI</span>
+					<span className="text-[12px] sm:text-[13px] text-zinc-200 font-medium">Sionic AI</span>
 				</a>
 			</div>
 			<nav className="fixed top-8 left-0 right-0 z-50 bg-[#09090b]/85 backdrop-blur-xl border-b border-zinc-800/60">
-				<div className="max-w-[1100px] mx-auto px-6 h-14 flex items-center justify-between">
+				<div className="max-w-[1100px] mx-auto px-4 sm:px-6 h-12 sm:h-14 flex items-center justify-between">
 					<a href={homePath} className="font-mono text-sm font-semibold tracking-tight">newpr</a>
-					<div className="flex items-center gap-5">
-						<a href={homePath} className="text-[13px] text-zinc-500 hover:text-zinc-200 transition-colors">{c.homeLabel}</a>
-						<a href={c.langSwitchPath} className="text-[13px] text-zinc-500 hover:text-zinc-200 transition-colors">{c.langSwitchLabel}</a>
-						<a href={c.ctaPath} target="_blank" rel="noopener" className="h-8 px-3.5 bg-white text-black text-[13px] font-medium rounded-lg flex items-center hover:bg-zinc-200 transition-colors">
+					<div className="flex items-center gap-3 sm:gap-5">
+						<a href={homePath} className="hidden sm:block text-[13px] text-zinc-500 hover:text-zinc-200 transition-colors">{c.homeLabel}</a>
+						<a href={c.langSwitchPath} className="text-[12px] sm:text-[13px] text-zinc-500 hover:text-zinc-200 transition-colors">{c.langSwitchLabel}</a>
+						<a href={c.ctaPath} target="_blank" rel="noopener" className="h-7 sm:h-8 px-2.5 sm:px-3.5 bg-white text-black text-[12px] sm:text-[13px] font-medium rounded-lg flex items-center hover:bg-zinc-200 transition-colors">
 							{c.ctaLabel}
 						</a>
 					</div>
 				</div>
 			</nav>
 
-			<main className="pt-40 sm:pt-44 pb-24 px-6">
+			<main className="pt-36 sm:pt-44 pb-16 sm:pb-24 px-4 sm:px-6">
 				<div className="max-w-[1100px] mx-auto">
-					{/* Hero */}
-					<div className="mb-10">
-						<div className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-500/10 border border-blue-500/20 rounded-full text-[12px] text-blue-400 font-medium mb-5">
-							<Sparkles className="w-3.5 h-3.5" />
+					<div className="mb-8 sm:mb-10">
+						<div className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-500/10 border border-blue-500/20 rounded-full text-[11px] sm:text-[12px] text-blue-400 font-medium mb-4 sm:mb-5">
+							<Sparkles className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
 							{c.badge}
 						</div>
-						<h1 className="text-4xl sm:text-5xl lg:text-[56px] font-bold tracking-[-0.035em] leading-[1.08] mb-5">
+						<h1 className="text-[28px] sm:text-5xl lg:text-[56px] font-bold tracking-[-0.035em] leading-[1.08] mb-4 sm:mb-5">
 							{c.title}
 						</h1>
-						<p className="text-base sm:text-lg text-zinc-400 max-w-[760px] leading-relaxed mb-5">
+						<p className="text-[15px] sm:text-lg text-zinc-400 max-w-[760px] leading-relaxed mb-4 sm:mb-5">
 							{c.subtitle}
 						</p>
-						<div className="flex items-center gap-3 text-[12px] text-zinc-500">
+						<div className="flex items-center gap-3 text-[11px] sm:text-[12px] text-zinc-500">
 							<span>{c.updated}</span>
 							<span className="text-zinc-700">•</span>
 							<span>{c.readingTime}</span>
 						</div>
 					</div>
 
-					<div className="grid lg:grid-cols-[220px_1fr] gap-10">
-						{/* Sidebar */}
-						<aside className="lg:sticky lg:top-28 self-start">
+					<div className="grid lg:grid-cols-[220px_1fr] gap-6 lg:gap-10">
+						<aside className="hidden lg:block lg:sticky lg:top-28 self-start">
 							<div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 space-y-2">
 								<p className="text-[11px] uppercase tracking-widest text-zinc-500">Contents</p>
 								{c.articleSections.map((section) => (
@@ -1176,8 +1175,42 @@ export function StackingArticlePage({ locale }: { locale: Locale }) {
 							</div>
 						</aside>
 
+						{tocOpen && (
+							<div className="lg:hidden fixed inset-0 z-[60]" onClick={() => setTocOpen(false)}>
+								<div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+								<div className="absolute bottom-0 left-0 right-0 rounded-t-2xl border-t border-zinc-700 bg-[#09090b] p-5 pb-8 space-y-2 max-h-[70vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+									<div className="flex items-center justify-between mb-3">
+										<p className="text-[11px] uppercase tracking-widest text-zinc-500">Contents</p>
+										<button type="button" onClick={() => setTocOpen(false)} className="text-zinc-500 hover:text-zinc-300 text-sm">✕</button>
+									</div>
+									{c.articleSections.map((section) => (
+										<a
+											key={section.id}
+											href={`#${section.id}`}
+											onClick={() => setTocOpen(false)}
+											className="block text-[14px] text-zinc-400 hover:text-zinc-100 transition-colors py-1"
+										>
+											{section.title}
+										</a>
+									))}
+									<a href="#references" onClick={() => setTocOpen(false)} className="block text-[14px] text-zinc-400 hover:text-zinc-100 transition-colors py-1">
+										{c.referencesTitle}
+									</a>
+								</div>
+							</div>
+						)}
+
+						<button
+							type="button"
+							onClick={() => setTocOpen(true)}
+							className="lg:hidden fixed bottom-5 right-5 z-50 h-11 w-11 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center shadow-lg shadow-black/40 hover:bg-zinc-700 transition-colors"
+							aria-label="Table of contents"
+						>
+							<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-zinc-300"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="9" y2="18"/></svg>
+						</button>
+
 						{/* Article */}
-						<article className="space-y-14">
+						<article className="space-y-10 sm:space-y-14">
 							{c.articleSections.map((section) => (
 								<section key={section.id}>
 									<SectionHeader id={section.id} title={section.title} />
@@ -1192,9 +1225,9 @@ export function StackingArticlePage({ locale }: { locale: Locale }) {
 							{/* References */}
 							<section>
 								<SectionHeader id="references" title={c.referencesTitle} />
-								<div className="space-y-3">
+								<div className="space-y-2.5 sm:space-y-3">
 									{c.references.map((ref) => (
-										<div key={ref.id} className="flex gap-3 text-[13px] text-zinc-400 leading-6">
+										<div key={ref.id} className="flex gap-2 sm:gap-3 text-[12px] sm:text-[13px] text-zinc-400 leading-5 sm:leading-6">
 											<span className="text-zinc-500 font-mono shrink-0">[{ref.id}]</span>
 											<span>
 												{ref.text}
@@ -1213,9 +1246,9 @@ export function StackingArticlePage({ locale }: { locale: Locale }) {
 							</section>
 
 							{/* Closing */}
-							<section className="rounded-2xl border border-blue-500/20 bg-blue-500/5 p-6 sm:p-7">
-								<h3 className="text-[22px] sm:text-[26px] font-bold tracking-tight mb-3">{c.closingTitle}</h3>
-								<p className="text-[15px] text-zinc-300/90 leading-8 mb-5">{c.closingParagraph}</p>
+							<section className="rounded-xl sm:rounded-2xl border border-blue-500/20 bg-blue-500/5 p-4 sm:p-7">
+								<h3 className="text-[20px] sm:text-[26px] font-bold tracking-tight mb-3">{c.closingTitle}</h3>
+								<p className="text-[14px] sm:text-[15px] text-zinc-300/90 leading-7 sm:leading-8 mb-4 sm:mb-5">{c.closingParagraph}</p>
 								<div className="flex flex-wrap items-center gap-3">
 									<a href={homePath} className="h-10 px-4 rounded-lg border border-zinc-700 text-zinc-300 text-[13px] font-medium inline-flex items-center gap-2 hover:border-zinc-500 hover:text-zinc-100 transition-colors">
 										<ArrowLeft className="w-4 h-4" />
