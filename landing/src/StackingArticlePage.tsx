@@ -1136,7 +1136,7 @@ export function StackingArticlePage({ locale }: { locale: Locale }) {
 				</div>
 			</nav>
 
-			<main className="pt-36 sm:pt-44 pb-16 sm:pb-24 px-4 sm:px-6">
+			<main className="pt-36 sm:pt-44 pb-16 sm:pb-24 px-4 sm:px-6 overflow-x-hidden">
 				<div className="max-w-[1100px] mx-auto">
 					<div className="mb-8 sm:mb-10">
 						<div className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-500/10 border border-blue-500/20 rounded-full text-[11px] sm:text-[12px] text-blue-400 font-medium mb-4 sm:mb-5">
@@ -1210,7 +1210,7 @@ export function StackingArticlePage({ locale }: { locale: Locale }) {
 						</button>
 
 						{/* Article */}
-						<article className="space-y-10 sm:space-y-14">
+						<article className="min-w-0 space-y-10 sm:space-y-14">
 							{c.articleSections.map((section) => (
 								<section key={section.id}>
 									<SectionHeader id={section.id} title={section.title} />
