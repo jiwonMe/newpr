@@ -24,6 +24,7 @@ The web UI opens automatically at `http://localhost:3456`. Paste any GitHub PR U
 - One of:
   - `OPENROUTER_API_KEY` — for model selection (Claude, GPT-4, Gemini, etc.)
   - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) — zero-config fallback
+- [Codex CLI](https://www.npmjs.com/package/@openai/codex) — alternative zero‑config option
 
 ```bash
 # Option A: OpenRouter
@@ -143,6 +144,7 @@ Type `/undo` to remove the last exchange.
 |---------|-------|----------|
 | **OpenRouter** | `OPENROUTER_API_KEY` | Full model selection |
 | **Claude Code** | `claude` CLI installed | Zero-config fallback |
+| **Codex CLI** | `codex` CLI installed | Alternate zero-config fallback |
 
 ## Exploration Agents
 
