@@ -8,6 +8,7 @@ export interface NewprConfig {
 	concurrency: number;
 	language: string;
 	agent?: AgentToolName;
+	custom_prompt?: string;
 }
 
 export const DEFAULT_CONFIG: Omit<NewprConfig, "openrouter_api_key"> = {

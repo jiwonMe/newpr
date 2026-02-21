@@ -19,11 +19,17 @@ export interface PromptContext {
 	language?: string;
 	prBody?: string;
 	discussion?: Array<{ author: string; body: string }>;
+	customPrompt?: string;
 }
 
 function langDirective(lang?: string): string {
 	if (!lang || lang === "English") return "";
 	return `\nCRITICAL LANGUAGE RULE: ALL text values in your response MUST be written in ${lang}. This includes every summary, description, name, purpose, scope, and impact field. JSON keys stay in English, but ALL string values MUST be in ${lang}. Do NOT use English for any descriptive text.`;
+}
+
+function customPromptDirective(customPrompt?: string): string {
+	if (!customPrompt?.trim()) return "";
+	return `\n\nADDITIONAL USER INSTRUCTIONS:\n${customPrompt.trim()}`;
 }
 
 function formatDiscussion(ctx?: PromptContext): string {
@@ -68,7 +74,7 @@ export function buildFileSummaryPrompt(chunks: DiffChunk[], ctx?: PromptContext)
 Use the commit history and PR discussion to understand the intent behind each change — why the change was made, not just what changed.
 Respond ONLY with a JSON array. Each element: {"path": "file/path", "summary": "one line description of what changed"}.
 The "path" value must be the exact file path. The "summary" value is a human-readable description.
-No markdown, no explanation, just the JSON array.${langDirective(ctx?.language)}`,
+No markdown, no explanation, just the JSON array.${langDirective(ctx?.language)}${customPromptDirective(ctx?.customPrompt)}`,
 		user: `${fileList}${commitCtx}${discussionCtx}`,
 	};
 }
@@ -97,7 +103,7 @@ A file MAY appear in multiple groups if it serves multiple purposes.
 Use the commit history and PR discussion to understand which changes belong together logically.
 Respond ONLY with a JSON array. Each element: {"name": "...", "type": "...", "description": "...", "files": [...], "key_changes": [...], "risk": "...", "dependencies": [...]}.
 The "type" value must be one of the English keywords listed above. File paths stay as-is.
-Every file must appear in at least one group. No markdown, no explanation, just the JSON array.${langDirective(ctx?.language)}`,
+Every file must appear in at least one group. No markdown, no explanation, just the JSON array.${langDirective(ctx?.language)}${customPromptDirective(ctx?.customPrompt)}`,
 		user: `Changed files:\n${fileList}${commitCtx}${discussionCtx}`,
 	};
 }
@@ -122,7 +128,7 @@ export function buildOverallSummaryPrompt(
 Use the commit history and PR discussion to understand the development progression and intent. The PR description and reviewer comments provide essential context about why changes were made.
 Respond ONLY with a JSON object: {"purpose": "why this PR exists (1-2 sentences)", "scope": "what areas of code are affected", "impact": "what is the impact of these changes", "risk_level": "low|medium|high"}.
 The "purpose", "scope", and "impact" values are human-readable text. The "risk_level" must be one of: low, medium, high (in English).
-No markdown, no explanation, just the JSON object.${langDirective(ctx?.language)}`,
+No markdown, no explanation, just the JSON object.${langDirective(ctx?.language)}${customPromptDirective(ctx?.customPrompt)}`,
 		user: `PR Title: ${prTitle}\n\nChange Groups:\n${groupList}\n\nFile Summaries:\n${fileList}${commitCtx}${discussionCtx}`,
 	};
 }
@@ -251,7 +257,7 @@ BAD examples:
 - Bare line anchor: "[[line:src/auth/session.ts#L15-L30]]" → MUST have (text) after it
 - Low density paragraph: A paragraph with only 1 line anchor and 4+ sentences of plain text → MUST add more anchors
 
-${lang ? `CRITICAL: Write the ENTIRE narrative in ${lang}. Every sentence must be in ${lang}. Do NOT use English except for code identifiers, file paths, and anchor tokens.` : "If the PR title is in a non-English language, write the narrative in that same language."}`,
+	${lang ? `CRITICAL: Write the ENTIRE narrative in ${lang}. Every sentence must be in ${lang}. Do NOT use English except for code identifiers, file paths, and anchor tokens.` : "If the PR title is in a non-English language, write the narrative in that same language."}${customPromptDirective(ctx?.customPrompt)}`,
 		user: `PR Title: ${prTitle}\n\nSummary:\n- Purpose: ${summary.purpose}\n- Scope: ${summary.scope}\n- Impact: ${summary.impact}\n- Risk: ${summary.risk_level}\n\nChange Groups:\n${groupDetails}${commitCtx}${discussionCtx}${diffContext}`,
 	};
 }

@@ -13,6 +13,7 @@ interface ConfigData {
 	has_github_token: boolean;
 	enabled_plugins: string[];
 	available_plugins: Array<{ id: string; name: string }>;
+	custom_prompt: string;
 	defaults: {
 		model: string;
 		language: string;
@@ -235,8 +236,20 @@ export function SettingsPanel({ onClose, onFeaturesChange }: { onClose: () => vo
 					</Row>
 				</Section>
 
+			<Section title="Custom Prompt">
+					<div className="space-y-2">
+						<p className="text-[10px] text-muted-foreground/40 leading-relaxed">
+							Additional instructions for PR analysis. Applied to all analysis stages.
+						</p>
+						<CustomPromptInput
+							value={config.custom_prompt}
+							onSave={(v) => save({ custom_prompt: v })}
+						/>
+					</div>
+				</Section>
+
 				{config.available_plugins.length > 0 && (
-					<Section title="Plugins">
+				<Section title="Plugins">
 						<div className="space-y-1">
 							{config.available_plugins.map((p) => {
 								const enabled = config.enabled_plugins.includes(p.id);
@@ -272,6 +285,45 @@ export function SettingsPanel({ onClose, onFeaturesChange }: { onClose: () => vo
 					<AnalyticsToggle />
 				</Section>
 			</div>
+		</div>
+	);
+}
+
+function CustomPromptInput({ value, onSave }: { value: string; onSave: (v: string) => void }) {
+	const [local, setLocal] = useState(value);
+	const [focused, setFocused] = useState(false);
+
+	useEffect(() => { setLocal(value); }, [value]);
+
+	const dirty = local !== value;
+
+	function handleSave() {
+		if (dirty) onSave(local);
+	}
+
+	return (
+		<div className="space-y-1.5">
+			<textarea
+				value={local}
+				onChange={(e) => setLocal(e.target.value)}
+				onFocus={() => setFocused(true)}
+				onBlur={() => { setFocused(false); handleSave(); }}
+				onKeyDown={(e) => {
+					if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+						e.preventDefault();
+						handleSave();
+						(e.target as HTMLTextAreaElement).blur();
+					}
+				}}
+				placeholder="e.g. Focus on security vulnerabilities and performance issues. Ignore style changes."
+				rows={3}
+				className="w-full rounded-md border bg-background px-2.5 py-2 text-[11px] leading-relaxed placeholder:text-muted-foreground/30 focus:outline-none focus:border-foreground/20 resize-y min-h-[60px]"
+			/>
+			{focused && dirty && (
+				<p className="text-[10px] text-muted-foreground/30">
+					Press Cmd+Enter to save, or click outside
+				</p>
+			)}
 		</div>
 	);
 }

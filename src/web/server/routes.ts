@@ -17,7 +17,7 @@ import { createResilientLlmClient } from "../../llm/resilient-client.ts";
 import { detectAgents, runAgent } from "../../workspace/agent.ts";
 import { randomBytes } from "node:crypto";
 import { publishStack, buildStackPublishPreview } from "../../stack/publish.ts";
-import { startStack, getStackState, cancelStack, subscribeStack, restoreCompletedStacks, setStackPublishResult, setStackPublishPreview, setStackPublishCleanupResult } from "./stack-manager.ts";
+import { startStack, getStackState, cancelStack, subscribeStack, restoreCompletedStacks, setStackPublishResult, setStackPublishPreview, setStackPublishCleanupResult, recomputeStackPlanStatsIfNeeded } from "./stack-manager.ts";
 import { getTelemetryConsent, setTelemetryConsent, telemetry } from "../../telemetry/index.ts";
 
 function json(data: unknown, status = 200): Response {
@@ -669,27 +669,28 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 			const enabledPlugins = stored.enabled_plugins ?? pluginList.map((p) => p.id);
 			const agents = await detectAgents();
 			const telemetryConsent = await getTelemetryConsent();
-			return json({
-				model: config.model,
-				agent: config.agent ?? null,
-				language: config.language,
-				max_files: config.max_files,
-				timeout: config.timeout,
-				concurrency: config.concurrency,
-				has_api_key: !!config.openrouter_api_key,
-				has_agent_fallback: agents.length > 0,
-				has_github_token: !!token,
-				enabled_plugins: enabledPlugins,
-				available_plugins: pluginList,
-				telemetry_consent: telemetryConsent,
-				defaults: {
-					model: DEFAULT_CONFIG.model,
-					language: DEFAULT_CONFIG.language,
-					max_files: DEFAULT_CONFIG.max_files,
-					timeout: DEFAULT_CONFIG.timeout,
-					concurrency: DEFAULT_CONFIG.concurrency,
-				},
-			});
+		return json({
+			model: config.model,
+			agent: config.agent ?? null,
+			language: config.language,
+			max_files: config.max_files,
+			timeout: config.timeout,
+			concurrency: config.concurrency,
+			has_api_key: !!config.openrouter_api_key,
+			has_agent_fallback: agents.length > 0,
+			has_github_token: !!token,
+			enabled_plugins: enabledPlugins,
+			available_plugins: pluginList,
+			telemetry_consent: telemetryConsent,
+			custom_prompt: config.custom_prompt ?? "",
+			defaults: {
+				model: DEFAULT_CONFIG.model,
+				language: DEFAULT_CONFIG.language,
+				max_files: DEFAULT_CONFIG.max_files,
+				timeout: DEFAULT_CONFIG.timeout,
+				concurrency: DEFAULT_CONFIG.concurrency,
+			},
+		});
 		},
 
 		"PUT /api/config": async (req: Request) => {
@@ -731,6 +732,11 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 			}
 			if ((body as Record<string, unknown>).enabled_plugins !== undefined) {
 				update.enabled_plugins = (body as Record<string, unknown>).enabled_plugins as string[];
+			}
+			if ((body as Record<string, unknown>).custom_prompt !== undefined) {
+				const val = (body as Record<string, unknown>).custom_prompt as string;
+				update.custom_prompt = val || undefined;
+				config.custom_prompt = val || undefined;
 			}
 
 			const telemetryConsentVal = (body as Record<string, unknown>).telemetry_consent as string | undefined;
@@ -1801,9 +1807,10 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 
 		"POST /api/stack/start": async (req: Request) => {
 			try {
-				const body = await req.json() as { sessionId: string; maxGroups?: number };
+				const body = await req.json() as { sessionId: string; maxGroups?: number; envVars?: Record<string, string> };
 				if (!body.sessionId) return json({ error: "Missing sessionId" }, 400);
-				const result = startStack(body.sessionId, body.maxGroups ?? null, token, config);
+				const customEnv = body.envVars && Object.keys(body.envVars).length > 0 ? body.envVars : null;
+				const result = startStack(body.sessionId, body.maxGroups ?? null, token, config, customEnv);
 				if ("error" in result) return json({ error: result.error }, result.status);
 				return json({ ok: true });
 			} catch (err) {
@@ -1818,6 +1825,10 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 			let state = getStackState(id);
 			if (!state) {
 				await restoreCompletedStacks([id]);
+				state = getStackState(id);
+			}
+			if (state?.plan && state.context) {
+				await recomputeStackPlanStatsIfNeeded(id);
 				state = getStackState(id);
 			}
 			if (!state) return json({ state: null });

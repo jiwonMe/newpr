@@ -84,6 +84,7 @@ export async function loadConfig(
 			stored.concurrency ?? DEFAULT_CONFIG.concurrency,
 		),
 		language: resolveLanguage(rawLang),
+		custom_prompt: stored.custom_prompt,
 	};
 
 	if (overrides) {

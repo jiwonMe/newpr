@@ -236,6 +236,7 @@ export async function analyzePr(options: PipelineOptions): Promise<NewprOutput> 
 		language: config.language,
 		prBody: prData.body,
 		discussion: prComments.map((c) => ({ author: c.author, body: c.body })),
+		customPrompt: config.custom_prompt,
 	};
 	const enrichedTag = exploration ? " + codebase context" : "";
 

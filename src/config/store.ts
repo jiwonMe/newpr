@@ -14,6 +14,7 @@ export interface StoredConfig {
 	language?: string;
 	agent?: string;
 	enabled_plugins?: string[];
+	custom_prompt?: string;
 }
 
 function ensureDir(): void {
