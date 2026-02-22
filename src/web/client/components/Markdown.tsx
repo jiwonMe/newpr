@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { memo, useState, useEffect, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -12,6 +12,7 @@ interface MarkdownProps {
 	children: string;
 	onAnchorClick?: (kind: "group" | "file" | "line", id: string) => void;
 	activeId?: string | null;
+	streaming?: boolean;
 }
 
 function useHighlighter(): Highlighter | null {
@@ -69,7 +70,7 @@ function MediaEmbed({ src }: { src: string }) {
 	}
 
 	if (mode === "link") {
-		return <a href={src} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline break-all text-sm">{src}</a>;
+		return <a href={src} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline break-all text-base">{src}</a>;
 	}
 
 	if (mode === "video") {
@@ -97,6 +98,7 @@ function MediaEmbed({ src }: { src: string }) {
 const ANCHOR_RE = /\[\[(group|file):(.*?)\]\]/g;
 
 const BOLD_CJK_RE = /\*\*(.+?)\*\*/g;
+const MAX_LINE_LABEL_LENGTH = 180;
 
 function hasCJK(text: string): boolean {
 	return /[가-힣ぁ-ヿ一-鿿]/.test(text);
@@ -111,11 +113,30 @@ function formatLineLabel(id: string): string {
 	return `${fileName}:${lineRef}`;
 }
 
-function inlineMarkdownToHtml(text: string): string {
+function escapeInlineHtml(text: string): string {
 	return text
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;");
+}
+
+function inlineMarkdownToHtml(text: string): string {
+	const escaped = escapeInlineHtml(text);
+	return escaped
 		.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
 		.replace(/\*(.+?)\*/g, "<em>$1</em>")
 		.replace(/`([^`]+)`/g, "<code>$1</code>");
+}
+
+function isLineLabelCandidate(text: string): boolean {
+	const trimmed = text.trim();
+	if (!trimmed) return false;
+	if (trimmed.length > MAX_LINE_LABEL_LENGTH) return false;
+	if (trimmed.includes("\n")) return false;
+	if (trimmed.includes("[[")) return false;
+	const backtickCount = (trimmed.match(/`/g) ?? []).length;
+	if (backtickCount % 2 !== 0) return false;
+	return true;
 }
 
 function replaceLineAnchors(text: string): string {
@@ -144,14 +165,18 @@ function replaceLineAnchors(text: string): string {
 		if (text[afterClose] === "(") {
 			let depth = 1;
 			let end = afterClose + 1;
-			while (end < text.length && depth > 0) {
+			const scanLimit = Math.min(text.length, afterClose + MAX_LINE_LABEL_LENGTH + 2);
+			while (end < scanLimit && depth > 0) {
 				if (text[end] === "(") depth++;
 				else if (text[end] === ")") depth--;
 				end++;
 			}
 			if (depth === 0) {
-				label = text.slice(afterClose + 1, end - 1);
-				afterClose = end;
+				const candidate = text.slice(afterClose + 1, end - 1);
+				if (isLineLabelCandidate(candidate)) {
+					label = candidate;
+					afterClose = end;
+				}
 			}
 		}
 
@@ -185,8 +210,8 @@ function preprocess(text: string): string {
 	return processed.replace(/\x00MATH_BLOCK_(\d+)\x00/g, (_, idx) => mathBlocks[Number(idx)]!);
 }
 
-export function Markdown({ children, onAnchorClick, activeId }: MarkdownProps) {
-	const processed = preprocess(children);
+export const Markdown = memo(function Markdown({ children, onAnchorClick, activeId, streaming = false }: MarkdownProps) {
+	const processed = useMemo(() => preprocess(children), [children]);
 	const hl = useHighlighter();
 	const dark = useDarkMode();
 
@@ -194,14 +219,20 @@ export function Markdown({ children, onAnchorClick, activeId }: MarkdownProps) {
 		h1: ({ children }) => <h1 className="text-xl font-bold mt-6 mb-3 break-words">{children}</h1>,
 		h2: ({ children }) => <h2 className="text-lg font-semibold mt-6 mb-2 break-words">{children}</h2>,
 		h3: ({ children }) => <h3 className="text-base font-medium mt-4 mb-1 break-words">{children}</h3>,
-		h4: ({ children }) => <h4 className="text-sm font-medium mt-3 mb-1 break-words">{children}</h4>,
-		p: ({ children }) => <p className="text-sm leading-relaxed text-foreground/90 break-words mb-3">{children}</p>,
+		h4: ({ children }) => <h4 className="text-base font-medium mt-3 mb-1 break-words">{children}</h4>,
+		p: ({ children }) => <p className="text-base leading-relaxed text-foreground/90 break-words mb-3">{children}</p>,
 		ul: ({ children }) => <ul className="space-y-1 mb-3">{children}</ul>,
-		ol: ({ children }) => <ol className="list-decimal pl-5 space-y-1 mb-3 text-sm text-foreground/90">{children}</ol>,
-		li: ({ children }) => <li className="text-sm text-muted-foreground ml-4 break-words leading-relaxed">{children}</li>,
+		ol: ({ children }) => <ol className="list-decimal pl-5 space-y-1 mb-3 text-base text-foreground/90">{children}</ol>,
+		li: ({ children }) => <li className="text-base text-muted-foreground ml-4 break-words leading-relaxed">{children}</li>,
 		strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
 		em: ({ children }) => <em className="italic">{children}</em>,
 		code: ({ children, className }) => {
+			if (streaming) {
+				if (className?.includes("language-")) {
+					return <code className="text-xs font-mono">{children}</code>;
+				}
+				return <code className="px-1.5 py-0.5 rounded bg-muted text-xs font-mono">{children}</code>;
+			}
 			const lang = langFromClassName(className);
 			if (lang && hl) {
 				const code = String(children).replace(/\n$/, "");
@@ -312,23 +343,29 @@ export function Markdown({ children, onAnchorClick, activeId }: MarkdownProps) {
 		);
 		},
 		blockquote: ({ children }) => (
-			<blockquote className="border-l-2 border-muted-foreground/30 pl-4 text-sm text-muted-foreground italic mb-3">{children}</blockquote>
+			<blockquote className="border-l-2 border-muted-foreground/30 pl-4 text-base text-muted-foreground italic mb-3">{children}</blockquote>
 		),
 		details: ({ children, ...rest }) => (
 			<details className="rounded-lg border border-border mb-3 open:pb-2" {...rest}>{children}</details>
 		),
 		summary: ({ children }) => (
-			<summary className="px-3 py-2 text-sm font-medium cursor-pointer select-none hover:bg-muted/50 rounded-lg">{children}</summary>
+			<summary className="px-3 py-2 text-base font-medium cursor-pointer select-none hover:bg-muted/50 rounded-lg">{children}</summary>
 		),
 		hr: () => <hr className="border-border my-4" />,
 		table: ({ children }) => (
 			<div className="overflow-x-auto mb-3">
-				<table className="text-sm w-full border-collapse">{children}</table>
+				<table className="text-base w-full border-collapse">{children}</table>
 			</div>
 		),
-		th: ({ children }) => <th className="border-b border-border px-3 py-1.5 text-left text-xs font-medium text-muted-foreground">{children}</th>,
-		td: ({ children }) => <td className="border-b border-border px-3 py-1.5 text-sm">{children}</td>,
+		th: ({ children }) => <th className="border-b border-border px-3 py-1.5 text-left text-sm font-medium text-muted-foreground">{children}</th>,
+		td: ({ children }) => <td className="border-b border-border px-3 py-1.5 text-base">{children}</td>,
 	};
 
-	return <ReactMarkdown remarkPlugins={[[remarkMath, { singleDollarTextMath: true }], remarkGfm]} rehypePlugins={[[rehypeRaw, { passThrough: ["math", "inlineMath"] }], [rehypeKatex, { throwOnError: false, strict: false, output: "html" }]]} components={components}>{processed}</ReactMarkdown>;
-}
+	return <ReactMarkdown
+		remarkPlugins={streaming ? [remarkGfm] : [[remarkMath, { singleDollarTextMath: true }], remarkGfm]}
+		rehypePlugins={streaming
+			? [[rehypeRaw, { passThrough: ["math", "inlineMath"] }]]
+			: [[rehypeRaw, { passThrough: ["math", "inlineMath"] }], [rehypeKatex, { throwOnError: false, strict: false, output: "html" }]]}
+		components={components}
+	>{processed}</ReactMarkdown>;
+});

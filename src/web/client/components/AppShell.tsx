@@ -389,11 +389,11 @@ export function AppShell({
 			<ResizeHandle onResize={handleLeftResize} side="right" />
 
 			<div className="flex-1 flex flex-col overflow-hidden relative" style={{ minWidth: 400 }}>
-				<main ref={mainRef} className="flex-1 overflow-y-auto">
-					<div className="mx-auto max-w-5xl px-10 py-10">
-						{children}
-					</div>
-				</main>
+			<main ref={mainRef} className="flex-1 overflow-y-auto">
+				<div className="mx-auto max-w-5xl px-10 pt-10 pb-24">
+					{children}
+				</div>
+			</main>
 				{bottomBar}
 				{showScrollTop && (
 					<button

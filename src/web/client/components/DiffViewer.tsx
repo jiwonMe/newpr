@@ -257,11 +257,11 @@ function CommentCard({
 				) : (
 					<div className="h-4 w-4 rounded-full bg-muted-foreground/20 shrink-0" />
 				)}
-				<span className="text-[11px] font-medium text-foreground/90">{comment.author}</span>
-				<span className="text-[10px] text-muted-foreground/60">{formatTimeAgo(comment.createdAt)}</span>
-				{comment.startLine != null && comment.startLine !== comment.line && (
-					<span className="text-[10px] text-muted-foreground/40 font-mono">L{comment.startLine}-{comment.line}</span>
-				)}
+			<span className="text-xs font-medium text-foreground/90">{comment.author}</span>
+			<span className="text-xs text-muted-foreground/60">{formatTimeAgo(comment.createdAt)}</span>
+			{comment.startLine != null && comment.startLine !== comment.line && (
+				<span className="text-xs text-muted-foreground/40 font-mono">L{comment.startLine}-{comment.line}</span>
+			)}
 				{comment.githubUrl && (
 					<a href={comment.githubUrl} target="_blank" rel="noopener noreferrer" className="text-muted-foreground/40 hover:text-foreground/60 transition-colors">
 						<ExternalLink className="h-2.5 w-2.5" />
@@ -318,7 +318,7 @@ function CommentCard({
 				</div>
 			</div>
 			) : (
-				<p className="text-[12px] text-foreground/80 whitespace-pre-wrap break-words leading-[1.6] pl-[22px]">{comment.body}</p>
+				<p className="text-sm text-foreground/80 whitespace-pre-wrap break-words leading-[1.6] pl-[22px]">{comment.body}</p>
 			)}
 		</div>
 	);
@@ -374,7 +374,7 @@ function CommentForm({
 					<button
 						type="button"
 						onClick={onCancel}
-						className="text-[11px] text-muted-foreground/60 hover:text-foreground/80 px-2 py-1 rounded-md transition-colors"
+						className="text-xs text-muted-foreground/60 hover:text-foreground/80 px-2 py-1 rounded-md transition-colors"
 					>
 						Cancel
 					</button>
@@ -383,7 +383,7 @@ function CommentForm({
 						onClick={handleSubmit}
 						disabled={!hasContent || submitting}
 						className={`
-							text-[11px] font-medium px-3 py-1 rounded-md transition-all
+							text-xs font-medium px-3 py-1 rounded-md transition-all
 							${hasContent && !submitting
 								? "bg-foreground text-background hover:bg-foreground/90"
 								: "bg-muted text-muted-foreground/40 cursor-not-allowed"}
@@ -391,7 +391,7 @@ function CommentForm({
 					>
 						{submitting ? "Posting..." : "Comment"}
 					</button>
-					<kbd className="hidden sm:flex items-center gap-0.5 text-[10px] text-muted-foreground/40 select-none">
+					<kbd className="hidden sm:flex items-center gap-0.5 text-xs text-muted-foreground/40 select-none">
 						{modKey}<CornerDownLeft className="h-2.5 w-2.5" />
 					</kbd>
 				</div>
@@ -481,7 +481,7 @@ function AskAiPanel({
 		<div className="px-3 py-2.5 font-sans">
 			<div className="space-y-2.5">
 				<div className="flex items-center justify-between">
-					<div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/60">
+					<div className="flex items-center gap-1.5 text-xs text-muted-foreground/60">
 						<Sparkles className="h-3 w-3" />
 						<span>AI Analysis</span>
 						<span className="text-muted-foreground/30">L{startLine}{endLine !== startLine ? `-L${endLine}` : ""}</span>
@@ -494,14 +494,14 @@ function AskAiPanel({
 				{loading && !response && (
 					<div className="flex items-center gap-1.5 py-2">
 						<Loader2 className="h-3 w-3 animate-spin text-muted-foreground/40" />
-						<span className="text-[11px] text-muted-foreground/40">Analyzing...</span>
+						<span className="text-xs text-muted-foreground/40">Analyzing...</span>
 					</div>
 				)}
 
 				{response && (
-					<div className="text-xs leading-relaxed">
-						<Markdown>{response}</Markdown>
-					</div>
+				<div className="text-sm leading-relaxed">
+					<Markdown>{response}</Markdown>
+				</div>
 				)}
 
 				{!loading && (
@@ -512,13 +512,13 @@ function AskAiPanel({
 							onChange={(e) => setQuestion(e.target.value)}
 							onKeyDown={(e) => { if (e.key === "Enter" && question.trim()) ask(); }}
 							placeholder="Ask a follow-up..."
-							className="flex-1 h-7 rounded-md border bg-background px-2.5 text-[11px] placeholder:text-muted-foreground/30 focus:outline-none focus:border-foreground/20"
+							className="flex-1 h-7 rounded-md border bg-background px-2.5 text-xs placeholder:text-muted-foreground/30 focus:outline-none focus:border-foreground/20"
 						/>
 						<button
 							type="button"
 							onClick={() => ask()}
 							disabled={loading}
-							className="h-7 px-2.5 rounded-md bg-foreground text-background text-[11px] font-medium disabled:opacity-30 hover:opacity-80 transition-opacity"
+							className="h-7 px-2.5 rounded-md bg-foreground text-background text-xs font-medium disabled:opacity-30 hover:opacity-80 transition-opacity"
 						>
 							Ask
 						</button>
@@ -573,7 +573,7 @@ function InlineComments({
 							<button
 								type="button"
 								onClick={() => setShowAi(true)}
-								className="flex items-center gap-1.5 text-[11px] text-muted-foreground/40 hover:text-foreground transition-colors"
+								className="flex items-center gap-1.5 text-xs text-muted-foreground/40 hover:text-foreground transition-colors"
 							>
 								<Sparkles className="h-3 w-3" />
 								Ask AI about this code

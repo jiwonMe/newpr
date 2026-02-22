@@ -53,7 +53,7 @@ export function DiscussionPanel({ sessionId }: { sessionId?: string | null }) {
 	if (!sessionId) {
 		return (
 			<div className="flex flex-col items-center justify-center py-20">
-				<p className="text-xs text-muted-foreground/50">No session available</p>
+				<p className="text-sm text-muted-foreground/50">No session available</p>
 			</div>
 		);
 	}
@@ -62,7 +62,7 @@ export function DiscussionPanel({ sessionId }: { sessionId?: string | null }) {
 		return (
 			<div className="flex items-center justify-center py-20 gap-2">
 				<Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground/40" />
-				<span className="text-xs text-muted-foreground/50">Loading discussion</span>
+				<span className="text-sm text-muted-foreground/50">Loading discussion</span>
 			</div>
 		);
 	}
@@ -72,12 +72,12 @@ export function DiscussionPanel({ sessionId }: { sessionId?: string | null }) {
 			<div className="flex flex-col items-center justify-center py-20 gap-3">
 				<div className="flex items-center gap-2 text-destructive">
 					<AlertCircle className="h-3.5 w-3.5" />
-					<p className="text-xs">{error}</p>
-				</div>
-				<button
-					type="button"
-					onClick={fetchDiscussion}
-					className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground/50 hover:text-foreground transition-colors"
+				<p className="text-sm">{error}</p>
+			</div>
+			<button
+				type="button"
+				onClick={fetchDiscussion}
+				className="inline-flex items-center gap-1.5 text-xs text-muted-foreground/50 hover:text-foreground transition-colors"
 				>
 					<RefreshCw className="h-3 w-3" />
 					Retry
@@ -95,27 +95,27 @@ export function DiscussionPanel({ sessionId }: { sessionId?: string | null }) {
 		<div className="pt-5 space-y-6">
 			{hasBody && (
 				<div>
-					<div className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider mb-3">
-						Description
-					</div>
-					<div className="text-xs">
-						<Markdown>{data.body}</Markdown>
-					</div>
+				<div className="text-xs font-medium text-muted-foreground/40 uppercase tracking-wider mb-3">
+					Description
+				</div>
+				<div className="text-sm">
+					<Markdown>{data.body}</Markdown>
+				</div>
 				</div>
 			)}
 
 			{!hasBody && !hasComments && (
 				<div className="text-center py-12">
-					<p className="text-xs text-muted-foreground/40">No description or comments</p>
+					<p className="text-sm text-muted-foreground/40">No description or comments</p>
 				</div>
 			)}
 
 			{hasComments && (
 				<div>
-					<div className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider mb-3">
-						Comments
-						<span className="ml-1.5 text-muted-foreground/25">{data.comments.length}</span>
-					</div>
+				<div className="text-xs font-medium text-muted-foreground/40 uppercase tracking-wider mb-3">
+					Comments
+					<span className="ml-1.5 text-muted-foreground/25">{data.comments.length}</span>
+				</div>
 					<div className="space-y-0">
 						{data.comments.map((comment, i) => (
 							<div
@@ -132,8 +132,8 @@ export function DiscussionPanel({ sessionId }: { sessionId?: string | null }) {
 									) : (
 										<div className="h-5 w-5 rounded-full bg-muted" />
 									)}
-									<span className="text-xs font-medium">{comment.author}</span>
-									<span className="text-[10px] text-muted-foreground/40">
+								<span className="text-sm font-medium">{comment.author}</span>
+								<span className="text-xs text-muted-foreground/40">
 										{timeAgo(comment.created_at)}
 									</span>
 									<a
@@ -145,9 +145,9 @@ export function DiscussionPanel({ sessionId }: { sessionId?: string | null }) {
 										<ExternalLink className="h-3 w-3" />
 									</a>
 								</div>
-								<div className="pl-7 text-xs">
-									<Markdown>{comment.body}</Markdown>
-								</div>
+							<div className="pl-7 text-sm">
+								<Markdown>{comment.body}</Markdown>
+							</div>
 							</div>
 						))}
 					</div>

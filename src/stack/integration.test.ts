@@ -260,7 +260,7 @@ describe("integration: full stacking pipeline", () => {
 			]),
 		});
 
-		expect(feasibility.feasible).toBe(false);
-		expect(feasibility.cycle).toBeDefined();
+		expect(feasibility.feasible).toBe(true);
+		expect(feasibility.ordered_group_ids).toHaveLength(2);
 	});
 });

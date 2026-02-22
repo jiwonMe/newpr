@@ -18,7 +18,7 @@ describe("loadConfig", () => {
 		process.env = { ...originalEnv };
 	});
 
-	test("allows missing OPENROUTER_API_KEY for local agent fallback", async () => {
+	test("returns empty api key when OPENROUTER_API_KEY is missing", async () => {
 		const config = await loadConfig(undefined, emptyStore);
 		expect(config.openrouter_api_key).toBe("");
 		expect(config.model).toBe("anthropic/claude-sonnet-4.6");

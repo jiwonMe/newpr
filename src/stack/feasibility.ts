@@ -30,7 +30,64 @@ export function checkFeasibility(input: FeasibilityInput): FeasibilityResult {
 	}
 
 	const deduped = deduplicateEdges(edges);
-	const result = topologicalSort(Array.from(allGroups), deduped, deltas);
+	const acyclic = breakAllCycles(deduped);
+	const result = topologicalSort(Array.from(allGroups), acyclic, deltas, ownership);
+
+	return result;
+}
+
+function breakAllCycles(edges: ConstraintEdge[]): ConstraintEdge[] {
+	const edgeSet = new Set(edges.map((e) => `${e.from}→${e.to}`));
+	const withoutMutual: ConstraintEdge[] = [];
+	for (const edge of edges) {
+		const reverseKey = `${edge.to}→${edge.from}`;
+		if (edgeSet.has(reverseKey) && edge.kind === "dependency") continue;
+		withoutMutual.push(edge);
+	}
+	return breakRemainingCycles(withoutMutual);
+}
+
+function hasCycle(groups: string[], edges: ConstraintEdge[]): boolean {
+	const adjacency = new Map<string, string[]>();
+	for (const g of groups) adjacency.set(g, []);
+	for (const e of edges) adjacency.get(e.from)?.push(e.to);
+
+	const WHITE = 0, GRAY = 1, BLACK = 2;
+	const color = new Map<string, number>(groups.map((g) => [g, WHITE]));
+
+	const dfs = (node: string): boolean => {
+		color.set(node, GRAY);
+		for (const neighbor of adjacency.get(node) ?? []) {
+			if (color.get(neighbor) === GRAY) return true;
+			if (color.get(neighbor) === WHITE && dfs(neighbor)) return true;
+		}
+		color.set(node, BLACK);
+		return false;
+	};
+
+	for (const g of groups) {
+		if (color.get(g) === WHITE && dfs(g)) return true;
+	}
+	return false;
+}
+
+function breakRemainingCycles(edges: ConstraintEdge[]): ConstraintEdge[] {
+	const groups = [...new Set(edges.flatMap((e) => [e.from, e.to]))];
+	if (!hasCycle(groups, edges)) return edges;
+
+	const prioritized = [...edges].sort((a, b) => {
+		const kindScore = (e: ConstraintEdge) =>
+			e.kind === "path-order" ? 0 : e.kind === "dependency" ? 1 : 2;
+		return kindScore(a) - kindScore(b);
+	});
+
+	const result: ConstraintEdge[] = [];
+	for (const edge of prioritized) {
+		result.push(edge);
+		if (hasCycle(groups, result)) {
+			result.pop();
+		}
+	}
 
 	return result;
 }
@@ -62,26 +119,24 @@ function addPathOrderEdges(
 
 	for (const [path, seq] of pathEditSequences) {
 		const collapsed = collapseConsecutiveDuplicates(seq);
+		if (collapsed.length < 2) continue;
 
-		for (let i = 0; i < collapsed.length - 1; i++) {
-			const prev = collapsed[i];
-			const next = collapsed[i + 1];
-			if (!prev || !next) continue;
-			if (prev.group_id === next.group_id) continue;
+		const first = collapsed[0]!;
+		const last = collapsed[collapsed.length - 1]!;
+		if (first.group_id === last.group_id) continue;
 
-			edges.push({
-				from: prev.group_id,
-				to: next.group_id,
-				kind: "path-order",
-				evidence: {
-					path,
-					from_commit: prev.sha,
-					to_commit: next.sha,
-					from_commit_index: prev.commit_index,
-					to_commit_index: next.commit_index,
-				},
-			});
-		}
+		edges.push({
+			from: first.group_id,
+			to: last.group_id,
+			kind: "path-order",
+			evidence: {
+				path,
+				from_commit: first.sha,
+				to_commit: last.sha,
+				from_commit_index: first.commit_index,
+				to_commit_index: last.commit_index,
+			},
+		});
 	}
 }
 
@@ -135,9 +190,11 @@ function deduplicateEdges(edges: ConstraintEdge[]): ConstraintEdge[] {
 
 function topologicalSort(
 	groups: string[],
-	edges: ConstraintEdge[],
+	acyclicEdges: ConstraintEdge[],
 	deltas: DeltaEntry[],
+	ownership?: Map<string, string>,
 ): FeasibilityResult {
+	const edges = acyclicEdges;
 	const inDegree = new Map<string, number>();
 	const adjacency = new Map<string, string[]>();
 	const edgeMap = new Map<string, ConstraintEdge>();
@@ -156,7 +213,7 @@ function topologicalSort(
 		edgeMap.set(`${edge.from}→${edge.to}`, edge);
 	}
 
-	const firstCommitDate = buildFirstCommitDateMap(groups, deltas);
+	const firstCommitDate = buildFirstCommitDateMap(groups, deltas, ownership);
 
 	const queue: string[] = [];
 	for (const [g, deg] of inDegree) {
@@ -182,9 +239,13 @@ function topologicalSort(
 	}
 
 	if (sorted.length === groups.length) {
+		const dependencyEdges = acyclicEdges
+			.filter((e) => e.kind === "dependency" || e.kind === "path-order")
+			.map((e) => ({ from: e.from, to: e.to }));
 		return {
 			feasible: true,
 			ordered_group_ids: sorted,
+			dependency_edges: dependencyEdges,
 		};
 	}
 
@@ -200,6 +261,7 @@ function topologicalSort(
 function buildFirstCommitDateMap(
 	groups: string[],
 	deltas: DeltaEntry[],
+	ownership?: Map<string, string>,
 ): Map<string, string> {
 	const result = new Map<string, string>();
 	for (const g of groups) {
@@ -207,12 +269,11 @@ function buildFirstCommitDateMap(
 	}
 	for (const delta of deltas) {
 		for (const change of delta.changes) {
-			const g = change.path;
-			if (result.has(g)) {
-				const current = result.get(g);
-				if (!current || delta.date < current) {
-					result.set(g, delta.date);
-				}
+			const groupId = ownership?.get(change.path);
+			if (!groupId) continue;
+			const current = result.get(groupId);
+			if (current && delta.date < current) {
+				result.set(groupId, delta.date);
 			}
 		}
 	}
@@ -233,8 +294,8 @@ function tieBreaker(
 function findMinimalCycle(
 	allGroups: string[],
 	adjacency: Map<string, string[]>,
-	sorted: string[],
-	edgeMap: Map<string, ConstraintEdge>,
+	sorted: string[] = [],
+	edgeMap: Map<string, ConstraintEdge> = new Map(),
 ): CycleReport {
 	const inCycle = new Set(allGroups.filter((g) => !sorted.includes(g)));
 

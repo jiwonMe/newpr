@@ -331,6 +331,7 @@ export function Landing() {
 					<a href="/newpr/" className="font-mono text-sm font-semibold tracking-tight">newpr</a>
 					<div className="flex items-center gap-5">
 						<a href="#stacking" className="hidden sm:block text-[13px] text-zinc-500 hover:text-zinc-200 transition-colors">Stacking</a>
+						<a href="/newpr/stacking-principles.html" className="hidden sm:block text-[13px] text-zinc-500 hover:text-zinc-200 transition-colors">Article</a>
 						<a href="#features" className="hidden sm:block text-[13px] text-zinc-500 hover:text-zinc-200 transition-colors">Features</a>
 						<a href="#how" className="hidden sm:block text-[13px] text-zinc-500 hover:text-zinc-200 transition-colors">How it works</a>
 						<a href="#tools" className="hidden sm:block text-[13px] text-zinc-500 hover:text-zinc-200 transition-colors">Tools</a>
@@ -414,6 +415,9 @@ export function Landing() {
 							<p className="text-[15px] text-zinc-400 max-w-[560px] mx-auto leading-relaxed">
 								AI analyzes file dependencies, groups changes by concern, and creates a chain of small, focused PRs — each building on the last.
 							</p>
+							<a href="/newpr/stacking-principles.html" className="inline-flex items-center gap-1.5 mt-4 text-[13px] text-blue-400 hover:text-blue-300 transition-colors">
+								Read the deep-dive article <ArrowRight className="w-3.5 h-3.5" />
+							</a>
 						</div>
 					</FadeIn>
 					<FadeIn delay={200}>

@@ -74,7 +74,7 @@ export function ReviewModal({ prUrl, onClose }: ReviewModalProps) {
 				onClick={(e) => e.stopPropagation()}
 			>
 				<div className="flex items-center justify-between px-4 h-11 border-b">
-					<span className="text-xs font-medium">Submit Review</span>
+					<span className="text-sm font-medium">Submit Review</span>
 					<button
 						type="button"
 						onClick={onClose}
@@ -89,7 +89,7 @@ export function ReviewModal({ prUrl, onClose }: ReviewModalProps) {
 						<div className="space-y-4 py-2">
 							<div className="flex items-center gap-2 text-green-600 dark:text-green-400">
 								<Check className="h-4 w-4" />
-								<span className="text-xs font-medium">Review submitted</span>
+								<span className="text-sm font-medium">Review submitted</span>
 							</div>
 							{result.html_url && (
 								<a

@@ -4,6 +4,7 @@ import type {
 	StackExecResult,
 	GroupCommitInfo,
 } from "./types.ts";
+import { buildAncestorSets } from "./plan.ts";
 
 export class StackExecutionError extends Error {
 	constructor(message: string) {
@@ -31,8 +32,34 @@ function generateAlphanumericId(length = 6): string {
 	return result;
 }
 
+function slugifyBranchPart(value: string | undefined, fallback: string, maxLen: number): string {
+	const normalized = (value ?? "")
+		.normalize("NFKD")
+		.toLowerCase()
+		.replace(/[\u0300-\u036f]/g, "");
+
+	const slug = normalized
+		.replace(/[^a-z0-9]+/g, "-")
+		.replace(/-+/g, "-")
+		.replace(/^-+|-+$/g, "")
+		.slice(0, maxLen)
+		.replace(/-+$/g, "");
+
+	return slug || fallback;
+}
+
+function buildStackBranchName(prNumber: number, headBranch: string, group: StackPlan["groups"][number]): string {
+	const sourceSlug = slugifyBranchPart(headBranch, "source", 24);
+	const typeSlug = slugifyBranchPart(group.type, "group", 16);
+	const topicSource = group.pr_title ?? group.name ?? group.description;
+	const topicSlug = slugifyBranchPart(topicSource, `group-${group.order}`, 36);
+	const orderSlug = String(group.order).padStart(2, "0");
+	const randomSuffix = generateAlphanumericId(6);
+	return `newpr-stack/pr-${prNumber}/${sourceSlug}/${orderSlug}-${typeSlug}-${topicSlug}-${randomSuffix}`;
+}
+
 export async function executeStack(input: ExecuteInput): Promise<StackExecResult> {
-	const { repo_path, plan, deltas, ownership, pr_author, pr_number, head_branch: _head_branch } = input;
+	const { repo_path, plan, deltas, ownership, pr_author, pr_number, head_branch } = input;
 
 	const runId = `newpr-stack-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 	const tmpIndexFiles: string[] = [];
@@ -51,6 +78,22 @@ export async function executeStack(input: ExecuteInput): Promise<StackExecResult
 	const groupOrder = plan.groups.map((g) => g.id);
 	const groupRank = new Map<string, number>();
 	groupOrder.forEach((gid, idx) => groupRank.set(gid, idx));
+
+	const ancestorSets = new Map<string, Set<string>>();
+	if (plan.ancestor_sets && plan.ancestor_sets.size > 0) {
+		for (const [gid, ancestors] of plan.ancestor_sets) {
+			ancestorSets.set(gid, new Set(ancestors));
+		}
+	} else {
+		const groupIdSet = new Set(groupOrder);
+		const dagParents = new Map<string, string[]>();
+		for (const g of plan.groups) {
+			dagParents.set(g.id, (g.deps ?? []).filter((dep) => groupIdSet.has(dep)));
+		}
+		for (const [gid, set] of buildAncestorSets(groupOrder, dagParents)) {
+			ancestorSets.set(gid, set);
+		}
+	}
 
 	try {
 		for (let i = 0; i < groupOrder.length; i++) {
@@ -75,8 +118,12 @@ export async function executeStack(input: ExecuteInput): Promise<StackExecResult
 				const fileRank = groupRank.get(fileGroupId);
 				if (fileRank === undefined) continue;
 
-				// Suffix propagation: update index[fileRank] through index[N-1]
-				for (let idxNum = fileRank; idxNum < groupOrder.length; idxNum++) {
+				for (let idxNum = 0; idxNum < groupOrder.length; idxNum++) {
+					const targetGroupId = groupOrder[idxNum]!;
+					const isOwner = targetGroupId === fileGroupId;
+					const isAncestorOfOwner = ancestorSets.get(targetGroupId)?.has(fileGroupId) ?? false;
+					if (!isOwner && !isAncestorOfOwner) continue;
+
 					let batch = batchPerIndex.get(idxNum);
 					if (!batch) {
 						batch = [];
@@ -111,7 +158,7 @@ export async function executeStack(input: ExecuteInput): Promise<StackExecResult
 		}
 
 		const groupCommits: GroupCommitInfo[] = [];
-		let prevCommitSha = plan.base_sha;
+		const commitBySha = new Map<string, string>();
 
 		for (let i = 0; i < groupOrder.length; i++) {
 			const idxFile = tmpIndexFiles[i];
@@ -136,7 +183,13 @@ export async function executeStack(input: ExecuteInput): Promise<StackExecResult
 
 			const commitMessage = group.pr_title ?? `${group.type}(${group.name}): ${group.description}`;
 
-			const commitTree = await Bun.$`git -C ${repo_path} commit-tree ${treeSha} -p ${prevCommitSha} -m ${commitMessage}`.env({
+			const directParents = (group.deps ?? []).length > 0
+				? group.deps.map((dep) => commitBySha.get(dep) ?? plan.base_sha)
+				: [groupCommits[i - 1]?.commit_sha ?? plan.base_sha];
+
+			const parentArgs = directParents.flatMap((p) => ["-p", p]);
+
+			const commitTree = await Bun.$`git -C ${repo_path} commit-tree ${treeSha} ${parentArgs} -m ${commitMessage}`.env({
 				GIT_AUTHOR_NAME: pr_author.name,
 				GIT_AUTHOR_EMAIL: pr_author.email,
 				GIT_COMMITTER_NAME: pr_author.name,
@@ -149,8 +202,9 @@ export async function executeStack(input: ExecuteInput): Promise<StackExecResult
 				);
 			}
 			const commitSha = commitTree.stdout.toString().trim();
+			commitBySha.set(gid, commitSha);
 
-			const branchName = `newpr-stack/pr-${pr_number}/${group.order}-${generateAlphanumericId()}`;
+			const branchName = buildStackBranchName(pr_number, head_branch, group);
 
 			const updateRef = await Bun.$`git -C ${repo_path} update-ref refs/heads/${branchName} ${commitSha}`.quiet().nothrow();
 			if (updateRef.exitCode !== 0) {
@@ -167,8 +221,6 @@ export async function executeStack(input: ExecuteInput): Promise<StackExecResult
 				branch_name: branchName,
 				pr_title: group.pr_title,
 			});
-
-			prevCommitSha = commitSha;
 		}
 
 		const lastCommit = groupCommits[groupCommits.length - 1];

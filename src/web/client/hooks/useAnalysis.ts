@@ -29,7 +29,7 @@ export function useAnalysis() {
 	});
 	const eventSourceRef = useRef<EventSource | null>(null);
 
-	const start = useCallback(async (prInput: string) => {
+	const start = useCallback(async (prInput: string, options?: { reuseSessionId?: string | null }) => {
 		analytics.analysisStarted(0);
 		setState({
 			phase: "loading",
@@ -43,10 +43,11 @@ export function useAnalysis() {
 		});
 
 		try {
+			const reuseSessionId = options?.reuseSessionId ?? undefined;
 			const res = await fetch("/api/analysis", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ pr: prInput }),
+				body: JSON.stringify({ pr: prInput, reuseSessionId }),
 			});
 			const body = await res.json();
 			if (!res.ok) throw new Error(body.error ?? "Failed to start analysis");

@@ -89,6 +89,7 @@ export interface CycleReport {
 export interface FeasibilityResult {
 	feasible: boolean;
 	ordered_group_ids?: string[];
+	dependency_edges?: Array<{ from: string; to: string }>;
 	cycle?: CycleReport;
 	unassigned_paths?: Array<{ path: string; commits: string[] }>;
 	ambiguous_paths?: Array<{ path: string; groups: string[]; commits: string[] }>;
@@ -112,7 +113,8 @@ export interface StackGroup {
 	type: GroupType;
 	description: string;
 	files: string[];
-	deps: string[]; // groupIds
+	deps: string[];
+	explicit_deps?: string[];
 	order: number;
 	stats?: StackGroupStats;
 	pr_title?: string;
@@ -122,7 +124,8 @@ export interface StackPlan {
 	base_sha: string;
 	head_sha: string;
 	groups: StackGroup[];
-	expected_trees: Map<string, string>; // groupId -> treeSha
+	expected_trees: Map<string, string>;
+	ancestor_sets: Map<string, string[]>;
 }
 
 // ============================================================================
@@ -161,6 +164,7 @@ export interface PrInfo {
 	title: string;
 	base_branch: string;
 	head_branch: string;
+	dep_group_ids?: string[];
 }
 
 export interface StackPublishResult {

@@ -111,13 +111,23 @@ function isRateLimitError(text: string): boolean {
 }
 
 function validateResult(agent: AgentTool, result: AgentResult): AgentResult {
-	if (isRateLimitError(result.answer)) {
-		throw new AgentError(agent.name, "rate_limit", `${agent.name}: rate limited — ${result.answer.slice(0, 200)}`);
+	const cleanedAnswer = result.answer
+		.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "")
+		.replace(/\u001b/g, "")
+		.trim();
+
+	const normalized: AgentResult = {
+		...result,
+		answer: cleanedAnswer,
+	};
+
+	if (isRateLimitError(normalized.answer)) {
+		throw new AgentError(agent.name, "rate_limit", `${agent.name}: rate limited — ${normalized.answer.slice(0, 200)}`);
 	}
-	if (!result.answer.trim()) {
+	if (!normalized.answer.trim()) {
 		throw new AgentError(agent.name, "empty_answer", `${agent.name}: returned empty answer`);
 	}
-	return result;
+	return normalized;
 }
 
 export async function runAgentWithFallback(
@@ -262,6 +272,7 @@ async function runClaude(
 
 	let answer = "";
 	let costUsd: number | undefined;
+	const textBlocks: string[] = [];
 
 	const stdoutPromise = proc.stdout
 		? streamLines(proc.stdout, (line) => {
@@ -276,15 +287,18 @@ async function runClaude(
 							);
 							if (label) onOutput(label);
 						}
-						if (block.type === "text" && block.text && onOutput) {
-							const firstLine = (block.text as string).split("\n")[0]?.trim();
-							if (firstLine && firstLine.length > 5) {
-								onOutput(`💭 ${firstLine.slice(0, 80)}${firstLine.length > 80 ? "…" : ""}`);
+						if (block.type === "text" && block.text) {
+							textBlocks.push(block.text as string);
+							if (onOutput) {
+								const firstLine = (block.text as string).split("\n")[0]?.trim();
+								if (firstLine && firstLine.length > 5) {
+									onOutput(`💭 ${firstLine.slice(0, 80)}${firstLine.length > 80 ? "…" : ""}`);
+								}
 							}
 						}
 					}
 				} else if (event.type === "result") {
-					answer = event.result ?? "";
+					answer = (event.result as string | undefined) ?? "";
 					costUsd = event.cost_usd ?? event.total_cost_usd;
 				}
 			} catch {
@@ -295,6 +309,10 @@ async function runClaude(
 	const timeoutId = setTimeout(() => proc.kill(), timeout);
 	await stdoutPromise;
 	clearTimeout(timeoutId);
+
+	if (!answer.trim() && textBlocks.length > 0) {
+		answer = textBlocks.join("\n\n").trim();
+	}
 
 	const duration = Date.now() - start;
 

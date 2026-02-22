@@ -8,12 +8,12 @@ declare global {
 const GA_ID = "G-L3SL6T6JQ1";
 const CONSENT_KEY = "newpr-analytics-consent";
 
-export type ConsentState = "granted" | "denied" | "pending";
+export type ConsentState = "granted" | "denied";
 
 export function getConsent(): ConsentState {
 	const stored = localStorage.getItem(CONSENT_KEY);
-	if (stored === "granted" || stored === "denied") return stored;
-	return "pending";
+	if (stored === "denied") return "denied";
+	return "granted";
 }
 
 export function setConsent(state: "granted" | "denied"): void {
@@ -49,7 +49,9 @@ function disableGA(): void {
 }
 
 export function initAnalytics(): void {
-	if (getConsent() === "granted") {
+	if (getConsent() === "denied") {
+		disableGA();
+	} else {
 		loadGA();
 	}
 }

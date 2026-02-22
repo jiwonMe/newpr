@@ -125,12 +125,12 @@ export function LoadingTimeline({
 							<span className="text-sm font-semibold font-mono">newpr</span>
 						)}
 						<span className="text-muted-foreground/30">·</span>
-						<span className="text-xs text-muted-foreground/50 tabular-nums shrink-0">
+						<span className="text-sm text-muted-foreground/50 tabular-nums shrink-0">
 							{seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`}
 						</span>
 					</div>
 					{prNum && (
-						<span className="text-[11px] text-muted-foreground/40 font-mono">#{prNum}</span>
+						<span className="text-xs text-muted-foreground/40 font-mono">#{prNum}</span>
 					)}
 				</div>
 
@@ -153,18 +153,18 @@ export function LoadingTimeline({
 								)}
 								<div className="min-w-0 flex-1">
 									<div className="flex items-center gap-2">
-										<span className={`text-sm font-medium ${step.done ? "text-muted-foreground" : step.active ? "text-foreground" : "text-muted-foreground/50"}`}>
-											{STAGE_LABELS[step.stage]}{progress}
+								<span className={`text-base font-medium ${step.done ? "text-muted-foreground" : step.active ? "text-foreground" : "text-muted-foreground/50"}`}>
+										{STAGE_LABELS[step.stage]}{progress}
+									</span>
+									{step.done && step.durationMs !== undefined && (
+										<span className="text-sm text-muted-foreground/60">
+											{formatDuration(step.durationMs)}
 										</span>
-										{step.done && step.durationMs !== undefined && (
-											<span className="text-xs text-muted-foreground/60">
-												{formatDuration(step.durationMs)}
-											</span>
-										)}
-									</div>
-									{step.done && completionDetail && (
-										<p className="text-xs text-muted-foreground/60 mt-0.5 truncate">{completionDetail}</p>
 									)}
+								</div>
+								{step.done && completionDetail && (
+									<p className="text-sm text-muted-foreground/60 mt-0.5 truncate">{completionDetail}</p>
+								)}
 									{step.active && recentLog.length > 0 && (
 										<div className="mt-1.5 space-y-0.5 max-h-40 overflow-y-auto">
 											{recentLog.map((line, j) => {

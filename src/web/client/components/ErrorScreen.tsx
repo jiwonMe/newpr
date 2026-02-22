@@ -82,7 +82,7 @@ export function ErrorScreen({
 
 				<div className="flex flex-col items-center gap-2 text-center">
 					<h2 className="text-lg font-semibold tracking-tight">{title}</h2>
-					<p className="text-sm text-muted-foreground leading-relaxed max-w-sm">
+					<p className="text-base text-muted-foreground leading-relaxed max-w-sm">
 						{hint}
 					</p>
 				</div>

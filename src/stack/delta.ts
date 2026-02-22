@@ -183,22 +183,57 @@ function checkForUnsupportedModes(
 	}
 }
 
+async function resolveParentTree(
+	repoPath: string,
+	baseSha: string,
+	gid: string,
+	expectedTrees: Map<string, string>,
+	dagParents: Map<string, string[]>,
+): Promise<string | null> {
+	const parentIds = dagParents.get(gid) ?? [];
+
+	if (parentIds.length === 0) {
+		return resolveTree(repoPath, baseSha);
+	}
+
+	if (parentIds.length === 1) {
+		return expectedTrees.get(parentIds[0]!) ?? resolveTree(repoPath, baseSha);
+	}
+
+	const parentTrees = parentIds.map((p) => expectedTrees.get(p)).filter((t): t is string => Boolean(t));
+	if (parentTrees.length === 0) return resolveTree(repoPath, baseSha);
+	if (parentTrees.length === 1) return parentTrees[0]!;
+
+	let mergedTree = parentTrees[0]!;
+	for (let i = 1; i < parentTrees.length; i++) {
+		const mergeResult = await Bun.$`git -C ${repoPath} merge-tree --write-tree --allow-unrelated-histories ${mergedTree} ${parentTrees[i]!}`.quiet().nothrow();
+		if (mergeResult.exitCode === 0) {
+			mergedTree = mergeResult.stdout.toString().trim().split("\n")[0]!.trim();
+		}
+	}
+
+	return mergedTree;
+}
+
 export async function computeGroupStats(
 	repoPath: string,
 	baseSha: string,
 	orderedGroupIds: string[],
 	expectedTrees: Map<string, string>,
+	dagParents?: Map<string, string[]>,
 ): Promise<Map<string, StackGroupStats>> {
 	const stats = new Map<string, StackGroupStats>();
+	const linearParents = new Map<string, string[]>(
+		orderedGroupIds.map((gid, i) => [gid, i === 0 ? [] : [orderedGroupIds[i - 1]!]]),
+	);
+	const effectiveDagParents = dagParents ?? linearParents;
 
 	for (let i = 0; i < orderedGroupIds.length; i++) {
 		const gid = orderedGroupIds[i]!;
 		const tree = expectedTrees.get(gid);
 		if (!tree) continue;
 
-		const prevTree = i === 0
-			? await resolveTree(repoPath, baseSha)
-			: expectedTrees.get(orderedGroupIds[i - 1]!);
+		const prevTree = await resolveParentTree(repoPath, baseSha, gid, expectedTrees, effectiveDagParents);
 		if (!prevTree) continue;
 
 		const numstatResult = await Bun.$`git -C ${repoPath} diff-tree --numstat -r ${prevTree} ${tree}`.quiet().nothrow();

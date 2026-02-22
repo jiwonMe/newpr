@@ -1,7 +1,8 @@
 import type { NewprConfig } from "../../types/config.ts";
 import type { FileGroup } from "../../types/output.ts";
-import type { StackWarning, FeasibilityResult, StackExecResult } from "../../stack/types.ts";
+import type { StackWarning, FeasibilityResult, StackExecResult, StackPublishResult } from "../../stack/types.ts";
 import type { StackPlan } from "../../stack/types.ts";
+import type { StackPublishPreviewResult } from "../../stack/publish.ts";
 import { loadSession } from "../../history/store.ts";
 import { saveStackSidecar, loadStackSidecar } from "../../history/store.ts";
 import { parsePrInput } from "../../github/parse-pr.ts";
@@ -17,8 +18,14 @@ import { checkFeasibility } from "../../stack/feasibility.ts";
 import { createStackPlan } from "../../stack/plan.ts";
 import { executeStack } from "../../stack/execute.ts";
 import { verifyStack } from "../../stack/verify.ts";
+import { runStackQualityGate } from "../../stack/quality-gate.ts";
+import { analyzeImportDependencies } from "../../stack/import-deps.ts";
+import { extractSymbols } from "../../stack/symbol-flow.ts";
+import { buildCoChangePairs, buildHistoricalCoChangePairs } from "../../stack/co-change.ts";
+import { computeConfidenceReassignments, classifyGroupLayer } from "../../stack/confidence-score.ts";
 import { generatePrTitles } from "../../stack/pr-title.ts";
-import { createLlmClient } from "../../llm/client.ts";
+import { createResilientLlmClient } from "../../llm/resilient-client.ts";
+import { telemetry } from "../../telemetry/index.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -59,6 +66,7 @@ export interface StackPlanData {
 	head_sha: string;
 	groups: StackPlan["groups"];
 	expected_trees: Record<string, string>;
+	ancestor_sets?: Record<string, string[]>;
 }
 
 export interface StackVerifyData {
@@ -66,6 +74,34 @@ export interface StackVerifyData {
 	errors: string[];
 	warnings: string[];
 	structured_warnings: StackWarning[];
+}
+
+export interface StackPublishData {
+	branches: StackPublishResult["branches"];
+	prs: StackPublishResult["prs"];
+	publishedAt: number;
+	cleanupResult?: StackPublishCleanupData;
+}
+
+export interface StackPublishCleanupItem {
+	group_id: string;
+	number: number;
+	head_branch: string;
+	closed: boolean;
+	branch_deleted: boolean;
+	message?: string;
+}
+
+export interface StackPublishCleanupData {
+	mode: "close" | "delete";
+	completedAt: number;
+	items: StackPublishCleanupItem[];
+}
+
+export interface StackPublishPreviewData {
+	template_path: StackPublishPreviewResult["template_path"];
+	items: StackPublishPreviewResult["items"];
+	generatedAt: number;
 }
 
 export interface StackStateSnapshot {
@@ -79,6 +115,8 @@ export interface StackStateSnapshot {
 	plan: StackPlanData | null;
 	execResult: StackExecResult | null;
 	verifyResult: StackVerifyData | null;
+	publishResult: StackPublishData | null;
+	publishPreview: StackPublishPreviewData | null;
 	startedAt: number;
 	finishedAt: number | null;
 }
@@ -95,6 +133,8 @@ interface StackSession {
 	plan: StackPlanData | null;
 	execResult: StackExecResult | null;
 	verifyResult: StackVerifyData | null;
+	publishResult: StackPublishData | null;
+	publishPreview: StackPublishPreviewData | null;
 	events: StackEvent[];
 	subscribers: Set<(event: StackEvent | { type: "done" | "error"; data?: string }) => void>;
 	startedAt: number;
@@ -131,6 +171,8 @@ function toSnapshot(session: StackSession): StackStateSnapshot {
 		plan: session.plan,
 		execResult: session.execResult,
 		verifyResult: session.verifyResult,
+		publishResult: session.publishResult,
+		publishPreview: session.publishPreview,
 		startedAt: session.startedAt,
 		finishedAt: session.finishedAt,
 	};
@@ -173,6 +215,8 @@ export function startStack(
 		plan: null,
 		execResult: null,
 		verifyResult: null,
+		publishResult: null,
+		publishPreview: null,
 		events: [],
 		subscribers: new Set(),
 		startedAt: Date.now(),
@@ -235,17 +279,67 @@ export async function restoreCompletedStacks(sessionIds: string[]): Promise<void
 			context: snapshot.context,
 			partition: snapshot.partition,
 			feasibility: snapshot.feasibility,
-			plan: snapshot.plan,
-			execResult: snapshot.execResult,
-			verifyResult: snapshot.verifyResult,
-			events: [],
-			subscribers: new Set(),
-			startedAt: snapshot.startedAt,
+		plan: snapshot.plan,
+		execResult: snapshot.execResult,
+		verifyResult: snapshot.verifyResult,
+		publishResult: snapshot.publishResult ?? null,
+		publishPreview: snapshot.publishPreview ?? null,
+		events: [],
+		subscribers: new Set(),
+		startedAt: snapshot.startedAt,
 			finishedAt: snapshot.finishedAt ?? Date.now(),
 			abortController: new AbortController(),
 		};
 		sessions.set(id, session);
 	}
+}
+
+export async function setStackPublishResult(
+	analysisSessionId: string,
+	result: StackPublishResult,
+): Promise<void> {
+	const session = sessions.get(analysisSessionId);
+	if (!session) return;
+
+	session.publishResult = {
+		branches: result.branches,
+		prs: result.prs,
+		publishedAt: Date.now(),
+		cleanupResult: undefined,
+	};
+
+	await saveStackSidecar(session.analysisSessionId, toSnapshot(session)).catch(() => {});
+}
+
+export async function setStackPublishCleanupResult(
+	analysisSessionId: string,
+	cleanupResult: StackPublishCleanupData,
+): Promise<void> {
+	const session = sessions.get(analysisSessionId);
+	if (!session?.publishResult) return;
+
+	session.publishResult = {
+		...session.publishResult,
+		cleanupResult,
+	};
+
+	await saveStackSidecar(session.analysisSessionId, toSnapshot(session)).catch(() => {});
+}
+
+export async function setStackPublishPreview(
+	analysisSessionId: string,
+	preview: StackPublishPreviewResult,
+): Promise<void> {
+	const session = sessions.get(analysisSessionId);
+	if (!session) return;
+
+	session.publishPreview = {
+		template_path: preview.template_path,
+		items: preview.items,
+		generatedAt: Date.now(),
+	};
+
+	await saveStackSidecar(session.analysisSessionId, toSnapshot(session)).catch(() => {});
 }
 
 // ---------------------------------------------------------------------------
@@ -267,6 +361,7 @@ async function runStackPipeline(
 
 		// ---- Partition phase ----
 		session.phase = "partitioning";
+		telemetry.stackStarted();
 		emit(session, "partitioning", "Fetching PR data...");
 
 		const ghHeaders: Record<string, string> = {
@@ -324,17 +419,24 @@ async function runStackPipeline(
 		const changedFiles = [...analysisFiles, ...deltaOnlyFiles];
 
 		emit(session, "partitioning", "Classifying files into groups...");
-		const llmClient = createLlmClient({
+		const llmClient = createResilientLlmClient({
 			api_key: config.openrouter_api_key,
 			model: config.model,
 			timeout: config.timeout,
+		}, {
+			preferredAgent: config.agent,
+			onFallback: (reason) => {
+				emit(session, session.phase ?? "partitioning", `${reason}. Falling back to local agent...`);
+			},
 		});
+		const analysisGroupOrderHint = stored.groups.map((g) => g.name);
 		const partition = await partitionGroups(
 			llmClient,
 			stored.groups,
 			changedFiles,
 			fileSummaries,
 			prData.commits,
+			analysisGroupOrderHint,
 		);
 
 		checkAborted(session);
@@ -347,22 +449,22 @@ async function runStackPipeline(
 
 		buildReattributionWarnings(partition, analysisSet, allStructuredWarnings);
 
-		const lastGroup = groupOrder[groupOrder.length - 1];
-		if (lastGroup) {
+		const backfillGroup = groupOrder[0] ?? groupOrder[groupOrder.length - 1];
+		if (backfillGroup) {
 			const backfilled: string[] = [];
 			for (const path of deltaFilePaths) {
 				if (!mergedOwnership.has(path)) {
-					mergedOwnership.set(path, lastGroup);
+					mergedOwnership.set(path, backfillGroup);
 					backfilled.push(path);
 				}
 			}
 			if (backfilled.length > 0) {
-				allWarnings.push(`Files still unassigned after AI classification, fallback to "${lastGroup}": ${backfilled.join(", ")}`);
+				allWarnings.push(`Files still unassigned after AI classification, fallback to "${backfillGroup}": ${backfilled.join(", ")}`);
 				allStructuredWarnings.push({
 					category: "assignment",
 					severity: "warn",
-					title: `${backfilled.length} file(s) fell back to last group`,
-					message: `AI could not classify these files — assigned to "${lastGroup}" as fallback`,
+					title: `${backfilled.length} file(s) fell back to first group`,
+					message: `AI could not classify these files — assigned to "${backfillGroup}" as fallback`,
 					details: backfilled,
 				});
 			}
@@ -381,6 +483,13 @@ async function runStackPipeline(
 		for (const [path, groupId] of balanced.ownership) {
 			mergedOwnership.set(path, groupId);
 		}
+		const balancedGroupFiles = new Map<string, string[]>();
+		for (const [path, groupId] of mergedOwnership) {
+			const files = balancedGroupFiles.get(groupId) ?? [];
+			files.push(path);
+			balancedGroupFiles.set(groupId, files);
+		}
+		currentGroups = currentGroups.map((g) => ({ ...g, files: (balancedGroupFiles.get(g.name) ?? g.files).sort() }));
 		allStructuredWarnings.push(...balanced.warnings);
 
 		if (session.maxGroups && session.maxGroups > 0 && currentGroups.length > session.maxGroups) {
@@ -405,8 +514,91 @@ async function runStackPipeline(
 			}
 		}
 
+		emit(session, "partitioning", "Analyzing symbol flow and import dependencies...");
+		const [symbolMap, coChangeResult, importDeps] = await Promise.all([
+			extractSymbols(repoPath, headSha, changedFiles),
+			buildHistoricalCoChangePairs(repoPath, changedFiles, 150),
+			analyzeImportDependencies(repoPath, headSha, changedFiles, mergedOwnership),
+		]);
+
+		const prCoChange = buildCoChangePairs(deltas);
+		const mergedCoChangePairs = new Map(coChangeResult.pairs);
+		for (const [key, count] of prCoChange.pairs) {
+			mergedCoChangePairs.set(key, (mergedCoChangePairs.get(key) ?? 0) + count * 2);
+		}
+		const totalCommits = coChangeResult.totalCommits + prCoChange.totalCommits;
+
+		emit(session, "partitioning", "Scoring file-group confidence...");
+		const confidenceResult = computeConfidenceReassignments(
+			mergedOwnership,
+			currentGroups,
+			symbolMap,
+			mergedCoChangePairs,
+			totalCommits,
+		);
+
+		let reassignCount = 0;
+		for (const [file, newGroup] of confidenceResult.reassigned) {
+			mergedOwnership.set(file, newGroup);
+			reassignCount++;
+		}
+		if (reassignCount > 0) {
+			allStructuredWarnings.push({
+				category: "assignment",
+				severity: "info",
+				title: `${reassignCount} file(s) reassigned by confidence scoring`,
+				message: "Files were moved to better-matching groups based on import, symbol, directory, and co-change signals",
+				details: confidenceResult.warnings.map((w) => `${w.file}: ${w.from} → ${w.to} (conf: ${w.confidence.toFixed(2)})`),
+			});
+		}
+
+		const balancedGroupFilesAfterConfidence = new Map<string, string[]>();
+		for (const [path, groupId] of mergedOwnership) {
+			const arr = balancedGroupFilesAfterConfidence.get(groupId) ?? [];
+			arr.push(path);
+			balancedGroupFilesAfterConfidence.set(groupId, arr);
+		}
+		currentGroups = currentGroups.map((g) => ({
+			...g,
+			files: (balancedGroupFilesAfterConfidence.get(g.name) ?? g.files).sort(),
+		}));
+
+		const groupLayerOrder = new Map<string, number>();
+		for (const g of currentGroups) {
+			const layer = classifyGroupLayer(g, symbolMap);
+			groupLayerOrder.set(g.name, layer === "schema" ? 0 : layer === "refactor" ? 1 : layer === "core" ? 2 : layer === "integration" ? 3 : layer === "ui" ? 4 : layer === "test" ? 5 : 2);
+		}
+
+		const importDepEdges = new Set<string>();
+		for (const [group, deps] of importDeps.groupDeps) {
+			for (const dep of deps) importDepEdges.add(`${dep}→${group}`);
+		}
+
+		const mergedDeclaredDeps = new Map<string, string[]>();
+		for (const [group, deps] of importDeps.groupDeps) {
+			mergedDeclaredDeps.set(group, [...deps]);
+		}
+
+		const sortedByLayer = [...currentGroups].sort((a, b) => (groupLayerOrder.get(a.name) ?? 2) - (groupLayerOrder.get(b.name) ?? 2));
+		for (let i = 1; i < sortedByLayer.length; i++) {
+			const prev = sortedByLayer[i - 1]!;
+			const curr = sortedByLayer[i]!;
+			if ((groupLayerOrder.get(prev.name) ?? 2) >= (groupLayerOrder.get(curr.name) ?? 2)) continue;
+			const reverseKey = `${curr.name}→${prev.name}`;
+			if (importDepEdges.has(reverseKey)) continue;
+			const existing = mergedDeclaredDeps.get(curr.name) ?? [];
+			if (!existing.includes(prev.name)) {
+				existing.push(prev.name);
+				mergedDeclaredDeps.set(curr.name, existing);
+			}
+		}
+
 		emit(session, "partitioning", "Checking feasibility...");
-		const feasibility = checkFeasibility({ deltas, ownership: mergedOwnership });
+		const feasibility = checkFeasibility({
+			deltas,
+			ownership: mergedOwnership,
+			declared_deps: mergedDeclaredDeps,
+		});
 		const ownershipObj = Object.fromEntries(mergedOwnership);
 
 		session.partition = {
@@ -438,14 +630,17 @@ async function runStackPipeline(
 			ownership,
 			group_order: feasibility.ordered_group_ids!,
 			groups: currentGroups,
+			dependency_edges: feasibility.dependency_edges,
 		});
 
 		emit(session, "planning", "Computing group stats...");
+		const planDagParents = new Map(plan.groups.map((g) => [g.id, g.deps ?? []]));
 		const groupStats = await computeGroupStats(
 			repoPath,
 			baseSha,
 			feasibility.ordered_group_ids!,
 			plan.expected_trees,
+			planDagParents,
 		);
 		for (const group of plan.groups) {
 			const s = groupStats.get(group.id);
@@ -490,6 +685,7 @@ async function runStackPipeline(
 			head_sha: plan.head_sha,
 			groups: plan.groups,
 			expected_trees: Object.fromEntries(plan.expected_trees),
+			ancestor_sets: Object.fromEntries([...plan.ancestor_sets.entries()].map(([k, v]) => [k, v])),
 		};
 
 		checkAborted(session);
@@ -532,10 +728,25 @@ async function runStackPipeline(
 			throw new Error(`Verification failed: ${verifyResult.errors.join(", ")}`);
 		}
 
+		emit(session, "executing", "Running lint/build quality gate for each stack PR...");
+		const qualityGateResult = await runStackQualityGate({
+			repo_path: repoPath,
+			exec_result: execResult,
+			onProgress: (message) => emit(session, "executing", message),
+			checkAborted: () => checkAborted(session),
+		});
+
+		if (qualityGateResult.skippedReason) {
+			emit(session, "executing", `Quality gate skipped: ${qualityGateResult.skippedReason}`);
+		} else if (qualityGateResult.ran) {
+			emit(session, "executing", "Quality gate passed for all stack PRs");
+		}
+
 		// ---- Done ----
 		session.phase = "done";
 		session.status = "done";
 		session.finishedAt = Date.now();
+		telemetry.stackCompleted(execResult.group_commits.length);
 		emit(session, "done", "Stack ready");
 
 		for (const sub of session.subscribers) sub({ type: "done" });

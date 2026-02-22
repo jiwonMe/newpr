@@ -157,9 +157,9 @@ export function ResultsScreen({
 							)}
 						</div>
 
-						<h1 className="text-sm font-semibold tracking-tight mb-3 line-clamp-2">{meta.pr_title}</h1>
+					<h1 className="text-base font-semibold tracking-tight mb-3 line-clamp-2">{meta.pr_title}</h1>
 
-						<div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-muted-foreground/50">
+					<div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground/50">
 							<a
 								href={meta.author_url ?? `https://github.com/${meta.author}`}
 								target="_blank"
@@ -221,8 +221,8 @@ export function ResultsScreen({
 							const s = STATE_STYLES[meta.pr_state]!;
 							return <span className={`text-[9px] font-medium px-1 py-px rounded ${s.bg} ${s.text} shrink-0`}>{s.label}</span>;
 						})()}
-						<span className="text-xs font-medium truncate flex-1">{meta.pr_title}</span>
-						<span className="text-[10px] text-muted-foreground/30 font-mono shrink-0">{repoSlug}</span>
+					<span className="text-sm font-medium truncate flex-1">{meta.pr_title}</span>
+					<span className="text-xs text-muted-foreground/30 font-mono shrink-0">{repoSlug}</span>
 					</div>
 				</div>
 

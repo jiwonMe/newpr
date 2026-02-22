@@ -1,6 +1,7 @@
 import type { LlmClient } from "../llm/client.ts";
 import type { FileGroup } from "../types/output.ts";
 import type { StackWarning } from "./types.ts";
+import { safeParseJson } from "./json-utils.ts";
 
 export interface BalanceResult {
 	ownership: Map<string, string>;
@@ -90,8 +91,9 @@ If no moves make sense, return: { "moves": [] }`;
 
 	try {
 		const response = await llmClient.complete(system, user);
-		const cleaned = response.content.replace(/```(?:json)?\s*/g, "").replace(/```\s*/g, "").trim();
-		const parsed = JSON.parse(cleaned) as { moves: Array<{ path: string; to: string; reason: string }> };
+		const result = safeParseJson<{ moves: Array<{ path: string; to: string; reason: string }> }>(response.content);
+		if (!result.ok) throw new Error(result.error);
+		const parsed = result.data;
 
 		const validGroupNames = new Set(groups.map((g) => g.name));
 

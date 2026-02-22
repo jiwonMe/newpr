@@ -126,7 +126,7 @@ export function InputScreen({
 							</span>
 						)}
 					</div>
-					<p className="text-sm text-muted-foreground/50">
+					<p className="text-base text-muted-foreground/50">
 						Turn PRs into navigable stories
 					</p>
 				</div>
@@ -144,7 +144,7 @@ export function InputScreen({
 								onFocus={() => setFocused(true)}
 								onBlur={() => setFocused(false)}
 								placeholder="https://github.com/owner/repo/pull/123"
-								className="flex-1 h-12 bg-transparent px-3 text-sm font-mono placeholder:text-muted-foreground/25 focus:outline-none"
+								className="flex-1 h-12 bg-transparent px-3 text-base font-mono placeholder:text-muted-foreground/25 focus:outline-none"
 								autoFocus
 							/>
 							<button

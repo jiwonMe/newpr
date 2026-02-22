@@ -13,15 +13,21 @@ export interface PlanInput {
 	ownership: Map<string, string>;
 	group_order: string[];
 	groups: FileGroup[];
+	dependency_edges?: Array<{ from: string; to: string }>;
 }
 
 export async function createStackPlan(input: PlanInput): Promise<StackPlan> {
-	const { repo_path, base_sha, head_sha, deltas, ownership, group_order, groups } = input;
+	const { repo_path, base_sha, head_sha, deltas, ownership, group_order, groups, dependency_edges } = input;
 
 	const groupRank = new Map<string, number>();
 	group_order.forEach((gid, idx) => groupRank.set(gid, idx));
 
-	const stackGroups = buildStackGroups(groups, group_order, ownership);
+	const edges = dependency_edges ?? [];
+	const dagParents = buildDagParents(group_order, edges);
+	const explicitDagParents = buildExplicitDagParents(group_order, edges);
+	const ancestorSets = buildAncestorSets(group_order, dagParents);
+
+	const stackGroups = buildStackGroups(groups, group_order, ownership, dagParents, explicitDagParents);
 
 	const tmpIndexFiles: string[] = [];
 	const expectedTrees = new Map<string, string>();
@@ -47,8 +53,12 @@ export async function createStackPlan(input: PlanInput): Promise<StackPlan> {
 				const fileRank = groupRank.get(fileGroupId);
 				if (fileRank === undefined) continue;
 
-				// Suffix propagation: update index[fileRank] through index[N-1]
-				for (let idxNum = fileRank; idxNum < group_order.length; idxNum++) {
+				for (let idxNum = 0; idxNum < group_order.length; idxNum++) {
+					const targetGroupId = group_order[idxNum]!;
+					const isOwner = targetGroupId === fileGroupId;
+					const isAncestorOfOwner = ancestorSets.get(targetGroupId)?.has(fileGroupId) ?? false;
+					if (!isOwner && !isAncestorOfOwner) continue;
+
 					let batch = batchPerIndex.get(idxNum);
 					if (!batch) {
 						batch = [];
@@ -100,18 +110,84 @@ export async function createStackPlan(input: PlanInput): Promise<StackPlan> {
 		}
 	}
 
+	const ancestorSetsRecord = new Map<string, string[]>();
+	for (const [gid, set] of ancestorSets) {
+		ancestorSetsRecord.set(gid, Array.from(set));
+	}
+
 	return {
 		base_sha,
 		head_sha,
 		groups: stackGroups,
 		expected_trees: expectedTrees,
+		ancestor_sets: ancestorSetsRecord,
 	};
+}
+
+export function buildDagParents(
+	groupOrder: string[],
+	dependencyEdges: Array<{ from: string; to: string }>,
+): Map<string, string[]> {
+	const explicit = buildExplicitDagParents(groupOrder, dependencyEdges);
+
+	for (const gid of groupOrder) {
+		if ((explicit.get(gid) ?? []).length === 0) {
+			const rank = groupOrder.indexOf(gid);
+			if (rank > 0) {
+				const prev = groupOrder[rank - 1]!;
+				if (!dependencyEdges.some((e) => e.to === gid)) {
+					explicit.set(gid, [prev]);
+				}
+			}
+		}
+	}
+
+	return explicit;
+}
+
+export function buildExplicitDagParents(
+	groupOrder: string[],
+	dependencyEdges: Array<{ from: string; to: string }>,
+): Map<string, string[]> {
+	const parents = new Map<string, string[]>();
+	for (const gid of groupOrder) parents.set(gid, []);
+
+	for (const edge of dependencyEdges) {
+		if (!parents.has(edge.to)) continue;
+		const arr = parents.get(edge.to)!;
+		if (!arr.includes(edge.from)) arr.push(edge.from);
+	}
+
+	return parents;
+}
+
+export function buildAncestorSets(
+	groupOrder: string[],
+	dagParents: Map<string, string[]>,
+): Map<string, Set<string>> {
+	const ancestors = new Map<string, Set<string>>();
+
+	for (const gid of groupOrder) {
+		const set = new Set<string>();
+		const queue = [...(dagParents.get(gid) ?? [])];
+		while (queue.length > 0) {
+			const node = queue.shift()!;
+			if (set.has(node)) continue;
+			set.add(node);
+			for (const p of dagParents.get(node) ?? []) queue.push(p);
+		}
+		ancestors.set(gid, set);
+	}
+
+	return ancestors;
 }
 
 function buildStackGroups(
 	groups: FileGroup[],
 	groupOrder: string[],
 	ownership: Map<string, string>,
+	dagParents: Map<string, string[]>,
+	explicitDagParents: Map<string, string[]>,
 ): StackGroup[] {
 	const groupNameMap = new Map<string, FileGroup>();
 	for (const g of groups) {
@@ -132,7 +208,8 @@ function buildStackGroups(
 			type: (original?.type ?? "chore") as GroupType,
 			description: original?.description ?? "",
 			files: files.sort(),
-			deps: original?.dependencies ?? [],
+			deps: dagParents.get(gid) ?? [],
+			explicit_deps: explicitDagParents.get(gid) ?? [],
 			order: idx,
 		};
 	});

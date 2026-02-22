@@ -146,19 +146,19 @@ function FileDetail({
 				{loading && (
 					<div className="flex items-center justify-center py-16 gap-2">
 						<Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground/40" />
-						<span className="text-xs text-muted-foreground/50">Loading diff</span>
+						<span className="text-sm text-muted-foreground/50">Loading diff</span>
 					</div>
 				)}
 				{error && (
 					<div className="flex flex-col items-center justify-center py-16 gap-3">
 						<div className="flex items-center gap-2 text-destructive">
 							<AlertCircle className="h-3.5 w-3.5" />
-							<p className="text-xs">{error}</p>
-						</div>
-						<button
-							type="button"
-							onClick={fetchPatch}
-							className="text-[11px] text-muted-foreground/50 hover:text-foreground transition-colors"
+					<p className="text-sm">{error}</p>
+					</div>
+					<button
+						type="button"
+						onClick={fetchPatch}
+						className="text-xs text-muted-foreground/50 hover:text-foreground transition-colors"
 						>
 							Retry
 						</button>
@@ -203,8 +203,8 @@ export function DetailPane({
 				<div className="shrink-0 flex items-center justify-between gap-2 px-4 h-12 border-b">
 					<div className="flex items-center gap-2 min-w-0">
 						<span className={`h-2 w-2 rounded-full shrink-0 ${TYPE_DOT[g.type] ?? TYPE_DOT.chore}`} />
-						<span className="text-xs font-medium truncate">{g.name}</span>
-						<span className="text-[10px] text-muted-foreground/30">{g.type}</span>
+					<span className="text-sm font-medium truncate">{g.name}</span>
+					<span className="text-xs text-muted-foreground/30">{g.type}</span>
 					</div>
 					{onClose && (
 						<button type="button" onClick={onClose} className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/40 hover:text-foreground hover:bg-accent/40 transition-colors">
