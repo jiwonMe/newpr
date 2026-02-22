@@ -18,8 +18,13 @@ describe("loadConfig", () => {
 		process.env = { ...originalEnv };
 	});
 
-	test("throws when OPENROUTER_API_KEY is missing", async () => {
-		await expect(loadConfig(undefined, emptyStore)).rejects.toThrow("OPENROUTER_API_KEY");
+	test("allows missing OPENROUTER_API_KEY for local agent fallback", async () => {
+		const config = await loadConfig(undefined, emptyStore);
+		expect(config.openrouter_api_key).toBe("");
+		expect(config.model).toBe("anthropic/claude-sonnet-4.6");
+		expect(config.max_files).toBe(100);
+		expect(config.timeout).toBe(120);
+		expect(config.concurrency).toBe(5);
 	});
 
 	test("returns defaults when only API key is set", async () => {

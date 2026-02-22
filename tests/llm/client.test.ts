@@ -154,6 +154,50 @@ describe("createLlmClient", () => {
 			expect(r.content).toBe("claude result");
 		});
 
+		test("falls back to Codex when Claude fails at runtime due to missing binary", async () => {
+			const orig = originalRequire;
+			(globalThis as any).require = (path: string) => {
+				if (path.endsWith("claude-code-client.ts")) {
+					return {
+						createClaudeCodeClient: () => ({
+							async complete() {
+								throw new Error("Claude Code is not installed.");
+							},
+							async completeStream() {
+								throw new Error("Claude Code is not installed.");
+							},
+						}),
+					};
+				}
+				if (path.endsWith("codex-client.ts")) {
+					return {
+						createCodexClient: () => ({
+							async complete() {
+								return {
+									content: "codex result",
+									model: "codex",
+									usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+								};
+							},
+							async completeStream(_s, _u, onChunk) {
+								onChunk("codex result", "codex result");
+								return {
+									content: "codex result",
+									model: "codex",
+									usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+								};
+							},
+						}),
+					};
+				}
+				return orig(path);
+			};
+
+			const client = createLlmClient({ api_key: "", model: "x", timeout: 5 });
+			const r = await client.complete("a", "b");
+			expect(r.content).toBe("codex result");
+		});
+
 		test("falls back to Codex when Claude missing", async () => {
 			const orig = originalRequire;
 			(globalThis as any).require = (path: string) => {

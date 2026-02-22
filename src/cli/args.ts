@@ -57,7 +57,7 @@ Options (review mode):
   -v, --version         Show version
 
 Environment Variables:
-  OPENROUTER_API_KEY    Required. Your OpenRouter API key.
+  OPENROUTER_API_KEY    Optional. Your OpenRouter API key (or use local agents).
   GITHUB_TOKEN          Optional. Falls back to gh CLI token.
   NEWPR_MODEL           Default model override.
   NEWPR_MAX_FILES       Max files to analyze (default: 100).

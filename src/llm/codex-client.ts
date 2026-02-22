@@ -48,6 +48,9 @@ async function streamLines(
 			if (line) onLine(line);
 		}
 	}
+
+	const tail = buffer.trim();
+	if (tail) onLine(tail);
 }
 
 export function createCodexClient(timeout: number): LlmClient {
@@ -62,6 +65,7 @@ export function createCodexClient(timeout: number): LlmClient {
 			);
 
 			let answer = "";
+			let timedOut = false;
 			const stdoutPromise = proc.stdout
 				? streamLines(proc.stdout, (line) => {
 					try {
@@ -78,12 +82,26 @@ export function createCodexClient(timeout: number): LlmClient {
 				})
 				: Promise.resolve();
 
-			const timeoutId = setTimeout(() => proc.kill(), timeout * 1000);
+			const timeoutId = setTimeout(() => {
+				timedOut = true;
+				proc.kill();
+			}, timeout * 1000);
 			await stdoutPromise;
 			clearTimeout(timeoutId);
+			const exitCode = await proc.exited;
+
+			if (timedOut) {
+				throw new Error(`Codex request timed out after ${timeout}s`);
+			}
+			if (exitCode !== 0) {
+				throw new Error(`Codex exited with code ${exitCode}`);
+			}
+			if (!answer.trim()) {
+				throw new Error("Codex returned empty response");
+			}
 
 			return {
-				content: answer,
+				content: answer.trim(),
 				model: "codex",
 				usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
 			};
