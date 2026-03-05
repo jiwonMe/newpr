@@ -60,6 +60,7 @@ export async function startWebServer(options: WebServerOptions): Promise<void> {
 	const server = Bun.serve({
 		port,
 		hostname: "127.0.0.1",
+		idleTimeout: 255, // SSE streams need long-lived connections (max value)
 		routes: {
 			"/": index,
 			"/styles.css": async () => {

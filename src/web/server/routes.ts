@@ -1616,7 +1616,7 @@ You can read full file contents and explore the codebase beyond just the diff:
 					let closed = false;
 					const send = (eventType: string, data: string) => {
 						if (closed) return;
-						controller.enqueue(encoder.encode(`event: ${eventType}\ndata: ${data}\n\n`));
+						try { controller.enqueue(encoder.encode(`event: ${eventType}\ndata: ${data}\n\n`)); } catch { safeClose(); }
 					};
 					const safeClose = () => {
 						if (closed) return;
@@ -1627,7 +1627,7 @@ You can read full file contents and explore the codebase beyond just the diff:
 					const heartbeat = setInterval(() => {
 						if (closed) return;
 						try { controller.enqueue(encoder.encode(":keepalive\n\n")); } catch { safeClose(); }
-					}, 15_000);
+					}, 5_000);
 
 					let fullText = "";
 					const collectedToolCalls: ChatToolCall[] = [];
