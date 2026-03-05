@@ -145,6 +145,24 @@ function buildEffectiveGroupMeta(
 	});
 }
 
+function resolvePrBaseBranch(
+	groupId: string,
+	baseBranch: string,
+	planGroups: StackPublishGroupMeta[] | undefined,
+	branchByGroupId: Map<string, string>,
+): string {
+	const planGroup = planGroups?.find((g) => g.id === groupId);
+	const directDeps: string[] = planGroup?.deps ?? [];
+	if (directDeps.length > 0) {
+		const depBranch = directDeps
+			.map((dep: string) => branchByGroupId.get(dep))
+			.find((b: string | undefined): b is string => Boolean(b));
+		if (depBranch) return depBranch;
+	}
+
+	return baseBranch;
+}
+
 function isPreviewCompatible(execResult: StackExecResult, preview: StackPublishPreviewResult | null | undefined): boolean {
 	if (!preview || preview.items.length === 0) return false;
 	if (preview.items.length !== execResult.group_commits.length) return false;
@@ -502,18 +520,6 @@ export async function publishStack(input: PublishInput): Promise<StackPublishRes
 
 	const dagLevelMap = buildDagLevelMap(exec_result.group_commits, groupMetaById);
 
-	const resolvePrBase = (gc: typeof exec_result.group_commits[number], index: number): string => {
-		const planGroup = plan_groups?.find((g) => g.id === gc.group_id);
-		const directDeps: string[] = planGroup?.deps ?? [];
-		if (directDeps.length > 0) {
-			const depBranch = directDeps
-				.map((dep: string) => branchByGroupId.get(dep))
-				.find((b: string | undefined): b is string => Boolean(b));
-			if (depBranch) return depBranch;
-		}
-		return index === 0 ? base_branch : (exec_result.group_commits[index - 1]?.branch_name ?? base_branch);
-	};
-
 	for (const gc of exec_result.group_commits) {
 		const pushResult = await Bun.$`git -C ${repo_path} push origin refs/heads/${gc.branch_name}:refs/heads/${gc.branch_name} --force-with-lease`.quiet().nothrow();
 
@@ -536,7 +542,7 @@ export async function publishStack(input: PublishInput): Promise<StackPublishRes
 		if (!branchInfo?.pushed) continue;
 
 		const previewItem = previewByGroup.get(gc.group_id);
-		const prBase = previewItem?.base_branch ?? resolvePrBase(gc, i);
+		const prBase = previewItem?.base_branch ?? resolvePrBaseBranch(gc.group_id, base_branch, plan_groups, branchByGroupId);
 		if (!prBase) continue;
 
 		const order = i + 1;
@@ -553,6 +559,7 @@ export async function publishStack(input: PublishInput): Promise<StackPublishRes
 			prBase,
 			gc.branch_name,
 			llmPrefillByGroup.get(gc.group_id),
+			dagLevel,
 		);
 
 		const prResult = await runWithBodyFile(
@@ -580,7 +587,7 @@ export async function publishStack(input: PublishInput): Promise<StackPublishRes
 		}
 	}
 
-	await updatePrBodies(ghRepo, prs, pr_meta, prTemplate, groupMetaById, llmPrefillByGroup, previewByGroup);
+	await updatePrBodies(ghRepo, prs, pr_meta, prTemplate, groupMetaById, llmPrefillByGroup, previewByGroup, dagLevelMap);
 	await postStackNavigationComments(ghRepo, prs, dagLevelMap);
 
 	return { branches, prs };
@@ -593,6 +600,8 @@ export async function buildStackPublishPreview(input: PublishInput): Promise<Sta
 	const prTemplate = prTemplateData?.content ?? null;
 	const total = exec_result.group_commits.length;
 	const groupMetaById = buildGroupMetaMap(plan_groups);
+	const branchByGroupId = new Map(exec_result.group_commits.map((gc) => [gc.group_id, gc.branch_name]));
+	const dagLevelMap = buildDagLevelMap(exec_result.group_commits, groupMetaById);
 	const effectiveGroups = buildEffectiveGroupMeta(exec_result, groupMetaById);
 	const llmPrefillByGroup = await generateTemplatePrefillWithLlm(
 		llm_client,
@@ -604,8 +613,9 @@ export async function buildStackPublishPreview(input: PublishInput): Promise<Sta
 
 	const items = exec_result.group_commits.map((gc, i) => {
 		const order = i + 1;
-		const title = buildStackPrTitle(gc, pr_meta, order, total);
-		const prBase = i === 0 ? base_branch : exec_result.group_commits[i - 1]?.branch_name ?? base_branch;
+		const dagLevel = dagLevelMap.get(gc.group_id);
+		const title = buildStackPrTitle(gc, pr_meta, order, total, dagLevel);
+		const prBase = resolvePrBaseBranch(gc.group_id, base_branch, plan_groups, branchByGroupId);
 		const groupMeta = groupMetaById.get(gc.group_id);
 		return {
 			group_id: gc.group_id,
@@ -624,6 +634,7 @@ export async function buildStackPublishPreview(input: PublishInput): Promise<Sta
 				prBase,
 				gc.branch_name,
 				llmPrefillByGroup.get(gc.group_id),
+				dagLevel,
 			),
 		};
 	});
@@ -642,6 +653,7 @@ async function updatePrBodies(
 	groupMetaById: Map<string, StackPublishGroupMeta>,
 	llmPrefillByGroup: Map<string, SectionBullets>,
 	previewByGroup: Map<string, StackPublishPreviewItem>,
+	dagLevelMap: Map<string, number>,
 ): Promise<void> {
 	if (prs.length === 0) return;
 
@@ -650,6 +662,7 @@ async function updatePrBodies(
 		const previewItem = previewByGroup.get(pr.group_id);
 		const previewBody = previewItem?.body;
 		const groupMeta = groupMetaById.get(pr.group_id);
+		const dagLevel = dagLevelMap.get(pr.group_id);
 		const body = previewBody ?? buildFullBody(
 			pr,
 			i,
@@ -660,6 +673,7 @@ async function updatePrBodies(
 			pr.base_branch,
 			pr.head_branch,
 			llmPrefillByGroup.get(pr.group_id),
+			dagLevel,
 		);
 		const editResult = await runWithBodyFile(
 			body,
@@ -718,8 +732,9 @@ function buildPlaceholderBody(
 	baseBranch?: string,
 	headBranch?: string,
 	llmBullets?: SectionBullets,
+	dagLevel?: number,
 ): string {
-	return buildDescriptionBody(groupId, order, total, prMeta, prTemplate, groupMeta, baseBranch, headBranch, llmBullets);
+	return buildDescriptionBody(groupId, order, total, prMeta, prTemplate, groupMeta, baseBranch, headBranch, llmBullets, dagLevel);
 }
 
 function buildStackPrTitle(
@@ -791,8 +806,9 @@ function buildFullBody(
 	baseBranch?: string,
 	headBranch?: string,
 	llmBullets?: SectionBullets,
+	dagLevel?: number,
 ): string {
-	return buildDescriptionBody(current.group_id, index + 1, allPrs.length, prMeta, prTemplate, groupMeta, baseBranch, headBranch, llmBullets);
+	return buildDescriptionBody(current.group_id, index + 1, allPrs.length, prMeta, prTemplate, groupMeta, baseBranch, headBranch, llmBullets, dagLevel);
 }
 
 function buildStackNavigationComment(

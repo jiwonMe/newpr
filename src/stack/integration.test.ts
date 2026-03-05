@@ -63,6 +63,7 @@ async function runFullPipeline(
 		ownership: coupled.ownership,
 		group_order: feasibility.ordered_group_ids,
 		groups,
+		dependency_edges: feasibility.dependency_edges,
 	});
 
 	const execResult = await executeStack({

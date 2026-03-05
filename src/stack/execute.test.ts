@@ -43,7 +43,7 @@ afterAll(() => {
 });
 
 describe("executeStack", () => {
-	test("creates commit chain with correct parent links", async () => {
+	test("creates commit chain with explicit dependency links", async () => {
 		const deltas = await extractDeltas(testRepoPath, baseSha, headSha);
 		const ownership = new Map([
 			["src/auth.ts", "Auth"],
@@ -62,6 +62,7 @@ describe("executeStack", () => {
 			ownership,
 			group_order: ["Auth", "UI"],
 			groups,
+			dependency_edges: [{ from: "Auth", to: "UI" }],
 		});
 
 		const result = await executeStack({
@@ -98,6 +99,133 @@ describe("executeStack", () => {
 		if (commit0 && commit1) {
 			const parent1 = (await Bun.$`git -C ${testRepoPath} rev-parse ${commit1.commit_sha}^`.quiet()).stdout.toString().trim();
 			expect(parent1).toBe(commit0.commit_sha);
+		}
+	});
+
+	test("uses base as parent for independent groups", async () => {
+		const deltas = await extractDeltas(testRepoPath, baseSha, headSha);
+		const ownership = new Map([
+			["src/auth.ts", "Auth"],
+			["src/ui.tsx", "UI"],
+		]);
+		const groups: FileGroup[] = [
+			{ name: "Auth", type: "feature", description: "Auth changes", files: ["src/auth.ts"] },
+			{ name: "UI", type: "feature", description: "UI changes", files: ["src/ui.tsx"] },
+		];
+
+		const plan = await createStackPlan({
+			repo_path: testRepoPath,
+			base_sha: baseSha,
+			head_sha: headSha,
+			deltas,
+			ownership,
+			group_order: ["Auth", "UI"],
+			groups,
+		});
+
+		const result = await executeStack({
+			repo_path: testRepoPath,
+			plan,
+			deltas,
+			ownership,
+			pr_author: { name: "Test Author", email: "author@test.com" },
+			pr_number: 43,
+			head_branch: "feature-branch",
+		});
+
+		const commit0 = result.group_commits[0];
+		const commit1 = result.group_commits[1];
+
+		if (commit0) {
+			const parent0 = (await Bun.$`git -C ${testRepoPath} rev-parse ${commit0.commit_sha}^`.quiet()).stdout.toString().trim();
+			expect(parent0).toBe(baseSha);
+		}
+
+		if (commit1) {
+			const parent1 = (await Bun.$`git -C ${testRepoPath} rev-parse ${commit1.commit_sha}^`.quiet()).stdout.toString().trim();
+			expect(parent1).toBe(baseSha);
+		}
+	});
+
+	test("continues when planned expected tree is stale", async () => {
+		const deltas = await extractDeltas(testRepoPath, baseSha, headSha);
+		const ownership = new Map([
+			["src/auth.ts", "Auth"],
+			["src/ui.tsx", "UI"],
+		]);
+		const groups: FileGroup[] = [
+			{ name: "Auth", type: "feature", description: "Auth changes", files: ["src/auth.ts"] },
+			{ name: "UI", type: "feature", description: "UI changes", files: ["src/ui.tsx"] },
+		];
+
+		const plan = await createStackPlan({
+			repo_path: testRepoPath,
+			base_sha: baseSha,
+			head_sha: headSha,
+			deltas,
+			ownership,
+			group_order: ["Auth", "UI"],
+			groups,
+		});
+
+		plan.expected_trees.set("Auth", "0".repeat(40));
+
+		const result = await executeStack({
+			repo_path: testRepoPath,
+			plan,
+			deltas,
+			ownership,
+			pr_author: { name: "Test", email: "t@t.com" },
+			pr_number: 44,
+			head_branch: "feature-branch",
+		});
+
+		expect(result.group_commits.length).toBe(2);
+		const headTree = (await Bun.$`git -C ${testRepoPath} rev-parse ${headSha}^{tree}`.quiet()).stdout.toString().trim();
+		expect(result.final_tree_sha).toBe(headTree);
+	});
+
+	test("ignores self dependency on group while creating parents", async () => {
+		const deltas = await extractDeltas(testRepoPath, baseSha, headSha);
+		const ownership = new Map([
+			["src/auth.ts", "Auth"],
+			["src/ui.tsx", "UI"],
+		]);
+		const groups: FileGroup[] = [
+			{ name: "Auth", type: "feature", description: "Auth", files: ["src/auth.ts"] },
+			{ name: "UI", type: "feature", description: "UI", files: ["src/ui.tsx"] },
+		];
+
+		const plan = await createStackPlan({
+			repo_path: testRepoPath,
+			base_sha: baseSha,
+			head_sha: headSha,
+			deltas,
+			ownership,
+			group_order: ["Auth", "UI"],
+			groups,
+		});
+
+		if (plan.groups[1]) {
+			plan.groups[1].deps = [plan.groups[1].id];
+		}
+
+		const result = await executeStack({
+			repo_path: testRepoPath,
+			plan,
+			deltas,
+			ownership,
+			pr_author: { name: "Test", email: "t@t.com" },
+			pr_number: 45,
+			head_branch: "feature-branch",
+		});
+
+		expect(result.group_commits.length).toBe(2);
+		const uiCommit = result.group_commits.find((gc) => gc.group_id === "UI");
+		expect(uiCommit).toBeDefined();
+		if (uiCommit) {
+			const parent = (await Bun.$`git -C ${testRepoPath} rev-parse ${uiCommit.commit_sha}^`.quiet()).stdout.toString().trim();
+			expect(parent).toBe(baseSha);
 		}
 	});
 

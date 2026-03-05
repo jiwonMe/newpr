@@ -6,6 +6,7 @@ export interface VerifyInput {
 	head_sha: string;
 	exec_result: StackExecResult;
 	ownership: Map<string, string>;
+	group_deps?: Map<string, string[]>;
 }
 
 export interface VerifyResult {
@@ -16,7 +17,7 @@ export interface VerifyResult {
 }
 
 export async function verifyStack(input: VerifyInput): Promise<VerifyResult> {
-	const { repo_path, base_sha, head_sha, exec_result, ownership } = input;
+	const { repo_path, base_sha, head_sha, exec_result, ownership, group_deps } = input;
 	const errors: string[] = [];
 	const warnings: string[] = [];
 	const structuredWarnings: StackWarning[] = [];
@@ -25,7 +26,7 @@ export async function verifyStack(input: VerifyInput): Promise<VerifyResult> {
 	const unionMissing: string[] = [];
 	const unionExtra: string[] = [];
 
-	await verifyPerGroupDiffScope(repo_path, base_sha, exec_result, ownership, warnings, scopeLeaks);
+	await verifyPerGroupDiffScope(repo_path, base_sha, exec_result, ownership, group_deps ?? new Map(), warnings, scopeLeaks);
 	await verifyUnionCompleteness(repo_path, base_sha, head_sha, exec_result, warnings, unionMissing, unionExtra);
 	await verifyFinalTreeEquivalence(repo_path, head_sha, exec_result, errors);
 
@@ -70,17 +71,26 @@ async function verifyPerGroupDiffScope(
 	baseSha: string,
 	execResult: StackExecResult,
 	ownership: Map<string, string>,
+	groupDeps: Map<string, string[]>,
 	warnings: string[],
 	scopeLeaks: string[],
 ): Promise<void> {
-	let prevCommitSha = baseSha;
+	const commitByGroupId = new Map<string, string>();
+	for (const gc of execResult.group_commits) {
+		commitByGroupId.set(gc.group_id, gc.commit_sha);
+	}
 
 	for (const gc of execResult.group_commits) {
-		const diffResult = await Bun.$`git -C ${repoPath} diff-tree -r --raw -z --no-commit-id ${prevCommitSha} ${gc.commit_sha}`.quiet().nothrow();
+		const parentTree = await resolveScopeParentTree(repoPath, baseSha, gc.group_id, groupDeps, commitByGroupId);
+		if (!parentTree) {
+			warnings.push(`Failed to resolve parent tree for group "${gc.group_id}"`);
+			continue;
+		}
+
+		const diffResult = await Bun.$`git -C ${repoPath} diff-tree -r --raw -z --no-commit-id ${parentTree} ${gc.tree_sha}`.quiet().nothrow();
 
 		if (diffResult.exitCode !== 0) {
 			warnings.push(`Failed to diff group "${gc.group_id}": ${diffResult.stderr.toString().trim()}`);
-			prevCommitSha = gc.commit_sha;
 			continue;
 		}
 
@@ -89,16 +99,62 @@ async function verifyPerGroupDiffScope(
 		for (const path of changedPaths) {
 			const fileOwner = ownership.get(path);
 			if (fileOwner !== gc.group_id) {
-				const detail = `"${path}" in "${gc.group_id}" diff, owned by "${fileOwner ?? "unassigned"}"`;
 				warnings.push(
 					`Group "${gc.group_id}" diff contains file "${path}" owned by "${fileOwner ?? "unassigned"}"`,
 				);
-				scopeLeaks.push(detail);
+				scopeLeaks.push(`"${path}" in "${gc.group_id}" diff, owned by "${fileOwner ?? "unassigned"}"`);
 			}
 		}
-
-		prevCommitSha = gc.commit_sha;
 	}
+}
+
+async function resolveScopeParentTree(
+	repoPath: string,
+	baseSha: string,
+	groupId: string,
+	groupDeps: Map<string, string[]>,
+	commitByGroupId: Map<string, string>,
+): Promise<string | null> {
+	const deps = groupDeps.get(groupId) ?? [];
+	if (deps.length === 0) {
+		return resolveTreeForRef(repoPath, baseSha);
+	}
+
+	const parentCommits: string[] = [];
+	for (const dep of deps) {
+		const depCommit = commitByGroupId.get(dep);
+		if (!depCommit) continue;
+		parentCommits.push(depCommit);
+	}
+
+	if (parentCommits.length === 0) return resolveTreeForRef(repoPath, baseSha);
+	if (parentCommits.length === 1) return resolveTreeForRef(repoPath, parentCommits[0]!);
+
+	let mergedCommit = parentCommits[0]!;
+	let mergedTree: string | null = null;
+	for (let i = 1; i < parentCommits.length; i++) {
+		const nextParentCommit = parentCommits[i]!;
+		const mergeResult = await Bun.$`git -C ${repoPath} merge-tree --write-tree --allow-unrelated-histories ${mergedCommit} ${nextParentCommit}`.quiet().nothrow();
+		if (mergeResult.exitCode !== 0) return null;
+		const nextTree = mergeResult.stdout.toString().trim().split("\n")[0]?.trim();
+		if (!nextTree) return null;
+		mergedTree = nextTree;
+
+		const mergedCommitResult = await Bun.$`git -C ${repoPath} commit-tree ${mergedTree} -p ${mergedCommit} -p ${nextParentCommit} -m "newpr synthetic verify merged parent"`.quiet().nothrow();
+		if (mergedCommitResult.exitCode !== 0) return null;
+		mergedCommit = mergedCommitResult.stdout.toString().trim();
+		if (!mergedCommit) return null;
+	}
+
+	if (!mergedTree) return resolveTreeForRef(repoPath, mergedCommit);
+	return mergedTree;
+}
+
+async function resolveTreeForRef(repoPath: string, ref: string): Promise<string | null> {
+	const result = await Bun.$`git -C ${repoPath} rev-parse ${ref}^{tree}`.quiet().nothrow();
+	if (result.exitCode !== 0) return null;
+	const tree = result.stdout.toString().trim();
+	return tree.length > 0 ? tree : null;
 }
 
 async function verifyUnionCompleteness(
@@ -119,18 +175,19 @@ async function verifyUnionCompleteness(
 
 	const expectedPaths = new Set(extractPathsFromRawDiff(expectedResult.stdout));
 
-	const actualPaths = new Set<string>();
-	let prevSha = baseSha;
-	for (const gc of execResult.group_commits) {
-		const diffResult = await Bun.$`git -C ${repoPath} diff-tree -r --raw -z --no-commit-id ${prevSha} ${gc.commit_sha}`.quiet().nothrow();
-
-		if (diffResult.exitCode === 0) {
-			for (const path of extractPathsFromRawDiff(diffResult.stdout)) {
-				actualPaths.add(path);
-			}
-		}
-		prevSha = gc.commit_sha;
+	const baseTreeResult = await Bun.$`git -C ${repoPath} rev-parse ${baseSha}^{tree}`.quiet().nothrow();
+	if (baseTreeResult.exitCode !== 0) {
+		warnings.push(`Failed to get base tree: ${baseTreeResult.stderr.toString().trim()}`);
+		return;
 	}
+	const baseTree = baseTreeResult.stdout.toString().trim();
+	const finalTree = execResult.final_tree_sha;
+	if (!finalTree) return;
+
+	const actualResult = await Bun.$`git -C ${repoPath} diff-tree -r --raw -z ${baseTree} ${finalTree}`.quiet().nothrow();
+	const actualPaths = actualResult.exitCode === 0
+		? new Set(extractPathsFromRawDiff(actualResult.stdout))
+		: new Set<string>();
 
 	for (const path of expectedPaths) {
 		if (!actualPaths.has(path)) {

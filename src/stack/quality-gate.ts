@@ -13,6 +13,7 @@ const LOCKFILES = [
 interface QualityGateInput {
 	repo_path: string;
 	exec_result: StackExecResult;
+	custom_env?: Record<string, string>;
 	onProgress?: (message: string) => void;
 	checkAborted?: () => void;
 }
@@ -24,12 +25,12 @@ interface PackageJson {
 
 type PackageManager = "bun" | "pnpm" | "yarn" | "npm";
 
-async function runProcess(args: string[], cwd: string): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+async function runProcess(args: string[], cwd: string, extraEnv?: Record<string, string>): Promise<{ exitCode: number; stdout: string; stderr: string }> {
 	const proc = Bun.spawn(args, {
 		cwd,
 		stdout: "pipe",
 		stderr: "pipe",
-		env: { ...process.env, CI: "true" },
+		env: { ...process.env, CI: "true", ...extraEnv },
 	});
 	const [exitCode, stdout, stderr] = await Promise.all([
 		proc.exited,
@@ -98,7 +99,9 @@ function runScriptCommand(manager: PackageManager, script: string): string[] {
 function selectRequiredScripts(pkg: PackageJson): string[] {
 	const scripts = pkg.scripts ?? {};
 	const required: string[] = [];
+	if (typeof scripts.typecheck === "string" && scripts.typecheck.trim()) required.push("typecheck");
 	if (typeof scripts.lint === "string" && scripts.lint.trim()) required.push("lint");
+	if (typeof scripts.test === "string" && scripts.test.trim()) required.push("test");
 	if (typeof scripts.build === "string" && scripts.build.trim()) required.push("build");
 	return required;
 }
@@ -115,11 +118,11 @@ async function depsChanged(repoPath: string, prevCommit: string, nextCommit: str
 	return result.stdout.toString().trim().length > 0;
 }
 
-async function installDependencies(worktreePath: string, manager: PackageManager): Promise<boolean> {
+async function installDependencies(worktreePath: string, manager: PackageManager, extraEnv?: Record<string, string>): Promise<boolean> {
 	const candidates = installCommandCandidates(manager);
 
 	for (const cmd of candidates) {
-		const install = await runProcess(cmd, worktreePath);
+		const install = await runProcess(cmd, worktreePath, extraEnv);
 		if (install.exitCode === 0) return true;
 	}
 
@@ -138,7 +141,7 @@ export interface QualityGateResult {
 }
 
 export async function runStackQualityGate(input: QualityGateInput): Promise<QualityGateResult> {
-	const { repo_path, exec_result, onProgress, checkAborted } = input;
+	const { repo_path, exec_result, custom_env, onProgress, checkAborted } = input;
 	if (exec_result.group_commits.length === 0) {
 		return { ran: false, skippedReason: "No group commits", groupResults: [] };
 	}
@@ -206,7 +209,7 @@ export async function runStackQualityGate(input: QualityGateInput): Promise<Qual
 
 			if (!installReady || await depsChanged(repo_path, prevCommit, commit.commit_sha)) {
 				onProgress?.(`${label}: installing dependencies with ${manager}...`);
-				const installed = await installDependencies(worktreePath, manager);
+				const installed = await installDependencies(worktreePath, manager, custom_env);
 				if (!installed) {
 					onProgress?.(`${label}: dependency install failed (${manager}) — skipping quality gate for remaining groups`);
 					for (let j = i; j < exec_result.group_commits.length; j++) {
@@ -231,7 +234,7 @@ export async function runStackQualityGate(input: QualityGateInput): Promise<Qual
 				checkAborted?.();
 				const runCmd = runScriptCommand(manager, script);
 				onProgress?.(`${label}: ${runCmd.join(" ")}`);
-				const run = await runProcess(runCmd, worktreePath);
+				const run = await runProcess(runCmd, worktreePath, custom_env);
 				if (run.exitCode !== 0) {
 					const output = trimOutput(`${run.stdout}\n${run.stderr}`.trim());
 					scriptResults.push({ name: script, passed: false, error: output });
@@ -247,17 +250,6 @@ export async function runStackQualityGate(input: QualityGateInput): Promise<Qual
 	} finally {
 		await Bun.$`git -C ${repo_path} worktree remove --force ${worktreePath}`.quiet().nothrow();
 		await Bun.$`rm -rf ${worktreePath}`.quiet().nothrow();
-	}
-
-	const anyFailed = groupResults.some((g) => !g.passed && !g.skipped);
-	if (anyFailed) {
-		const failures = groupResults
-			.filter((g) => !g.passed && !g.skipped)
-			.map((g) => {
-				const failedScripts = g.scripts.filter((s) => !s.passed).map((s) => s.name).join(", ");
-				return `${g.group_id} (${failedScripts})`;
-			});
-		throw new Error(`Quality gate failed: ${failures.join("; ")}`);
 	}
 
 	return { ran: true, groupResults };

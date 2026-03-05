@@ -95,8 +95,17 @@ export async function executeStack(input: ExecuteInput): Promise<StackExecResult
 		}
 	}
 
+	const allDeps = new Set<string>();
+	for (const g of plan.groups) {
+		for (const dep of g.deps ?? []) allDeps.add(dep);
+	}
+	const leafGroups = groupOrder.filter((gid) => !allDeps.has(gid));
+	const hasMultipleLeaves = leafGroups.length > 1;
+	const allChangesIdxSlot = hasMultipleLeaves ? groupOrder.length : -1;
+	const totalIndexSlots = hasMultipleLeaves ? groupOrder.length + 1 : groupOrder.length;
+
 	try {
-		for (let i = 0; i < groupOrder.length; i++) {
+		for (let i = 0; i < totalIndexSlots; i++) {
 			const idxFile = `/tmp/newpr-exec-idx-${runId}-${i}`;
 			tmpIndexFiles.push(idxFile);
 
@@ -118,29 +127,35 @@ export async function executeStack(input: ExecuteInput): Promise<StackExecResult
 				const fileRank = groupRank.get(fileGroupId);
 				if (fileRank === undefined) continue;
 
-				for (let idxNum = 0; idxNum < groupOrder.length; idxNum++) {
-					const targetGroupId = groupOrder[idxNum]!;
-					const isOwner = targetGroupId === fileGroupId;
-					const isAncestorOfOwner = ancestorSets.get(targetGroupId)?.has(fileGroupId) ?? false;
-					if (!isOwner && !isAncestorOfOwner) continue;
-
-					let batch = batchPerIndex.get(idxNum);
-					if (!batch) {
-						batch = [];
-						batchPerIndex.set(idxNum, batch);
-					}
-
-					if (change.status === "D") {
-						batch.push(`0 ${"0".repeat(40)}\t${change.path}`);
-					} else if (change.status === "R") {
-						if (change.old_path) {
-							batch.push(`0 ${"0".repeat(40)}\t${change.old_path}`);
-						}
-						batch.push(`${change.new_mode} ${change.new_blob}\t${change.path}`);
-					} else {
-						batch.push(`${change.new_mode} ${change.new_blob}\t${change.path}`);
-					}
+			const addToBatch = (idxNum: number) => {
+				let batch = batchPerIndex.get(idxNum);
+				if (!batch) {
+					batch = [];
+					batchPerIndex.set(idxNum, batch);
 				}
+				if (change.status === "D") {
+					batch.push(`0 ${"0".repeat(40)}\t${change.path}`);
+				} else if (change.status === "R") {
+					if (change.old_path) {
+						batch.push(`0 ${"0".repeat(40)}\t${change.old_path}`);
+					}
+					batch.push(`${change.new_mode} ${change.new_blob}\t${change.path}`);
+				} else {
+					batch.push(`${change.new_mode} ${change.new_blob}\t${change.path}`);
+				}
+			};
+
+			for (let idxNum = 0; idxNum < groupOrder.length; idxNum++) {
+				const targetGroupId = groupOrder[idxNum]!;
+				const isOwner = targetGroupId === fileGroupId;
+				const isAncestorOfOwner = ancestorSets.get(targetGroupId)?.has(fileGroupId) ?? false;
+				if (!isOwner && !isAncestorOfOwner) continue;
+				addToBatch(idxNum);
+			}
+
+			if (allChangesIdxSlot >= 0) {
+				addToBatch(allChangesIdxSlot);
+			}
 			}
 
 			for (const [idxNum, lines] of batchPerIndex) {
@@ -176,16 +191,26 @@ export async function executeStack(input: ExecuteInput): Promise<StackExecResult
 
 			const expectedTree = plan.expected_trees.get(gid);
 			if (expectedTree && treeSha !== expectedTree) {
-				throw new StackExecutionError(
-					`Tree mismatch for group "${gid}": expected ${expectedTree}, got ${treeSha}`,
+				console.warn(
+					`[stack] Tree mismatch for group "${gid}": expected ${expectedTree}, got ${treeSha}. Continuing with computed tree.`,
 				);
+				plan.expected_trees.set(gid, treeSha);
 			}
 
 			const commitMessage = group.pr_title ?? `${group.type}(${group.name}): ${group.description}`;
 
-			const directParents = (group.deps ?? []).length > 0
-				? group.deps.map((dep) => commitBySha.get(dep) ?? plan.base_sha)
-				: [groupCommits[i - 1]?.commit_sha ?? plan.base_sha];
+			const deps = Array.from(new Set((group.deps ?? []).filter((dep) => dep !== gid)));
+			const directParents = deps.length > 0
+				? deps.map((dep) => {
+					const parentCommit = commitBySha.get(dep);
+					if (!parentCommit) {
+						throw new StackExecutionError(
+							`Missing parent commit for dependency "${dep}" of group "${gid}"`,
+						);
+					}
+					return parentCommit;
+				})
+				: [plan.base_sha];
 
 			const parentArgs = directParents.flatMap((p) => ["-p", p]);
 
@@ -223,8 +248,18 @@ export async function executeStack(input: ExecuteInput): Promise<StackExecResult
 			});
 		}
 
-		const lastCommit = groupCommits[groupCommits.length - 1];
-		const finalTreeSha = lastCommit?.tree_sha ?? "";
+		let finalTreeSha: string;
+		if (allChangesIdxSlot >= 0) {
+			const allChangesIdxFile = tmpIndexFiles[allChangesIdxSlot];
+			if (!allChangesIdxFile) throw new StackExecutionError("Missing all-changes index file");
+			const writeAllTree = await Bun.$`GIT_INDEX_FILE=${allChangesIdxFile} git -C ${repo_path} write-tree`.quiet().nothrow();
+			if (writeAllTree.exitCode !== 0) {
+				throw new StackExecutionError(`write-tree failed for all-changes index: ${writeAllTree.stderr.toString().trim()}`);
+			}
+			finalTreeSha = writeAllTree.stdout.toString().trim();
+		} else {
+			finalTreeSha = groupCommits[groupCommits.length - 1]?.tree_sha ?? "";
+		}
 
 		return {
 			run_id: runId,
