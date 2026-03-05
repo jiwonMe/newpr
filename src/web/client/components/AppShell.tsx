@@ -8,6 +8,7 @@ import type { GithubUser } from "../hooks/useGithubUser.ts";
 import { SettingsPanel } from "./SettingsPanel.tsx";
 import { ResizeHandle } from "./ResizeHandle.tsx";
 import { analytics } from "../lib/analytics.ts";
+import { useI18n, type TranslationKey } from "../lib/i18n/index.ts";
 
 type Theme = "light" | "dark" | "system";
 
@@ -28,22 +29,22 @@ const RISK_DOT: Record<string, string> = {
 	critical: "bg-red-600",
 };
 
-const STATE_LABEL: Record<string, { text: string; class: string }> = {
-	open: { text: "Open", class: "text-green-600 dark:text-green-400" },
-	merged: { text: "Merged", class: "text-purple-600 dark:text-purple-400" },
-	closed: { text: "Closed", class: "text-red-600 dark:text-red-400" },
-	draft: { text: "Draft", class: "text-neutral-500" },
+const STATE_CLASS: Record<string, string> = {
+	open: "text-green-600 dark:text-green-400",
+	merged: "text-purple-600 dark:text-purple-400",
+	closed: "text-red-600 dark:text-red-400",
+	draft: "text-neutral-500",
 };
 
-function formatTimeAgo(isoDate: string): string {
+function formatTimeAgo(isoDate: string, t: (key: TranslationKey, params?: Record<string, string | number>) => string): string {
 	const diff = Date.now() - new Date(isoDate).getTime();
 	const minutes = Math.floor(diff / 60000);
-	if (minutes < 1) return "just now";
-	if (minutes < 60) return `${minutes}m`;
+	if (minutes < 1) return t("time.justNow");
+	if (minutes < 60) return t("time.minutes", { n: minutes });
 	const hours = Math.floor(minutes / 60);
-	if (hours < 24) return `${hours}h`;
+	if (hours < 24) return t("time.hours", { n: hours });
 	const days = Math.floor(hours / 24);
-	return `${days}d`;
+	return t("time.days", { n: days });
 }
 
 interface RepoGroup {
@@ -78,8 +79,13 @@ function SessionList({
 	activeSessionId?: string | null;
 	onSessionSelect: (id: string) => void;
 }) {
+	const { t } = useI18n();
 	const groups = useMemo(() => groupByRepo(sessions), [sessions]);
 	const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+	const stateLabels: Record<string, string> = {
+		open: t("results.open"), merged: t("results.merged"),
+		closed: t("results.closed"), draft: t("results.draft"),
+	};
 
 	const toggle = useCallback((repo: string) => {
 		setCollapsed((prev) => {
@@ -92,7 +98,7 @@ function SessionList({
 	if (sessions.length === 0) {
 		return (
 			<div className="flex-1 overflow-y-auto px-2 flex flex-col items-center justify-center text-center gap-2 opacity-40">
-				<p className="text-[11px] text-muted-foreground">No analyses yet</p>
+				<p className="text-[11px] text-muted-foreground">{t("appShell.noAnalysesYet")}</p>
 			</div>
 		);
 	}
@@ -132,14 +138,14 @@ function SessionList({
 												</div>
 												<div className="flex items-center gap-1 mt-0.5 text-[10px] text-muted-foreground/40">
 													<span className="font-mono">#{s.pr_number}</span>
-													{s.pr_state && STATE_LABEL[s.pr_state] && (
+													{s.pr_state && STATE_CLASS[s.pr_state] && (
 														<>
 															<span className="text-muted-foreground/15">·</span>
-															<span className={STATE_LABEL[s.pr_state]!.class}>{STATE_LABEL[s.pr_state]!.text}</span>
+															<span className={STATE_CLASS[s.pr_state]!}>{stateLabels[s.pr_state]}</span>
 														</>
 													)}
 													<span className="text-muted-foreground/15">·</span>
-													<span>{formatTimeAgo(s.analyzed_at)}</span>
+													<span>{formatTimeAgo(s.analyzed_at, t)}</span>
 												</div>
 											</div>
 										</button>
@@ -187,6 +193,7 @@ export function AppShell({
 	onFeaturesChange?: () => void;
 	children: React.ReactNode;
 }) {
+	const { t } = useI18n();
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	const [leftWidth, setLeftWidth] = useState(LEFT_DEFAULT);
 	const [rightWidth, setRightWidth] = useState(RIGHT_DEFAULT);
@@ -251,7 +258,7 @@ export function AppShell({
 						type="button"
 						onClick={onNewAnalysis}
 						className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/50 hover:bg-accent hover:text-foreground transition-colors"
-						title="New analysis"
+						title={t("appShell.newAnalysis")}
 					>
 						<Plus className="h-3.5 w-3.5" />
 					</button>
@@ -263,7 +270,7 @@ export function AppShell({
 							<div className="flex items-center gap-2">
 								<Loader2 className="h-3 w-3 animate-spin text-blue-500 shrink-0" />
 								<span className="text-[11px] text-blue-600 dark:text-blue-400">
-									Restarting...
+									{t("appShell.restarting")}
 								</span>
 							</div>
 						) : (
@@ -271,7 +278,7 @@ export function AppShell({
 								<div className="flex items-center gap-2 mb-2">
 									<Download className="h-3 w-3 text-blue-500 shrink-0" />
 									<span className="text-[11px] font-medium text-blue-600 dark:text-blue-400">
-										v{update.latest} available
+										{t("appShell.versionAvailable", { version: update.latest ?? "" })}
 									</span>
 								</div>
 								<button
@@ -281,9 +288,9 @@ export function AppShell({
 									className="w-full flex items-center justify-center gap-1.5 rounded-md bg-blue-500 hover:bg-blue-600 text-white text-[11px] font-medium py-1.5 transition-colors disabled:opacity-50"
 								>
 									{update.updating ? (
-										<><Loader2 className="h-3 w-3 animate-spin" /> Updating...</>
+										<><Loader2 className="h-3 w-3 animate-spin" /> {t("appShell.updating")}</>
 									) : (
-										<><Download className="h-3 w-3" /> Update &amp; restart</>
+										<><Download className="h-3 w-3" /> {t("appShell.updateAndRestart")}</>
 									)}
 								</button>
 								{update.error && (
@@ -341,7 +348,7 @@ export function AppShell({
 						{chatLoading.map(({ sessionId: sid }) => (
 							<div key={sid} className="flex items-center gap-2 rounded-md px-2.5 py-1.5">
 								<Loader2 className="h-3 w-3 animate-spin text-blue-500/60 shrink-0" />
-								<span className="text-[11px] text-muted-foreground/50 truncate">Chat responding...</span>
+								<span className="text-[11px] text-muted-foreground/50 truncate">{t("appShell.chatResponding")}</span>
 							</div>
 						))}
 					</div>
@@ -368,7 +375,7 @@ export function AppShell({
 							type="button"
 							onClick={() => onThemeChange(next)}
 							className="flex items-center gap-1.5 px-1.5 py-1 rounded-md text-[11px] text-muted-foreground/50 hover:text-foreground hover:bg-accent/40 transition-colors"
-							title={`Switch to ${next} mode`}
+							title={t("appShell.switchToMode", { mode: next })}
 						>
 							<Icon className="h-3 w-3" />
 							<span className="capitalize">{theme}</span>
@@ -378,7 +385,7 @@ export function AppShell({
 							type="button"
 							onClick={() => { analytics.settingsOpened(); setSettingsOpen(true); }}
 							className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/40 hover:bg-accent/40 hover:text-foreground transition-colors"
-							title="Settings"
+							title={t("appShell.settings")}
 						>
 							<Settings className="h-3 w-3" />
 						</button>

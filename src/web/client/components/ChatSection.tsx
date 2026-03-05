@@ -5,6 +5,7 @@ import { Markdown } from "./Markdown.tsx";
 import { TipTapEditor, getTextWithAnchors, type AnchorItem, type CommandItem } from "./TipTapEditor.tsx";
 import type { useEditor } from "@tiptap/react";
 import { useChatStore } from "../hooks/useChatStore.ts";
+import { useI18n } from "../lib/i18n/index.ts";
 
 export interface ChatState {
 	messages: ChatMessage[];
@@ -39,11 +40,12 @@ function formatDuration(ms: number): string {
 }
 
 function CompletionFooter({ durationMs }: { durationMs: number }) {
+	const { t } = useI18n();
 	return (
 		<div className="flex items-center gap-1.5 mt-1.5 animate-in fade-in duration-300">
 			<Check className="h-3 w-3 text-emerald-500/70" />
 			<span className="text-[10px] text-muted-foreground/40">
-				Done · {formatDuration(durationMs)}
+				{t("chat.done")} · {formatDuration(durationMs)}
 			</span>
 		</div>
 	);
@@ -99,6 +101,7 @@ function AssistantMessage({ segments, activeToolName, isStreaming, onAnchorClick
 	onAnchorClick?: (kind: "group" | "file" | "line", id: string) => void;
 	activeId?: string | null;
 }) {
+	const { t } = useI18n();
 	const hasContent = segments.some((s) => s.type === "text" && s.content);
 
 	return (
@@ -124,7 +127,7 @@ function AssistantMessage({ segments, activeToolName, isStreaming, onAnchorClick
 				<div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-accent/40 text-[11px] text-muted-foreground/50">
 					<Loader2 className="h-2.5 w-2.5 animate-spin" />
 					{activeToolName === "thinking" ? (
-						<span>Thinking…</span>
+						<span>{t("chat.thinking")}</span>
 					) : (
 						<span className="font-mono">{activeToolName}</span>
 					)}
@@ -145,6 +148,7 @@ function AssistantMessage({ segments, activeToolName, isStreaming, onAnchorClick
 
 function CompactSummary({ message }: { message: ChatMessage }) {
 	const [expanded, setExpanded] = useState(false);
+	const { t } = useI18n();
 	return (
 		<div className="rounded-lg border border-dashed bg-muted/30 px-3 py-2">
 			<button
@@ -154,7 +158,7 @@ function CompactSummary({ message }: { message: ChatMessage }) {
 			>
 				<FoldVertical className="h-3 w-3 text-muted-foreground/40 shrink-0" />
 				<span className="text-[10px] text-muted-foreground/50 flex-1">
-					{message.compactedCount ? `${message.compactedCount} messages compacted` : "Conversation compacted"}
+					{message.compactedCount ? t("chat.messagesCompacted", { count: message.compactedCount }) : t("chat.conversationCompacted")}
 				</span>
 				{expanded ? (
 					<ChevronDown className="h-3 w-3 text-muted-foreground/30 shrink-0" />
@@ -180,6 +184,7 @@ export function ChatMessages({ onAnchorClick, activeId }: {
 	const isNearBottomRef = useRef(true);
 	const mainElRef = useRef<HTMLElement | null>(null);
 	const scrollListenerRef = useRef<(() => void) | null>(null);
+	const { t } = useI18n();
 
 	useEffect(() => {
 		if (scrollListenerRef.current) return;
@@ -215,8 +220,8 @@ export function ChatMessages({ onAnchorClick, activeId }: {
 	if (!hasMessages && loaded) {
 		return (
 			<div className="border-t mt-6 pt-6 text-center">
-				<p className="text-[11px] text-muted-foreground/40">Ask anything about this PR</p>
-				<p className="text-[10px] text-muted-foreground/20 mt-1">@ to reference files · / for commands</p>
+				<p className="text-[11px] text-muted-foreground/40">{t("chat.askAnything")}</p>
+				<p className="text-[10px] text-muted-foreground/20 mt-1">{t("chat.refAndCmds")}</p>
 			</div>
 		);
 	}
@@ -227,7 +232,7 @@ export function ChatMessages({ onAnchorClick, activeId }: {
 
 	return (
 		<div ref={containerRef} className="border-t mt-6 pt-5 space-y-5">
-			<div className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider">Chat</div>
+			<div className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider">{t("chat.title")}</div>
 			{messages.map((msg, i) => {
 				if (msg.isCompactSummary) {
 					return <CompactSummary key={`compact-${i}`} message={msg} />;
@@ -239,7 +244,7 @@ export function ChatMessages({ onAnchorClick, activeId }: {
 					divider = (
 						<div className="flex items-center gap-2 py-1">
 							<div className="flex-1 h-px bg-yellow-500/20" />
-							<span className="text-[10px] text-yellow-600/60 dark:text-yellow-400/50 shrink-0">Previous analysis</span>
+							<span className="text-[10px] text-yellow-600/60 dark:text-yellow-400/50 shrink-0">{t("chat.previousAnalysis")}</span>
 							<div className="flex-1 h-px bg-yellow-500/20" />
 						</div>
 					);
@@ -294,6 +299,7 @@ export function ChatMessages({ onAnchorClick, activeId }: {
 export function ChatInput() {
 	const ctx = useContext(ChatContext);
 	const editorRef = useRef<ReturnType<typeof useEditor>>(null);
+	const { t } = useI18n();
 
 	const handleSubmit = useCallback(() => {
 		if (!ctx) return;
@@ -304,8 +310,8 @@ export function ChatInput() {
 	}, [ctx]);
 
 	const chatCommands = useMemo<CommandItem[]>(() => [
-		{ id: "undo", label: "/undo", description: "Remove last exchange" },
-	], []);
+		{ id: "undo", label: t("chat.undoLabel"), description: t("chat.undoDesc") },
+	], [t]);
 
 	if (!ctx) return null;
 	const { loading } = ctx.state;
@@ -317,7 +323,7 @@ export function ChatInput() {
 				<div className="relative rounded-xl border bg-background px-4 py-2.5 pr-12 focus-within:border-foreground/15 focus-within:shadow-sm transition-all">
 					<TipTapEditor
 						editorRef={editorRef}
-						placeholder="Ask about this PR..."
+						placeholder={t("chat.askAboutPr")}
 						disabled={loading}
 						submitOnEnter
 						onSubmit={handleSubmit}
@@ -340,10 +346,10 @@ export function ChatInput() {
 				</div>
 				<div className="flex items-center justify-between mt-1.5 px-1">
 					<span className="text-[10px] text-muted-foreground/25">
-						@ to reference · / for commands
+						{t("chat.atToRef")}
 					</span>
 					<span className="text-[10px] text-muted-foreground/25">
-						Enter to send
+						{t("chat.enterToSend")}
 					</span>
 				</div>
 			</div>

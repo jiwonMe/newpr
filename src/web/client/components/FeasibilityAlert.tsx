@@ -1,15 +1,17 @@
 import { CheckCircle2, XCircle, ChevronRight } from "lucide-react";
 import { useState } from "react";
 import type { FeasibilityResult } from "../../../stack/types.ts";
+import { useI18n } from "../lib/i18n/index.ts";
 
 export function FeasibilityAlert({ result }: { result: FeasibilityResult }) {
 	const [expanded, setExpanded] = useState(false);
+	const { t } = useI18n();
 
 	if (result.feasible) {
 		return (
 			<div className="flex items-center gap-2 px-3 py-2 rounded-md bg-green-500/[0.04]">
 				<CheckCircle2 className="h-3.5 w-3.5 text-green-600/60 dark:text-green-400/60 shrink-0" />
-				<span className="text-[11px] text-green-700/70 dark:text-green-300/70 font-medium">Feasible</span>
+				<span className="text-[11px] text-green-700/70 dark:text-green-300/70 font-medium">{t("feasibility.feasible")}</span>
 				{result.ordered_group_ids && (
 					<span className="text-[10px] text-muted-foreground/25 truncate">
 						{result.ordered_group_ids.join(" → ")}
@@ -30,7 +32,7 @@ export function FeasibilityAlert({ result }: { result: FeasibilityResult }) {
 			>
 				<XCircle className="h-3.5 w-3.5 text-red-500/60 shrink-0" />
 				<span className="text-[11px] text-red-600/80 dark:text-red-400/80 font-medium flex-1">
-					Not feasible — dependency cycle
+					{t("feasibility.notFeasible")}
 				</span>
 				{hasCycleDetails && (
 					<ChevronRight className={`h-3 w-3 text-red-500/30 shrink-0 transition-transform duration-150 ${expanded ? "rotate-90" : ""}`} />
@@ -56,7 +58,7 @@ export function FeasibilityAlert({ result }: { result: FeasibilityResult }) {
 
 			{result.unassigned_paths && result.unassigned_paths.length > 0 && (
 				<p className="text-[10px] text-red-500/40 pl-5.5">
-					{result.unassigned_paths.length} unassigned file(s)
+					{t("feasibility.unassignedFiles", { n: result.unassigned_paths.length })}
 				</p>
 			)}
 		</div>

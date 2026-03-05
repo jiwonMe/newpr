@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { X, Check, Loader2, Search, ChevronDown } from "lucide-react";
 import { analytics, getConsent, setConsent } from "../lib/analytics.ts";
+import { useI18n } from "../lib/i18n/index.ts";
 
 interface ConfigData {
 	model: string;
@@ -46,6 +47,7 @@ const LANGUAGES = [
 ];
 
 export function SettingsPanel({ onClose, onFeaturesChange }: { onClose: () => void; onFeaturesChange?: () => void }) {
+	const { t, locale, setLocale } = useI18n();
 	const [config, setConfig] = useState<ConfigData | null>(null);
 	const [saving, setSaving] = useState(false);
 	const [saved, setSaved] = useState(false);
@@ -101,7 +103,7 @@ export function SettingsPanel({ onClose, onFeaturesChange }: { onClose: () => vo
 	return (
 		<div>
 			<div className="flex items-center justify-between mb-6">
-				<h2 className="text-sm font-semibold">Settings</h2>
+				<h2 className="text-sm font-semibold">{t("settings.title")}</h2>
 				<div className="flex items-center gap-2">
 					{saving && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/40" />}
 					{saved && <Check className="h-3 w-3 text-green-500" />}
@@ -116,8 +118,8 @@ export function SettingsPanel({ onClose, onFeaturesChange }: { onClose: () => vo
 			</div>
 
 			<div className="space-y-6">
-				<Section title="Authentication">
-					<Row label="OpenRouter API Key">
+				<Section title={t("settings.authentication")}>
+					<Row label={t("settings.openrouterApiKey")}>
 						{showApiKeyField ? (
 							<div className="flex gap-1.5">
 								<input
@@ -149,37 +151,37 @@ export function SettingsPanel({ onClose, onFeaturesChange }: { onClose: () => vo
 									}}
 									className="h-7 px-2.5 rounded-md bg-foreground text-background text-[11px] font-medium disabled:opacity-20 hover:opacity-80 transition-opacity"
 								>
-									Save
+									{t("common.save")}
 								</button>
 							</div>
 						) : (
 							<div className="flex items-center gap-2">
 								<span className={`h-1.5 w-1.5 rounded-full ${config.has_api_key ? "bg-green-500" : "bg-red-500"}`} />
 								<span className="text-[11px] text-muted-foreground/50">
-									{config.has_api_key ? "Configured" : "Not set"}
+									{config.has_api_key ? t("settings.configured") : t("settings.notSet")}
 								</span>
 								<button
 									type="button"
 									onClick={() => setShowApiKeyField(true)}
 									className="text-[11px] text-muted-foreground/40 hover:text-foreground transition-colors"
 								>
-									{config.has_api_key ? "Change" : "Set"}
+									{config.has_api_key ? t("settings.change") : t("settings.set")}
 								</button>
 							</div>
 						)}
 					</Row>
-					<Row label="GitHub Token">
+					<Row label={t("settings.githubToken")}>
 						<div className="flex items-center gap-2">
 							<span className={`h-1.5 w-1.5 rounded-full ${config.has_github_token ? "bg-green-500" : "bg-red-500"}`} />
 							<span className="text-[11px] text-muted-foreground/50">
-								{config.has_github_token ? "gh CLI" : "Not detected"}
+								{config.has_github_token ? t("settings.ghCli") : t("settings.notDetected")}
 							</span>
 						</div>
 					</Row>
 				</Section>
 
-				<Section title="Model">
-					<Row label="LLM">
+				<Section title={t("settings.model")}>
+					<Row label={t("settings.llm")}>
 						{config.has_api_key ? (
 							<ModelSelect
 								value={config.model}
@@ -187,10 +189,10 @@ export function SettingsPanel({ onClose, onFeaturesChange }: { onClose: () => vo
 								onChange={(id: string) => save({ model: id })}
 							/>
 						) : (
-							<span className="text-[11px] text-muted-foreground/40">Set API key first</span>
+							<span className="text-[11px] text-muted-foreground/40">{t("settings.setApiKeyFirst")}</span>
 						)}
 					</Row>
-					<Row label="Agent">
+					<Row label={t("settings.agent")}>
 						<div className="flex gap-px rounded-md border p-0.5">
 							{AGENTS.map((a) => (
 								<button
@@ -208,38 +210,56 @@ export function SettingsPanel({ onClose, onFeaturesChange }: { onClose: () => vo
 							))}
 						</div>
 					</Row>
-					<Row label="Language">
+					<Row label={t("settings.language")}>
 						<select
 							value={config.language}
 							onChange={(e) => save({ language: e.target.value })}
 							className="h-7 rounded-md border bg-background px-2 text-[11px] focus:outline-none focus:border-foreground/20 cursor-pointer"
 						>
 							{LANGUAGES.map((l) => (
-								<option key={l} value={l}>{l === "auto" ? "Auto-detect" : l}</option>
+								<option key={l} value={l}>{l === "auto" ? t("settings.autoDetect") : l}</option>
 							))}
 						</select>
 					</Row>
-				</Section>
-
-				<Section title="Limits">
-					<Row label="Max files">
-						<NumberInput value={config.max_files} onChange={(v) => save({ max_files: v })} />
-					</Row>
-					<Row label="Timeout">
-						<div className="flex items-center gap-1.5">
-							<NumberInput value={config.timeout} onChange={(v) => save({ timeout: v })} />
-							<span className="text-[10px] text-muted-foreground/30">sec</span>
+					<Row label={t("settings.uiLanguage")}>
+						<div className="flex gap-px rounded-md border p-0.5">
+							{(["en", "ko"] as const).map((l) => (
+								<button
+									key={l}
+									type="button"
+									onClick={() => setLocale(l)}
+									className={`px-2.5 py-1 rounded text-[11px] transition-colors ${
+										locale === l
+											? "bg-accent text-foreground font-medium"
+											: "text-muted-foreground/50 hover:text-foreground"
+									}`}
+								>
+									{l === "en" ? "English" : "한국어"}
+								</button>
+							))}
 						</div>
 					</Row>
-					<Row label="Concurrency">
+				</Section>
+
+				<Section title={t("settings.limits")}>
+					<Row label={t("settings.maxFiles")}>
+						<NumberInput value={config.max_files} onChange={(v) => save({ max_files: v })} />
+					</Row>
+					<Row label={t("settings.timeout")}>
+						<div className="flex items-center gap-1.5">
+							<NumberInput value={config.timeout} onChange={(v) => save({ timeout: v })} />
+							<span className="text-[10px] text-muted-foreground/30">{t("settings.seconds")}</span>
+						</div>
+					</Row>
+					<Row label={t("settings.concurrency")}>
 						<NumberInput value={config.concurrency} onChange={(v) => save({ concurrency: v })} />
 					</Row>
 				</Section>
 
-			<Section title="Custom Prompt">
+			<Section title={t("settings.customPrompt")}>
 					<div className="space-y-2">
 						<p className="text-[10px] text-muted-foreground/40 leading-relaxed">
-							Additional instructions for PR analysis. Applied to all analysis stages.
+							{t("settings.customPromptDesc")}
 						</p>
 						<CustomPromptInput
 							value={config.custom_prompt}
@@ -249,7 +269,7 @@ export function SettingsPanel({ onClose, onFeaturesChange }: { onClose: () => vo
 				</Section>
 
 				{config.available_plugins.length > 0 && (
-				<Section title="Plugins">
+				<Section title={t("settings.plugins")}>
 						<div className="space-y-1">
 							{config.available_plugins.map((p) => {
 								const enabled = config.enabled_plugins.includes(p.id);
@@ -281,7 +301,7 @@ export function SettingsPanel({ onClose, onFeaturesChange }: { onClose: () => vo
 						</div>
 					</Section>
 				)}
-				<Section title="Privacy">
+				<Section title={t("settings.privacy")}>
 					<AnalyticsToggle />
 				</Section>
 			</div>
@@ -290,6 +310,7 @@ export function SettingsPanel({ onClose, onFeaturesChange }: { onClose: () => vo
 }
 
 function CustomPromptInput({ value, onSave }: { value: string; onSave: (v: string) => void }) {
+	const { t } = useI18n();
 	const [local, setLocal] = useState(value);
 	const [focused, setFocused] = useState(false);
 
@@ -315,13 +336,13 @@ function CustomPromptInput({ value, onSave }: { value: string; onSave: (v: strin
 						(e.target as HTMLTextAreaElement).blur();
 					}
 				}}
-				placeholder="e.g. Focus on security vulnerabilities and performance issues. Ignore style changes."
+				placeholder={t("settings.customPromptPlaceholder")}
 				rows={3}
 				className="w-full rounded-md border bg-background px-2.5 py-2 text-[11px] leading-relaxed placeholder:text-muted-foreground/30 focus:outline-none focus:border-foreground/20 resize-y min-h-[60px]"
 			/>
 			{focused && dirty && (
 				<p className="text-[10px] text-muted-foreground/30">
-					Press Cmd+Enter to save, or click outside
+					{t("settings.cmdEnterToSave")}
 				</p>
 			)}
 		</div>
@@ -329,6 +350,7 @@ function CustomPromptInput({ value, onSave }: { value: string; onSave: (v: strin
 }
 
 function AnalyticsToggle() {
+	const { t } = useI18n();
 	const [consent, setLocal] = useState(() => getConsent());
 	const enabled = consent === "granted";
 
@@ -345,10 +367,10 @@ function AnalyticsToggle() {
 	};
 
 	return (
-		<Row label="Usage Analytics">
+		<Row label={t("settings.usageAnalytics")}>
 			<div className="flex items-center gap-2">
 				<span className="text-[11px] text-muted-foreground/50">
-					{enabled ? "Enabled" : "Disabled"}
+					{enabled ? t("common.enabled") : t("common.disabled")}
 				</span>
 				<button
 					type="button"
@@ -367,6 +389,7 @@ function AnalyticsToggle() {
 }
 
 function ModelSelect({ value, models: allModels, onChange }: { value: string; models: ModelInfo[]; onChange: (id: string) => void }) {
+	const { t } = useI18n();
 	const [open, setOpen] = useState(false);
 	const [search, setSearch] = useState("");
 	const ref = useRef<HTMLDivElement>(null);
@@ -415,14 +438,14 @@ function ModelSelect({ value, models: allModels, onChange }: { value: string; mo
 								type="text"
 								value={search}
 								onChange={(e) => setSearch(e.target.value)}
-								placeholder="Search models..."
+								placeholder={t("settings.searchModels")}
 								className="flex-1 bg-transparent text-[11px] focus:outline-none placeholder:text-muted-foreground/30"
 							/>
 					</div>
 				</div>
 				<div className="max-h-[280px] overflow-y-auto p-1">
 					{models.length === 0 && (
-							<div className="px-2 py-3 text-center text-[11px] text-muted-foreground/40">No models found</div>
+							<div className="px-2 py-3 text-center text-[11px] text-muted-foreground/40">{t("settings.noModelsFound")}</div>
 						)}
 						{models.slice(0, 80).map((m, i) => {
 							const isSelected = m.id === value;

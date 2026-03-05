@@ -3,6 +3,7 @@ import { X, Check, MessageSquare, Loader2, AlertCircle, ExternalLink } from "luc
 import { TipTapEditor, getTextWithAnchors } from "./TipTapEditor.tsx";
 import type { useEditor } from "@tiptap/react";
 import { analytics } from "../lib/analytics.ts";
+import { useI18n } from "../lib/i18n/index.ts";
 
 type ReviewEvent = "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
 
@@ -36,10 +37,17 @@ interface ReviewModalProps {
 }
 
 export function ReviewModal({ prUrl, onClose }: ReviewModalProps) {
+	const { t } = useI18n();
 	const [event, setEvent] = useState<ReviewEvent>("APPROVE");
 	const [submitting, setSubmitting] = useState(false);
 	const [result, setResult] = useState<{ ok: boolean; html_url?: string; error?: string } | null>(null);
 	const editorRef = useRef<ReturnType<typeof useEditor>>(null);
+
+	const eventLabels: Record<ReviewEvent, string> = {
+		APPROVE: t("review.approve"),
+		REQUEST_CHANGES: t("review.requestChanges"),
+		COMMENT: t("review.comment"),
+	};
 
 	const handleSubmit = useCallback(async () => {
 		if (submitting) return;
@@ -74,7 +82,7 @@ export function ReviewModal({ prUrl, onClose }: ReviewModalProps) {
 				onClick={(e) => e.stopPropagation()}
 			>
 				<div className="flex items-center justify-between px-4 h-11 border-b">
-					<span className="text-sm font-medium">Submit Review</span>
+					<span className="text-sm font-medium">{t("review.submitReview")}</span>
 					<button
 						type="button"
 						onClick={onClose}
@@ -89,7 +97,7 @@ export function ReviewModal({ prUrl, onClose }: ReviewModalProps) {
 						<div className="space-y-4 py-2">
 							<div className="flex items-center gap-2 text-green-600 dark:text-green-400">
 								<Check className="h-4 w-4" />
-								<span className="text-sm font-medium">Review submitted</span>
+								<span className="text-sm font-medium">{t("review.reviewSubmitted")}</span>
 							</div>
 							{result.html_url && (
 								<a
@@ -98,8 +106,8 @@ export function ReviewModal({ prUrl, onClose }: ReviewModalProps) {
 									rel="noopener noreferrer"
 									className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors"
 								>
-									<ExternalLink className="h-3 w-3" />
-									View on GitHub
+								<ExternalLink className="h-3 w-3" />
+								{t("review.viewOnGithub")}
 								</a>
 							)}
 							<div className="flex justify-end">
@@ -108,7 +116,7 @@ export function ReviewModal({ prUrl, onClose }: ReviewModalProps) {
 									onClick={onClose}
 									className="text-[11px] text-muted-foreground/50 hover:text-foreground px-3 py-1.5 rounded-md hover:bg-accent/40 transition-colors"
 								>
-									Close
+									{t("common.close")}
 								</button>
 							</div>
 						</div>
@@ -124,19 +132,19 @@ export function ReviewModal({ prUrl, onClose }: ReviewModalProps) {
 											event === e.value ? e.activeClass : e.class
 										}`}
 									>
-										{e.label}
+										{eventLabels[e.value]}
 									</button>
 								))}
 							</div>
 
 							<div>
 								<div className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider mb-2">
-									Message {event !== "APPROVE" && <span className="text-red-500/60 normal-case">*</span>}
+									{t("review.message")} {event !== "APPROVE" && <span className="text-red-500/60 normal-case">*</span>}
 								</div>
 								<div className="rounded-lg border px-3 py-2.5 min-h-[80px] focus-within:border-foreground/15 transition-colors">
 									<TipTapEditor
 										editorRef={editorRef}
-										placeholder={event === "APPROVE" ? "Optional message..." : "Describe the changes needed..."}
+										placeholder={event === "APPROVE" ? t("review.optionalMessage") : t("review.describeChanges")}
 										autoFocus
 										submitOnModEnter
 										onSubmit={handleSubmit}
@@ -152,17 +160,17 @@ export function ReviewModal({ prUrl, onClose }: ReviewModalProps) {
 							)}
 
 							<div className="flex items-center justify-between pt-1">
-								<span className="text-[10px] text-muted-foreground/25">
-									{navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}+Enter to submit
-								</span>
+							<span className="text-[10px] text-muted-foreground/25">
+								{t("review.ctrlEnterToSubmit", { key: navigator.platform.includes("Mac") ? "⌘" : "Ctrl" })}
+							</span>
 								<div className="flex gap-2">
 									<button
 										type="button"
 										onClick={onClose}
 										className="text-[11px] text-muted-foreground/50 hover:text-foreground px-3 py-1.5 rounded-md hover:bg-accent/40 transition-colors"
-									>
-										Cancel
-									</button>
+								>
+									{t("common.cancel")}
+								</button>
 									<button
 										type="button"
 										onClick={handleSubmit}
@@ -176,7 +184,7 @@ export function ReviewModal({ prUrl, onClose }: ReviewModalProps) {
 										) : (
 											<MessageSquare className="h-3 w-3" />
 										)}
-										Submit
+										{t("common.submit")}
 									</button>
 								</div>
 							</div>

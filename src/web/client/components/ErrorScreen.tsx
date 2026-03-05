@@ -1,58 +1,31 @@
 import { useState } from "react";
 import { AlertCircle, RotateCcw, ArrowLeft } from "lucide-react";
 import { Button } from "../../components/ui/button.tsx";
+import { useI18n, type TranslationKey } from "../lib/i18n/index.ts";
 
-function categorizeError(message: string): { title: string; hint: string; retryable: boolean } {
+function categorizeError(message: string): { titleKey: TranslationKey; hintKey: TranslationKey; retryable: boolean } {
 	const lower = message.toLowerCase();
 
 	if (lower.includes("rate limit") || lower.includes("429")) {
-		return {
-			title: "Rate limit reached",
-			hint: "The API rate limit has been exceeded. Wait a moment before retrying.",
-			retryable: true,
-		};
+		return { titleKey: "error.rateLimitTitle", hintKey: "error.rateLimitHint", retryable: true };
 	}
 	if (lower.includes("timeout") || lower.includes("timed out")) {
-		return {
-			title: "Request timed out",
-			hint: "The analysis took too long. This can happen with very large PRs.",
-			retryable: true,
-		};
+		return { titleKey: "error.timeoutTitle", hintKey: "error.timeoutHint", retryable: true };
 	}
 	if (lower.includes("network") || lower.includes("fetch") || lower.includes("econnrefused")) {
-		return {
-			title: "Connection failed",
-			hint: "Could not reach the server. Check your network connection.",
-			retryable: true,
-		};
+		return { titleKey: "error.networkTitle", hintKey: "error.networkHint", retryable: true };
 	}
 	if (lower.includes("401") || lower.includes("unauthorized") || lower.includes("token")) {
-		return {
-			title: "Authentication error",
-			hint: "Your GitHub token may be expired or invalid. Run `newpr auth` to reconfigure.",
-			retryable: false,
-		};
+		return { titleKey: "error.authTitle", hintKey: "error.authHint", retryable: false };
 	}
 	if (lower.includes("404") || lower.includes("not found")) {
-		return {
-			title: "PR not found",
-			hint: "The pull request could not be found. Check the URL and make sure you have access.",
-			retryable: false,
-		};
+		return { titleKey: "error.notFoundTitle", hintKey: "error.notFoundHint", retryable: false };
 	}
 	if (lower.includes("openrouter") || lower.includes("api key")) {
-		return {
-			title: "API key error",
-			hint: "Your OpenRouter API key may be missing or invalid. Set OPENROUTER_API_KEY in your environment.",
-			retryable: false,
-		};
+		return { titleKey: "error.apiKeyTitle", hintKey: "error.apiKeyHint", retryable: false };
 	}
 
-	return {
-		title: "Analysis failed",
-		hint: "Something went wrong during the analysis.",
-		retryable: true,
-	};
+	return { titleKey: "error.defaultTitle", hintKey: "error.defaultHint", retryable: true };
 }
 
 export function ErrorScreen({
@@ -65,7 +38,8 @@ export function ErrorScreen({
 	onBack: () => void;
 }) {
 	const [retrying, setRetrying] = useState(false);
-	const { title, hint, retryable } = categorizeError(error);
+	const { t } = useI18n();
+	const { titleKey, hintKey, retryable } = categorizeError(error);
 
 	function handleRetry() {
 		if (!onRetry) return;
@@ -81,9 +55,9 @@ export function ErrorScreen({
 				</div>
 
 				<div className="flex flex-col items-center gap-2 text-center">
-					<h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+					<h2 className="text-lg font-semibold tracking-tight">{t(titleKey)}</h2>
 					<p className="text-base text-muted-foreground leading-relaxed max-w-sm">
-						{hint}
+						{t(hintKey)}
 					</p>
 				</div>
 
@@ -101,7 +75,7 @@ export function ErrorScreen({
 							size="default"
 						>
 							<RotateCcw className={`mr-2 h-3.5 w-3.5 ${retrying ? "animate-spin" : ""}`} />
-							{retrying ? "Retrying..." : "Try again"}
+							{retrying ? t("common.retrying") : t("common.tryAgain")}
 						</Button>
 					)}
 					<Button
@@ -110,7 +84,7 @@ export function ErrorScreen({
 						size="default"
 					>
 						<ArrowLeft className="mr-2 h-3.5 w-3.5" />
-						Back
+						{t("common.back")}
 					</Button>
 				</div>
 			</div>

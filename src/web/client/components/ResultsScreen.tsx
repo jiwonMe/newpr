@@ -11,6 +11,7 @@ import { SlidesPanel } from "../panels/SlidesPanel.tsx";
 import { StackPanel } from "../panels/StackPanel.tsx";
 import { ReviewModal } from "./ReviewModal.tsx";
 import { useOutdatedCheck } from "../hooks/useOutdatedCheck.ts";
+import { useI18n, type TranslationKey } from "../lib/i18n/index.ts";
 
 const VALID_TABS = ["story", "discussion", "groups", "files", "stack", "slides", "cartoon"] as const;
 type TabValue = typeof VALID_TABS[number];
@@ -34,11 +35,18 @@ const RISK_DOT: Record<string, string> = {
 	critical: "bg-red-600",
 };
 
-const STATE_STYLES: Record<string, { bg: string; text: string; label: string }> = {
-	open: { bg: "bg-green-500/10", text: "text-green-600 dark:text-green-400", label: "Open" },
-	merged: { bg: "bg-purple-500/10", text: "text-purple-600 dark:text-purple-400", label: "Merged" },
-	closed: { bg: "bg-red-500/10", text: "text-red-600 dark:text-red-400", label: "Closed" },
-	draft: { bg: "bg-neutral-500/10", text: "text-neutral-500", label: "Draft" },
+const STATE_STYLE_CLASS: Record<string, { bg: string; text: string }> = {
+	open: { bg: "bg-green-500/10", text: "text-green-600 dark:text-green-400" },
+	merged: { bg: "bg-purple-500/10", text: "text-purple-600 dark:text-purple-400" },
+	closed: { bg: "bg-red-500/10", text: "text-red-600 dark:text-red-400" },
+	draft: { bg: "bg-neutral-500/10", text: "text-neutral-500" },
+};
+
+const STATE_LABEL_KEYS: Record<string, TranslationKey> = {
+	open: "results.open",
+	merged: "results.merged",
+	closed: "results.closed",
+	draft: "results.draft",
 };
 
 export function ResultsScreen({
@@ -68,6 +76,7 @@ export function ResultsScreen({
 	const [tab, setTab] = useState<TabValue>(getInitialTab);
 	const [reviewOpen, setReviewOpen] = useState(false);
 	const outdated = useOutdatedCheck(sessionId);
+	const { t } = useI18n();
 
 	useEffect(() => {
 		onTabChange?.(tab);
@@ -135,10 +144,11 @@ export function ResultsScreen({
 								{repoSlug}
 							</a>
 							{meta.pr_state && (() => {
-								const s = STATE_STYLES[meta.pr_state] ?? STATE_STYLES.open!;
+								const s = STATE_STYLE_CLASS[meta.pr_state] ?? STATE_STYLE_CLASS.open!;
+								const labelKey = STATE_LABEL_KEYS[meta.pr_state] ?? STATE_LABEL_KEYS.open!;
 								return (
 									<span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-md ${s!.bg} ${s!.text}`}>
-										{s!.label}
+										{t(labelKey)}
 									</span>
 								);
 							})()}
@@ -151,7 +161,7 @@ export function ResultsScreen({
 									className="flex items-center gap-1.5 h-7 px-3 rounded-md border text-[11px] font-medium text-foreground hover:bg-accent/40 transition-colors shrink-0"
 								>
 									<Check className="h-3 w-3" />
-									Review
+									{t("results.review")}
 									<ChevronDown className="h-3 w-3 text-muted-foreground/40" />
 								</button>
 							)}
@@ -183,7 +193,7 @@ export function ResultsScreen({
 								<span className="text-green-600 dark:text-green-400 tabular-nums">+{meta.total_additions}</span>
 								<span className="text-red-600 dark:text-red-400 tabular-nums">-{meta.total_deletions}</span>
 								<span className="text-muted-foreground/25">·</span>
-								<span className="tabular-nums">{meta.total_files_changed} files</span>
+								<span className="tabular-nums">{t("results.nFiles", { n: meta.total_files_changed })}</span>
 							</div>
 						</div>
 					</div>
@@ -191,7 +201,7 @@ export function ResultsScreen({
 						<div className="flex items-center gap-2 mt-3 px-3 py-2 rounded-lg border border-yellow-500/20 bg-yellow-500/5">
 							<AlertTriangle className="h-3.5 w-3.5 text-yellow-600 dark:text-yellow-400 shrink-0" />
 							<span className="text-[11px] text-yellow-700 dark:text-yellow-300 flex-1">
-								This PR has been updated since this analysis was created.
+								{t("results.prUpdated")}
 							</span>
 							{onReanalyze && (
 								<button
@@ -200,7 +210,7 @@ export function ResultsScreen({
 									className="flex items-center gap-1 text-[11px] font-medium text-yellow-700 dark:text-yellow-300 hover:text-yellow-900 dark:hover:text-yellow-100 shrink-0 transition-colors"
 								>
 									<RefreshCw className="h-3 w-3" />
-									Re-analyze
+									{t("results.reAnalyze")}
 								</button>
 							)}
 						</div>
@@ -218,8 +228,9 @@ export function ResultsScreen({
 						</button>
 						<span className={`h-1.5 w-1.5 rounded-full shrink-0 ${RISK_DOT[summary.risk_level] ?? RISK_DOT.medium}`} />
 						{meta.pr_state && (() => {
-							const s = STATE_STYLES[meta.pr_state]!;
-							return <span className={`text-[9px] font-medium px-1 py-px rounded ${s.bg} ${s.text} shrink-0`}>{s.label}</span>;
+							const s = STATE_STYLE_CLASS[meta.pr_state]!;
+							const labelKey = STATE_LABEL_KEYS[meta.pr_state] ?? STATE_LABEL_KEYS.open!;
+							return <span className={`text-[9px] font-medium px-1 py-px rounded ${s.bg} ${s.text} shrink-0`}>{t(labelKey)}</span>;
 						})()}
 					<span className="text-sm font-medium truncate flex-1">{meta.pr_title}</span>
 					<span className="text-xs text-muted-foreground/30 font-mono shrink-0">{repoSlug}</span>
@@ -229,34 +240,34 @@ export function ResultsScreen({
 				<TabsList className="w-full justify-start">
 					<TabsTrigger value="story">
 						<BookOpen className="h-3 w-3 shrink-0" />
-						Story
+						{t("results.story")}
 					</TabsTrigger>
 					<TabsTrigger value="discussion">
 						<MessageSquare className="h-3 w-3 shrink-0" />
-						Discussion
+						{t("results.discussion")}
 					</TabsTrigger>
 					<TabsTrigger value="groups">
 						<Layers className="h-3 w-3 shrink-0" />
-						Groups
+						{t("results.groups")}
 					</TabsTrigger>
 					<TabsTrigger value="files">
 						<FolderTree className="h-3 w-3 shrink-0" />
-						Files
+						{t("results.files")}
 					</TabsTrigger>
 					<TabsTrigger value="stack">
 						<GitPullRequestArrow className="h-3 w-3 shrink-0" />
-						Stack
+						{t("results.stack")}
 					</TabsTrigger>
 					{(!enabledPlugins || enabledPlugins.includes("slides")) && (
 						<TabsTrigger value="slides">
 							<Presentation className="h-3 w-3 shrink-0" />
-							Slides
+							{t("results.slides")}
 						</TabsTrigger>
 					)}
 					{(!enabledPlugins || enabledPlugins.includes("cartoon")) && (
 						<TabsTrigger value="cartoon">
 							<Sparkles className="h-3 w-3 shrink-0" />
-							Comic
+							{t("results.comic")}
 						</TabsTrigger>
 					)}
 				</TabsList>

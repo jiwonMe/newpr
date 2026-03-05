@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Plus, Pencil, Trash2, ArrowRight, X, Loader2, AlertCircle } from "lucide-react";
 import type { FileGroup, FileChange, FileStatus } from "../../../types/output.ts";
 import { DiffViewer } from "./DiffViewer.tsx";
+import { useI18n } from "../lib/i18n/index.ts";
 
 export interface DetailTarget {
 	kind: "group" | "file" | "line";
@@ -117,6 +118,7 @@ function FileDetail({
 	const Icon = STATUS_ICON[file.status];
 	const { patch, loading, error, fetchPatch } = usePatchFetcher(sessionId, file.path);
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
+	const { t } = useI18n();
 
 	useEffect(() => {
 		if (sessionId && !patch && !loading && !error) {
@@ -146,7 +148,7 @@ function FileDetail({
 				{loading && (
 					<div className="flex items-center justify-center py-16 gap-2">
 						<Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground/40" />
-						<span className="text-sm text-muted-foreground/50">Loading diff</span>
+						<span className="text-sm text-muted-foreground/50">{t("detail.loadingDiff")}</span>
 					</div>
 				)}
 				{error && (
@@ -160,7 +162,7 @@ function FileDetail({
 						onClick={fetchPatch}
 						className="text-xs text-muted-foreground/50 hover:text-foreground transition-colors"
 						>
-							Retry
+							{t("common.retry")}
 						</button>
 					</div>
 				)}
@@ -193,6 +195,8 @@ export function DetailPane({
 }) {
 	if (!target) return null;
 
+	const { t } = useI18n();
+
 	if (target.kind === "group" && target.group) {
 		const g = target.group;
 		const totalAdd = target.files.reduce((s, f) => s + f.additions, 0);
@@ -218,7 +222,7 @@ export function DetailPane({
 
 					{g.key_changes && g.key_changes.length > 0 && (
 						<div>
-							<div className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider mb-2">Key Changes</div>
+							<div className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider mb-2">{t("detail.keyChanges")}</div>
 							<ul className="space-y-1.5">
 								{g.key_changes.map((change, i) => (
 									<li key={i} className="flex gap-2 text-[11px] text-muted-foreground/70 leading-relaxed">
@@ -232,14 +236,14 @@ export function DetailPane({
 
 					{g.risk && (
 						<div>
-							<div className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider mb-1.5">Risk</div>
+							<div className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider mb-1.5">{t("detail.risk")}</div>
 							<p className="text-[11px] text-muted-foreground/60 leading-relaxed">{g.risk}</p>
 						</div>
 					)}
 
 					{g.dependencies && g.dependencies.length > 0 && (
 						<div>
-							<div className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider mb-1.5">Dependencies</div>
+							<div className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider mb-1.5">{t("detail.dependencies")}</div>
 							<div className="flex flex-wrap gap-1.5">
 								{g.dependencies.map((dep) => (
 									<span key={dep} className="text-[10px] px-1.5 py-0.5 rounded-md bg-accent/60 text-muted-foreground/60">{dep}</span>
@@ -250,7 +254,7 @@ export function DetailPane({
 
 					<div>
 						<div className="flex items-center gap-2 mb-2.5">
-							<span className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider">{target.files.length} files</span>
+							<span className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider">{t("detail.nFiles", { n: target.files.length })}</span>
 							<span className="text-[10px] tabular-nums text-green-600 dark:text-green-400">+{totalAdd}</span>
 							<span className="text-[10px] tabular-nums text-red-600 dark:text-red-400">-{totalDel}</span>
 						</div>

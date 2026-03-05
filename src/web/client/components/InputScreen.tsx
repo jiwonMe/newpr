@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { CornerDownLeft, GitPullRequest, ExternalLink, ChevronUp } from "lucide-react";
 import type { SessionRecord } from "../../../history/types.ts";
 import { analytics } from "../lib/analytics.ts";
+import { useI18n, type TranslationKey } from "../lib/i18n/index.ts";
 
 interface ToolStatus {
 	name: string;
@@ -23,16 +24,16 @@ const RISK_DOT: Record<string, string> = {
 	critical: "bg-red-600",
 };
 
-function timeAgo(date: string): string {
+function timeAgo(date: string, t: (key: TranslationKey, params?: Record<string, string | number>) => string): string {
 	const s = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
-	if (s < 60) return "just now";
+	if (s < 60) return t("time.justNow");
 	const m = Math.floor(s / 60);
-	if (m < 60) return `${m}m ago`;
+	if (m < 60) return t("time.minutesAgo", { n: m });
 	const h = Math.floor(m / 60);
-	if (h < 24) return `${h}h ago`;
+	if (h < 24) return t("time.hoursAgo", { n: h });
 	const d = Math.floor(h / 24);
-	if (d < 30) return `${d}d ago`;
-	return `${Math.floor(d / 30)}mo ago`;
+	if (d < 30) return t("time.daysAgo", { n: d });
+	return t("time.monthsAgo", { n: Math.floor(d / 30) });
 }
 
 function StatusDot({ ok, optional }: { ok: boolean; optional?: boolean }) {
@@ -42,6 +43,7 @@ function StatusDot({ ok, optional }: { ok: boolean; optional?: boolean }) {
 }
 
 function CompactStatus({ data }: { data: PreflightData }) {
+	const { t } = useI18n();
 	const [open, setOpen] = useState(false);
 	const gh = data.github;
 	const allOk = gh.installed && gh.authenticated && data.openrouterKey;
@@ -53,7 +55,7 @@ function CompactStatus({ data }: { data: PreflightData }) {
 				className="flex items-center gap-1.5 hover:opacity-70 transition-opacity"
 			>
 				<StatusDot ok={allOk} />
-				<span className="text-[10px] font-mono text-muted-foreground/30">status</span>
+				<span className="text-[10px] font-mono text-muted-foreground/30">{t("input.status")}</span>
 				<ChevronUp className={`h-2.5 w-2.5 text-muted-foreground/20 transition-transform ${open ? "" : "rotate-180"}`} />
 			</button>
 			{open && (
@@ -94,6 +96,7 @@ export function InputScreen({
 	onSessionSelect?: (id: string) => void;
 	version?: string;
 }) {
+	const { t } = useI18n();
 	const [value, setValue] = useState("");
 	const [focused, setFocused] = useState(false);
 	const [preflight, setPreflight] = useState<PreflightData | null>(null);
@@ -126,9 +129,9 @@ export function InputScreen({
 							</span>
 						)}
 					</div>
-					<p className="text-base text-muted-foreground/50">
-						Turn PRs into navigable stories
-					</p>
+				<p className="text-base text-muted-foreground/50">
+					{t("input.tagline")}
+				</p>
 				</div>
 
 				<div>
@@ -157,7 +160,7 @@ export function InputScreen({
 						</div>
 						<div className="flex justify-center mt-2.5">
 							<span className="text-[10px] text-muted-foreground/20 font-mono">
-								↵ Enter to analyze
+								{t("input.enterToAnalyze")}
 							</span>
 						</div>
 					</form>
@@ -168,9 +171,9 @@ export function InputScreen({
 
 				{recents.length > 0 && (
 					<div className="space-y-3">
-						<div className="text-[10px] font-medium text-muted-foreground/25 uppercase tracking-[0.15em] text-center">
-							Recent
-						</div>
+					<div className="text-[10px] font-medium text-muted-foreground/25 uppercase tracking-[0.15em] text-center">
+						{t("input.recent")}
+					</div>
 						<div className="space-y-px">
 							{recents.map((s) => (
 								<button
@@ -189,7 +192,7 @@ export function InputScreen({
 										<span className="font-mono">{s.repo.split("/").pop()}</span>
 										<span className="font-mono">#{s.pr_number}</span>
 										<span className="text-muted-foreground/15">·</span>
-										<span>{timeAgo(s.analyzed_at)}</span>
+										<span>{timeAgo(s.analyzed_at, t)}</span>
 									</div>
 								</button>
 							))}
@@ -211,6 +214,7 @@ export function InputScreen({
 const SIONIC_HERO_BG = "https://www.sionic.ai/_next/image?url=%2F_next%2Fstatic%2Fmedia%2Fmain-intro-bg.1455295d.png&w=1920&q=75";
 
 function SponsorBanner() {
+	const { t } = useI18n();
 	return (
 		<a
 			href="https://www.sionic.ai"
@@ -234,11 +238,11 @@ function SponsorBanner() {
 				/>
 				<div className="h-3 w-px bg-white/15 shrink-0" />
 				<span className="text-[10px] text-white/45 truncate">
-					The Power of AI for Every Business
+					{t("input.sponsorTagline")}
 				</span>
 			</div>
 			<div className="relative flex items-center gap-1.5 shrink-0">
-				<span className="text-[8px] text-white/20 uppercase tracking-widest">Ad</span>
+				<span className="text-[8px] text-white/20 uppercase tracking-widest">{t("input.ad")}</span>
 				<ExternalLink className="h-2.5 w-2.5 text-white/15 group-hover:text-white/40 transition-colors" />
 			</div>
 		</a>

@@ -2,18 +2,19 @@ import { useState, useEffect, useRef } from "react";
 import { CheckCircle2, Circle, Loader2 } from "lucide-react";
 import type { ProgressEvent, ProgressStage } from "../../../analyzer/progress.ts";
 import { stageIndex, allStages } from "../../../analyzer/progress.ts";
+import { useI18n, type TranslationKey } from "../lib/i18n/index.ts";
 
-const STAGE_LABELS: Record<ProgressStage, string> = {
-	fetching: "Fetch PR data",
-	parsing: "Parse diff",
-	cloning: "Clone repository",
-	checkout: "Checkout branches",
-	exploring: "Explore codebase",
-	analyzing: "Analyze files",
-	grouping: "Group changes",
-	summarizing: "Generate summary",
-	narrating: "Write narrative",
-	done: "Complete",
+const STAGE_KEYS: Record<ProgressStage, TranslationKey> = {
+	fetching: "loading.fetching",
+	parsing: "loading.parsing",
+	cloning: "loading.cloning",
+	checkout: "loading.checkout",
+	exploring: "loading.exploring",
+	analyzing: "loading.analyzing",
+	grouping: "loading.grouping",
+	summarizing: "loading.summarizing",
+	narrating: "loading.narrating",
+	done: "loading.done",
 };
 
 const MAX_LOG_LINES = 8;
@@ -29,7 +30,7 @@ interface StepInfo {
 	log: string[];
 }
 
-function buildSteps(events: ProgressEvent[]): StepInfo[] {
+function buildSteps(events: ProgressEvent[], stageLabels: Record<ProgressStage, string>): StepInfo[] {
 	const stages = allStages();
 	const lastByStage = new Map<ProgressStage, ProgressEvent>();
 	const firstTs = new Map<ProgressStage, number>();
@@ -72,7 +73,7 @@ function buildSteps(events: ProgressEvent[]): StepInfo[] {
 
 			return {
 				stage,
-				message: event?.message ?? STAGE_LABELS[stage],
+				message: event?.message ?? stageLabels[stage],
 				done,
 				active,
 				durationMs,
@@ -107,7 +108,11 @@ export function LoadingTimeline({
 		logEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
 	}, [events.length]);
 
-	const steps = buildSteps(events);
+	const { t } = useI18n();
+	const stageLabels = Object.fromEntries(
+		Object.entries(STAGE_KEYS).map(([stage, key]) => [stage, t(key)]),
+	) as Record<ProgressStage, string>;
+	const steps = buildSteps(events, stageLabels);
 	const seconds = Math.floor(elapsed / 1000);
 
 	const prInfo = events.find((e) => e.pr_title);
@@ -136,7 +141,7 @@ export function LoadingTimeline({
 
 				<div className="space-y-3">
 					{steps.map((step) => {
-						const completionDetail = step.message !== STAGE_LABELS[step.stage] ? step.message : "";
+						const completionDetail = step.message !== stageLabels[step.stage] ? step.message : "";
 						const progress = step.current !== undefined && step.total !== undefined
 							? ` (${step.current}/${step.total})`
 							: "";
@@ -154,7 +159,7 @@ export function LoadingTimeline({
 								<div className="min-w-0 flex-1">
 									<div className="flex items-center gap-2">
 								<span className={`text-base font-medium ${step.done ? "text-muted-foreground" : step.active ? "text-foreground" : "text-muted-foreground/50"}`}>
-										{STAGE_LABELS[step.stage]}{progress}
+										{stageLabels[step.stage]}{progress}
 									</span>
 									{step.done && step.durationMs !== undefined && (
 										<span className="text-sm text-muted-foreground/60">

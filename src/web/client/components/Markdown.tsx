@@ -1,4 +1,4 @@
-import { memo, useState, useEffect, useMemo } from "react";
+import { memo, useState, useEffect, useMemo, isValidElement } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -134,8 +134,9 @@ function isLineLabelCandidate(text: string): boolean {
 	if (trimmed.length > MAX_LINE_LABEL_LENGTH) return false;
 	if (trimmed.includes("\n")) return false;
 	if (trimmed.includes("[[")) return false;
-	const backtickCount = (trimmed.match(/`/g) ?? []).length;
-	if (backtickCount % 2 !== 0) return false;
+	// No backtick parity check — inlineMarkdownToHtml handles unpaired
+	// backticks gracefully (regex simply won't match them, they render as
+	// literal characters after HTML-escaping).
 	return true;
 }
 
@@ -171,13 +172,13 @@ function replaceLineAnchors(text: string): string {
 				else if (text[end] === ")") depth--;
 				end++;
 			}
-			if (depth === 0) {
-				const candidate = text.slice(afterClose + 1, end - 1);
-				if (isLineLabelCandidate(candidate)) {
-					label = candidate;
-					afterClose = end;
-				}
+		if (depth === 0) {
+			const candidate = text.slice(afterClose + 1, end - 1);
+			if (isLineLabelCandidate(candidate)) {
+				label = candidate;
 			}
+			afterClose = end;
+		}
 		}
 
 		const encoded = encodeURIComponent(id);
@@ -210,6 +211,75 @@ function preprocess(text: string): string {
 	return processed.replace(/\x00MATH_BLOCK_(\d+)\x00/g, (_, idx) => mathBlocks[Number(idx)]!);
 }
 
+let mermaidCounter = 0;
+let mermaidModule: typeof import("mermaid") | null = null;
+let mermaidLoading: Promise<typeof import("mermaid")> | null = null;
+
+function loadMermaid(): Promise<typeof import("mermaid")> {
+	if (mermaidModule) return Promise.resolve(mermaidModule);
+	if (!mermaidLoading) {
+		mermaidLoading = import("mermaid").then((m) => {
+			mermaidModule = m;
+			return m;
+		});
+	}
+	return mermaidLoading;
+}
+
+function MermaidBlock({ code, dark }: { code: string; dark: boolean }) {
+	const [svg, setSvg] = useState<string>("");
+	const [error, setError] = useState(false);
+
+	useEffect(() => {
+		let cancelled = false;
+		const id = `mermaid-${++mermaidCounter}`;
+
+		loadMermaid()
+			.then(({ default: mermaid }) => {
+				if (cancelled) return;
+				mermaid.initialize({
+					startOnLoad: false,
+					theme: dark ? "dark" : "default",
+					securityLevel: "loose",
+					fontFamily: "inherit",
+				});
+				return mermaid.render(id, code);
+			})
+			.then((result) => {
+				if (!cancelled && result) {
+					setSvg(result.svg);
+					setError(false);
+				}
+			})
+			.catch(() => {
+				if (!cancelled) setError(true);
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	}, [code, dark]);
+
+	if (error) {
+		return <code className="text-xs font-mono whitespace-pre-wrap">{code}</code>;
+	}
+
+	if (!svg) {
+		return (
+			<div className="flex items-center justify-center py-6 text-xs text-muted-foreground/40">
+				Rendering diagram…
+			</div>
+		);
+	}
+
+	return (
+		<div
+			className="my-2 overflow-x-auto [&>svg]:mx-auto [&>svg]:max-w-full"
+			dangerouslySetInnerHTML={{ __html: svg }}
+		/>
+	);
+}
+
 export const Markdown = memo(function Markdown({ children, onAnchorClick, activeId, streaming = false }: MarkdownProps) {
 	const processed = useMemo(() => preprocess(children), [children]);
 	const hl = useHighlighter();
@@ -233,6 +303,10 @@ export const Markdown = memo(function Markdown({ children, onAnchorClick, active
 				}
 				return <code className="px-1.5 py-0.5 rounded bg-muted text-xs font-mono">{children}</code>;
 			}
+			if (className?.includes("language-mermaid")) {
+				const raw = String(children).replace(/\n$/, "");
+				return <MermaidBlock code={raw} dark={dark} />;
+			}
 			const lang = langFromClassName(className);
 			if (lang && hl) {
 				const code = String(children).replace(/\n$/, "");
@@ -249,9 +323,14 @@ export const Markdown = memo(function Markdown({ children, onAnchorClick, active
 			}
 			return <code className="px-1.5 py-0.5 rounded bg-muted text-xs font-mono">{children}</code>;
 		},
-		pre: ({ children }) => (
-			<pre className="bg-muted rounded-lg p-4 overflow-x-auto mb-3 whitespace-pre text-xs font-mono [&>span>pre]:!bg-transparent [&>span>pre]:!p-0 [&>span>pre]:!m-0">{children}</pre>
-		),
+		pre: ({ children }) => {
+			if (isValidElement(children) && children.type === MermaidBlock) {
+				return <div className="rounded-lg border border-border/50 bg-muted/30 p-4 mb-3 overflow-x-auto">{children}</div>;
+			}
+			return (
+				<pre className="bg-muted rounded-lg p-4 overflow-x-auto mb-3 whitespace-pre text-xs font-mono [&>span>pre]:!bg-transparent [&>span>pre]:!p-0 [&>span>pre]:!m-0">{children}</pre>
+			);
+		},
 		span: ({ children, ...props }) => {
 			const allProps = props as Record<string, unknown>;
 			const lineRef = allProps["data-line-ref"] as string | undefined;
