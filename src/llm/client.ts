@@ -310,43 +310,62 @@ export async function chatWithTools(
 	let currentMessages = [...messages];
 
 	for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-		const controller = new AbortController();
-		const timeoutId = setTimeout(() => controller.abort(), options.timeout * 1000);
+		const MAX_RETRIES = 2;
+		let response: Response | undefined;
+		let lastError: string | undefined;
 
-		let response: Response;
-		try {
-			response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-				method: "POST",
-				signal: controller.signal,
-				headers: {
-					Authorization: `Bearer ${options.api_key}`,
-					"Content-Type": "application/json",
-					"HTTP-Referer": "https://github.com/sionic/newpr",
-					"X-Title": "newpr",
-				},
-				body: JSON.stringify({
-					model: options.model,
-					messages: currentMessages,
-					tools: tools.length > 0 ? tools : undefined,
-					temperature: 0.3,
-					stream: true,
-				}),
-			});
-		} catch (err) {
-			clearTimeout(timeoutId);
-			onEvent({ type: "error", error: err instanceof Error ? err.message : String(err) });
-			return;
+		for (let retry = 0; retry <= MAX_RETRIES; retry++) {
+			const controller = new AbortController();
+			const timeoutId = setTimeout(() => controller.abort(), options.timeout * 1000);
+
+			try {
+				response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+					method: "POST",
+					signal: controller.signal,
+					headers: {
+						Authorization: `Bearer ${options.api_key}`,
+						"Content-Type": "application/json",
+						"HTTP-Referer": "https://github.com/sionic/newpr",
+						"X-Title": "newpr",
+					},
+					body: JSON.stringify({
+						model: options.model,
+						messages: currentMessages,
+						tools: tools.length > 0 ? tools : undefined,
+						temperature: 0.3,
+						stream: true,
+					}),
+				});
+				clearTimeout(timeoutId);
+			} catch (err) {
+				clearTimeout(timeoutId);
+				lastError = err instanceof Error ? err.message : String(err);
+				if (retry < MAX_RETRIES) {
+					await new Promise((r) => setTimeout(r, 1000 * (retry + 1)));
+					continue;
+				}
+				onEvent({ type: "error", error: `Network error after ${MAX_RETRIES + 1} attempts: ${lastError}` });
+				return;
+			}
+
+			if (!response!.ok) {
+				const body = await response!.text();
+				const status = response!.status;
+				if (status === 429 || status >= 500) {
+					lastError = `HTTP ${status}: ${body}`;
+					if (retry < MAX_RETRIES) {
+						await new Promise((r) => setTimeout(r, 1000 * (retry + 1)));
+						continue;
+					}
+				}
+				onEvent({ type: "error", error: `OpenRouter API error ${status}: ${body}` });
+				return;
+			}
+
+			break;
 		}
 
-		clearTimeout(timeoutId);
-
-		if (!response.ok) {
-			const body = await response.text();
-			onEvent({ type: "error", error: `OpenRouter API error ${response.status}: ${body}` });
-			return;
-		}
-
-		const reader = response.body!.getReader();
+		const reader = response!.body!.getReader();
 		const decoder = new TextDecoder();
 		let buffer = "";
 		let textContent = "";
@@ -391,6 +410,14 @@ export async function chatWithTools(
 					} catch {}
 				}
 			}
+		} catch (streamErr) {
+			// Mid-stream disconnection — report partial progress if any text was received
+			if (textContent.trim()) {
+				onEvent({ type: "error", error: `Connection lost after partial response. The response so far has been preserved.` });
+			} else {
+				onEvent({ type: "error", error: `Stream disconnected: ${streamErr instanceof Error ? streamErr.message : String(streamErr)}` });
+			}
+			return;
 		} finally {
 			reader.releaseLock();
 		}
