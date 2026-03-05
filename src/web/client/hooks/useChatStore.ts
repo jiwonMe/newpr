@@ -81,6 +81,9 @@ class ChatStore {
 		const controller = new AbortController();
 		this.abortControllers.set(sessionId, controller);
 
+		let phase: "fetch" | "stream" | "parse" = "fetch";
+		let receivedEvents = 0;
+		let lastEventType = "";
 		try {
 			const res = await fetch(`/api/sessions/${sessionId}/chat`, {
 				method: "POST",
@@ -90,10 +93,12 @@ class ChatStore {
 			});
 
 			if (!res.ok) {
-				const err = await res.json() as { error?: string };
-				throw new Error(err.error ?? `HTTP ${res.status}`);
+				let errBody = "";
+				try { const j = await res.json() as { error?: string }; errBody = j.error ?? ""; } catch {}
+				throw new Error(errBody || `HTTP ${res.status} ${res.statusText}`);
 			}
 
+			phase = "stream";
 			const reader = res.body!.getReader();
 			const decoder = new TextDecoder();
 			let buffer = "";
@@ -117,7 +122,10 @@ class ChatStore {
 					if (!trimmed.startsWith("data: ")) continue;
 
 					try {
+						phase = "parse";
 						const data = JSON.parse(trimmed.slice(6));
+						receivedEvents++;
+						lastEventType = pendingEvent;
 						switch (pendingEvent) {
 							case "text": {
 								fullText += data.content ?? "";
@@ -144,10 +152,14 @@ class ChatStore {
 								break;
 							}
 							case "done": break;
-							case "chat_error": throw new Error(data.message ?? "Chat error");
+							case "chat_error": {
+								const serverMsg = data.message ?? "Unknown server error";
+								throw Object.assign(new Error(serverMsg), { phase: "server" as const });
+							}
 						}
+						phase = "stream";
 					} catch (parseErr) {
-						if (parseErr instanceof Error && parseErr.message === "Chat error") throw parseErr;
+						if (parseErr instanceof Error && "phase" in parseErr) throw parseErr;
 					}
 					pendingEvent = "";
 				}
@@ -168,16 +180,24 @@ class ChatStore {
 			});
 			sendNotification("Chat response ready", fullText.slice(0, 100));
 		} catch (err) {
-			if ((err as Error).name !== "AbortError") {
-				const cur = this.getOrCreate(sessionId);
-				this.update(sessionId, {
-					messages: [...cur.messages, {
-						role: "assistant",
-						content: `Error: ${err instanceof Error ? err.message : String(err)}`,
-						timestamp: new Date().toISOString(),
-					}],
-				});
-			}
+			if ((err as Error).name === "AbortError") return;
+			const raw = err instanceof Error ? err.message : String(err);
+			const errPhase = (err as { phase?: string }).phase ?? phase;
+			const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+			const debugParts = [`[${errPhase}]`, `after ${elapsed}s`];
+			if (receivedEvents > 0) debugParts.push(`${receivedEvents} events received`);
+			if (lastEventType) debugParts.push(`last: ${lastEventType}`);
+			const debugInfo = debugParts.join(", ");
+			const displayMsg = `Error: ${raw}\n\n<details><summary>Debug info</summary>\n\n\`${debugInfo}\`\n\n</details>`;
+			console.error(`[newpr chat] ${debugInfo} — ${raw}`, err);
+			const cur = this.getOrCreate(sessionId);
+			this.update(sessionId, {
+				messages: [...cur.messages, {
+					role: "assistant",
+					content: displayMsg,
+					timestamp: new Date().toISOString(),
+				}],
+			});
 		} finally {
 			this.update(sessionId, { loading: false, streaming: null });
 			this.abortControllers.delete(sessionId);
