@@ -181,4 +181,115 @@ describe("checkFeasibility", () => {
 		const order = result.ordered_group_ids!;
 		expect(order.indexOf("group-a")).toBeLessThan(order.indexOf("group-b"));
 	});
+
+	test("dependency edge wins over conflicting path-order edge", () => {
+		const deltas: DeltaEntry[] = [
+			makeDelta("c1", "base", [{ status: "A", path: "ui.tsx" }]),
+			makeDelta("c2", "c1", [{ status: "A", path: "lib.ts" }]),
+		];
+
+		const ownership = new Map([
+			["ui.tsx", "ui-group"],
+			["lib.ts", "lib-group"],
+		]);
+
+		const declaredDeps = new Map([
+			["ui-group", ["lib-group"]],
+		]);
+
+		const result = checkFeasibility({ deltas, ownership, declared_deps: declaredDeps });
+
+		expect(result.feasible).toBe(true);
+		const order = result.ordered_group_ids!;
+		expect(order.indexOf("lib-group")).toBeLessThan(order.indexOf("ui-group"));
+		expect(result.dependency_edges).toBeDefined();
+		const depEdge = result.dependency_edges!.find(
+			(e) => e.from === "lib-group" && e.to === "ui-group",
+		);
+		expect(depEdge).toBeDefined();
+	});
+
+	test("dependency edge preserved when path-order creates opposing cycle", () => {
+		const deltas: DeltaEntry[] = [
+			makeDelta("c1", "base", [
+				{ status: "A", path: "ui.tsx" },
+				{ status: "A", path: "hook.ts" },
+			]),
+			makeDelta("c2", "c1", [{ status: "M", path: "ui.tsx" }]),
+		];
+
+		const ownership = new Map([
+			["ui.tsx", "ui-group"],
+			["hook.ts", "lib-group"],
+		]);
+
+		const declaredDeps = new Map([
+			["ui-group", ["lib-group"]],
+		]);
+
+		const result = checkFeasibility({ deltas, ownership, declared_deps: declaredDeps });
+
+		expect(result.feasible).toBe(true);
+		const order = result.ordered_group_ids!;
+		expect(order.indexOf("lib-group")).toBeLessThan(order.indexOf("ui-group"));
+	});
+
+	test("mutual dependency edges both survive when no path-order edges exist", () => {
+		const deltas: DeltaEntry[] = [
+			makeDelta("c1", "base", [
+				{ status: "A", path: "a.ts" },
+				{ status: "A", path: "b.ts" },
+			]),
+		];
+
+		const ownership = new Map([
+			["a.ts", "group-a"],
+			["b.ts", "group-b"],
+		]);
+
+		const declaredDeps = new Map([
+			["group-a", ["group-b"]],
+			["group-b", ["group-a"]],
+		]);
+
+		const result = checkFeasibility({ deltas, ownership, declared_deps: declaredDeps });
+
+		expect(result.feasible).toBe(true);
+		expect(result.ordered_group_ids).toHaveLength(2);
+	});
+
+	test("layer hint yields to import dep when they conflict", () => {
+		const deltas: DeltaEntry[] = [
+			makeDelta("c1", "base", [
+				{ status: "A", path: "api.ts" },
+				{ status: "A", path: "ui.tsx" },
+				{ status: "A", path: "types.ts" },
+			]),
+		];
+
+		const ownership = new Map([
+			["api.ts", "api-group"],
+			["ui.tsx", "ui-group"],
+			["types.ts", "types-group"],
+		]);
+
+		const declaredDeps = new Map([
+			["ui-group", ["api-group"]],
+		]);
+
+		const layerHints = new Map([
+			["api-group", ["ui-group"]],
+		]);
+
+		const result = checkFeasibility({
+			deltas,
+			ownership,
+			declared_deps: declaredDeps,
+			layer_hints: layerHints,
+		});
+
+		expect(result.feasible).toBe(true);
+		const order = result.ordered_group_ids!;
+		expect(order.indexOf("api-group")).toBeLessThan(order.indexOf("ui-group"));
+	});
 });

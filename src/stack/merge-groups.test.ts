@@ -216,4 +216,27 @@ describe("mergeEmptyGroups", () => {
 		expect(result.groups[0]!.order).toBe(0);
 		expect(result.groups[1]!.order).toBe(1);
 	});
+
+	test("removes self deps after empty-group merge remapping", () => {
+		const groups: StackGroup[] = [
+			makeStackGroup({
+				id: "A",
+				name: "A",
+				files: ["a.ts"],
+				order: 0,
+				stats: nonZeroStats,
+				deps: ["B"],
+				explicit_deps: ["B"],
+			}),
+			makeStackGroup({ id: "B", name: "B", files: ["b.ts"], order: 1, stats: zeroStats }),
+		];
+		const ownership = new Map([["a.ts", "A"], ["b.ts", "B"]]);
+		const trees = new Map([["A", "tree-a"], ["B", "tree-b"]]);
+
+		const result = mergeEmptyGroups(groups, ownership, trees);
+		expect(result.groups.length).toBe(1);
+		expect(result.groups[0]!.id).toBe("A");
+		expect(result.groups[0]!.deps).toEqual([]);
+		expect(result.groups[0]!.explicit_deps).toEqual([]);
+	});
 });

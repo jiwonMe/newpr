@@ -149,10 +149,23 @@ export function mergeEmptyGroups(
 		working.splice(i, 1);
 
 		for (let j = 0; j < working.length; j++) {
-			working[j]!.order = j;
-			working[j]!.deps = (working[j]!.deps ?? [])
+			const current = working[j];
+			if (!current) continue;
+
+			current.order = j;
+			const nextDeps = (current.deps ?? [])
 				.map((dep) => dep === g.id ? neighbor.id : dep)
+				.filter((dep) => dep !== current.id)
 				.filter((dep) => working.some((w) => w.id === dep));
+			current.deps = Array.from(new Set(nextDeps));
+
+			if (current.explicit_deps) {
+				const nextExplicitDeps = current.explicit_deps
+					.map((dep) => dep === g.id ? neighbor.id : dep)
+					.filter((dep) => dep !== current.id)
+					.filter((dep) => working.some((w) => w.id === dep));
+				current.explicit_deps = Array.from(new Set(nextExplicitDeps));
+			}
 		}
 	}
 

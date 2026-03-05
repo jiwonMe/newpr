@@ -128,21 +128,7 @@ export function buildDagParents(
 	groupOrder: string[],
 	dependencyEdges: Array<{ from: string; to: string }>,
 ): Map<string, string[]> {
-	const explicit = buildExplicitDagParents(groupOrder, dependencyEdges);
-
-	for (const gid of groupOrder) {
-		if ((explicit.get(gid) ?? []).length === 0) {
-			const rank = groupOrder.indexOf(gid);
-			if (rank > 0) {
-				const prev = groupOrder[rank - 1]!;
-				if (!dependencyEdges.some((e) => e.to === gid)) {
-					explicit.set(gid, [prev]);
-				}
-			}
-		}
-	}
-
-	return explicit;
+	return buildExplicitDagParents(groupOrder, dependencyEdges);
 }
 
 export function buildExplicitDagParents(
@@ -154,6 +140,7 @@ export function buildExplicitDagParents(
 
 	for (const edge of dependencyEdges) {
 		if (!parents.has(edge.to)) continue;
+		if (edge.from === edge.to) continue;
 		const arr = parents.get(edge.to)!;
 		if (!arr.includes(edge.from)) arr.push(edge.from);
 	}

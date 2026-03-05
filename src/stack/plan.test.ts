@@ -80,6 +80,35 @@ describe("createStackPlan", () => {
 		expect(plan.groups[1]?.files).toContain("src/ui.tsx");
 	});
 
+	test("ignores self dependency edges when building group deps", async () => {
+		const deltas = await extractDeltas(testRepoPath, baseSha, headSha);
+
+		const ownership = new Map([
+			["src/auth.ts", "Auth"],
+			["src/ui.tsx", "UI"],
+		]);
+
+		const groups: FileGroup[] = [
+			{ name: "Auth", type: "feature", description: "Auth", files: ["src/auth.ts"] },
+			{ name: "UI", type: "feature", description: "UI", files: ["src/ui.tsx"] },
+		];
+
+		const plan = await createStackPlan({
+			repo_path: testRepoPath,
+			base_sha: baseSha,
+			head_sha: headSha,
+			deltas,
+			ownership,
+			group_order: ["Auth", "UI"],
+			groups,
+			dependency_edges: [{ from: "UI", to: "UI" }],
+		});
+
+		const uiGroup = plan.groups.find((g) => g.id === "UI");
+		expect(uiGroup).toBeDefined();
+		expect(uiGroup?.deps).toEqual([]);
+	});
+
 	test("final tree matches HEAD tree (suffix propagation)", async () => {
 		const deltas = await extractDeltas(testRepoPath, baseSha, headSha);
 
@@ -101,6 +130,7 @@ describe("createStackPlan", () => {
 			ownership,
 			group_order: ["Auth", "UI"],
 			groups,
+			dependency_edges: [{ from: "Auth", to: "UI" }],
 		});
 
 		const headTreeResult = await Bun.$`git -C ${testRepoPath} rev-parse ${headSha}^{tree}`.quiet();

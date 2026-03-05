@@ -9,10 +9,11 @@ interface FeasibilityInput {
 	deltas: DeltaEntry[];
 	ownership: Map<string, string>;
 	declared_deps?: Map<string, string[]>;
+	layer_hints?: Map<string, string[]>;
 }
 
 export function checkFeasibility(input: FeasibilityInput): FeasibilityResult {
-	const { deltas, ownership, declared_deps } = input;
+	const { deltas, ownership, declared_deps, layer_hints } = input;
 
 	const allGroups = new Set<string>(ownership.values());
 	if (allGroups.size <= 1) {
@@ -28,6 +29,9 @@ export function checkFeasibility(input: FeasibilityInput): FeasibilityResult {
 	if (declared_deps) {
 		addDeclaredDepEdges(declared_deps, allGroups, edges);
 	}
+	if (layer_hints) {
+		addLayerHintEdges(layer_hints, allGroups, edges);
+	}
 
 	const deduped = deduplicateEdges(edges);
 	const acyclic = breakAllCycles(deduped);
@@ -37,11 +41,22 @@ export function checkFeasibility(input: FeasibilityInput): FeasibilityResult {
 }
 
 function breakAllCycles(edges: ConstraintEdge[]): ConstraintEdge[] {
-	const edgeSet = new Set(edges.map((e) => `${e.from}→${e.to}`));
+	const edgeMap = new Map<string, ConstraintEdge>();
+	for (const e of edges) edgeMap.set(`${e.from}→${e.to}`, e);
+
 	const withoutMutual: ConstraintEdge[] = [];
 	for (const edge of edges) {
 		const reverseKey = `${edge.to}→${edge.from}`;
-		if (edgeSet.has(reverseKey) && edge.kind === "dependency") continue;
+		const reverse = edgeMap.get(reverseKey);
+		if (!reverse) {
+			// No mutual conflict — keep
+			withoutMutual.push(edge);
+			continue;
+		}
+		// Mutual conflict: drop the LESS important edge.
+		// dependency > path-order (dependency is build-critical)
+		if (edge.kind === "path-order" && reverse.kind === "dependency") continue;
+		// Same kind: keep both, let breakRemainingCycles handle it
 		withoutMutual.push(edge);
 	}
 	return breakRemainingCycles(withoutMutual);
@@ -77,7 +92,7 @@ function breakRemainingCycles(edges: ConstraintEdge[]): ConstraintEdge[] {
 
 	const prioritized = [...edges].sort((a, b) => {
 		const kindScore = (e: ConstraintEdge) =>
-			e.kind === "path-order" ? 0 : e.kind === "dependency" ? 1 : 2;
+			e.kind === "dependency" ? 0 : e.kind === "path-order" ? 1 : 2;
 		return kindScore(a) - kindScore(b);
 	});
 
@@ -169,6 +184,27 @@ function addDeclaredDepEdges(
 				from: depGroupId,
 				to: groupId,
 				kind: "dependency",
+			});
+		}
+	}
+}
+
+function addLayerHintEdges(
+	layerHints: Map<string, string[]>,
+	allGroups: Set<string>,
+	edges: ConstraintEdge[],
+): void {
+	for (const [groupId, deps] of layerHints) {
+		if (!allGroups.has(groupId)) continue;
+
+		for (const depGroupId of deps) {
+			if (!allGroups.has(depGroupId)) continue;
+			if (groupId === depGroupId) continue;
+
+			edges.push({
+				from: depGroupId,
+				to: groupId,
+				kind: "path-order",
 			});
 		}
 	}
