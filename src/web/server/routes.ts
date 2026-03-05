@@ -25,6 +25,20 @@ import { publishStack, buildStackPublishPreview } from "../../stack/publish.ts";
 import { startStack, getStackState, cancelStack, subscribeStack, restoreCompletedStacks, setStackPublishResult, setStackPublishPreview, setStackPublishCleanupResult, recomputeStackPlanStatsIfNeeded } from "./stack-manager.ts";
 import { getTelemetryConsent, setTelemetryConsent, telemetry } from "../../telemetry/index.ts";
 
+// Structured logger for SSE/chat endpoint debugging
+function sseLog(level: "info" | "warn" | "error", sid: string, event: string, data?: Record<string, unknown>): void {
+	const ts = new Date().toISOString().slice(11, 23);
+	const parts = Object.entries(data ?? {}).map(([k, v]) => {
+		if (typeof v === "string" && v.length > 200) return `${k}=${v.length}chars`;
+		return `${k}=${JSON.stringify(v)}`;
+	}).join(" ");
+	const shortSid = sid.slice(0, 8);
+	const msg = `[sse ${shortSid}] ${event}${parts ? " " + parts : ""}`;
+	if (level === "error") console.error(`${ts} \x1b[31m${msg}\x1b[0m`);
+	else if (level === "warn") console.error(`${ts} \x1b[33m${msg}\x1b[0m`);
+	else console.error(`${ts} \x1b[2m${msg}\x1b[0m`);
+}
+
 function json(data: unknown, status = 200): Response {
 	return new Response(JSON.stringify(data), {
 		status,
@@ -1206,6 +1220,7 @@ You can read full file contents and explore the codebase beyond just the diff:
 
 			const body = await req.json() as { message: string };
 			if (!body.message?.trim()) return json({ error: "Missing message" }, 400);
+			sseLog("info", sessionId, "CHAT_START", { message: body.message.trim().slice(0, 100) });
 
 			const sessionData = await loadSession(sessionId);
 			if (!sessionData) return json({ error: "Session not found" }, 404);
@@ -1299,6 +1314,11 @@ You can read full file contents and explore the codebase beyond just the diff:
 			const patches = await loadPatchesSidecar(sessionId);
 
 			const executeTool = async (name: string, args: Record<string, unknown>): Promise<string> => {
+				const toolStart = Date.now();
+				const argPreview = Object.entries(args).map(([k, v]) => `${k}=${String(v).slice(0, 60)}`).join(" ");
+				sseLog("info", sessionId, "TOOL_START", { name, args: argPreview });
+				try {
+					const result = await (async (): Promise<string> => {
 				switch (name) {
 					case "get_file_diff": {
 						const filePath = args.path as string;
@@ -1608,24 +1628,44 @@ You can read full file contents and explore the codebase beyond just the diff:
 					default:
 						return `Unknown tool: ${name}`;
 				}
+					})();
+					const dur = Date.now() - toolStart;
+					sseLog("info", sessionId, "TOOL_DONE", { name, duration: `${dur}ms`, resultLen: result.length });
+					return result;
+				} catch (err) {
+					const dur = Date.now() - toolStart;
+					const errMsg = err instanceof Error ? err.message : String(err);
+					sseLog("error", sessionId, "TOOL_ERR", { name, duration: `${dur}ms`, error: errMsg.slice(0, 200) });
+					return `Error: ${errMsg}`;
+				}
 			};
 
 			const encoder = new TextEncoder();
 			const stream = new ReadableStream({
 				async start(controller) {
+					const sseStart = Date.now();
+					sseLog("info", sessionId, "SSE_OPEN");
 					let closed = false;
+					let eventsSent = 0;
 					const send = (eventType: string, data: string) => {
 						if (closed) return;
-						try { controller.enqueue(encoder.encode(`event: ${eventType}\ndata: ${data}\n\n`)); } catch { safeClose(); }
+						try { controller.enqueue(encoder.encode(`event: ${eventType}\ndata: ${data}\n\n`)); eventsSent++; } catch { safeClose(); }
+					};
+					const sendDebug = (event: string, info?: Record<string, unknown>) => {
+						send("debug", JSON.stringify({ event, elapsed: Date.now() - sseStart, ...info }));
 					};
 					const safeClose = () => {
 						if (closed) return;
 						closed = true;
 						clearInterval(heartbeat);
+						sseLog("info", sessionId, "SSE_CLOSE", { duration: `${Date.now() - sseStart}ms`, eventsSent });
 						setTimeout(() => { try { controller.close(); } catch {} }, 50);
 					};
+					let keepaliveCount = 0;
 					const heartbeat = setInterval(() => {
 						if (closed) return;
+						keepaliveCount++;
+						if (keepaliveCount % 12 === 0) sseLog("info", sessionId, "SSE_KEEPALIVE", { count: keepaliveCount, elapsed: `${Date.now() - sseStart}ms` });
 						try { controller.enqueue(encoder.encode(":keepalive\n\n")); } catch { safeClose(); }
 					}, 5_000);
 
@@ -1677,6 +1717,7 @@ You can read full file contents and explore the codebase beyond just the diff:
 													name: event.toolCall.name,
 													arguments: args,
 												}));
+										sendDebug("tool_call", { name: event.toolCall.name });
 											}
 											break;
 										case "tool_result":
@@ -1684,11 +1725,13 @@ You can read full file contents and explore the codebase beyond just the diff:
 												const tc = collectedToolCalls.find((c) => c.id === event.toolResult!.id);
 												if (tc) tc.result = event.toolResult.result;
 												send("tool_result", JSON.stringify(event.toolResult));
+										sendDebug("tool_result", { id: event.toolResult.id, resultLen: event.toolResult.result.length });
 											}
 											break;
 										case "error":
 											send("chat_error", JSON.stringify({ message: event.error }));
 											break;
+										sendDebug("error", { message: event.error });
 										case "done":
 											break;
 									}
@@ -1723,9 +1766,12 @@ You can read full file contents and explore the codebase beyond just the diff:
 						chatHistory.push(assistantMsg);
 						await saveChatSidecar(sessionId, chatHistory);
 
+						sseLog("info", sessionId, "CHAT_DONE", { duration: `${Date.now() - sseStart}ms`, textLen: fullText.length, toolCalls: collectedToolCalls.length });
 						send("done", JSON.stringify({}));
 					} catch (err) {
-						send("chat_error", JSON.stringify({ message: err instanceof Error ? err.message : String(err) }));
+						const errMsg = err instanceof Error ? err.message : String(err);
+						sseLog("error", sessionId, "CHAT_ERR", { duration: `${Date.now() - sseStart}ms`, error: errMsg.slice(0, 300) });
+						send("chat_error", JSON.stringify({ message: errMsg }));
 					} finally {
 						safeClose();
 					}

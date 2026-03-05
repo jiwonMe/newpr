@@ -152,6 +152,10 @@ class ChatStore {
 								break;
 							}
 							case "done": break;
+							case "debug": {
+								console.debug(`[server] ${data.event} +${data.elapsed}ms`, data);
+								break;
+							}
 							case "chat_error": {
 								const serverMsg = data.message ?? "Unknown server error";
 								throw Object.assign(new Error(serverMsg), { phase: "server" as const });
