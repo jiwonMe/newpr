@@ -307,6 +307,8 @@ const TOOLS = [
 	{ name: "submit_review", desc: "Approve, request changes, or comment", icon: CheckCircle },
 	{ name: "web_search", desc: "Search the web via agent delegation", icon: Globe },
 	{ name: "run_react_doctor", desc: "React code quality analysis", icon: Stethoscope },
+	{ name: "read_file", desc: "Read full file content from the repo", icon: BookOpen },
+	{ name: "explore_codebase", desc: "AI agent explores repo structure & code", icon: Search },
 ];
 
 const STATS = [

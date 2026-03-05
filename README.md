@@ -119,6 +119,8 @@ The chat in the Story tab supports agentic tool execution:
 | `web_search` | Search the web (delegated to agent) |
 | `web_fetch` | Fetch URL content (delegated to agent) |
 | `run_react_doctor` | Run react-doctor analysis |
+| `read_file` | Read full file content from the repository (not just the diff) |
+| `explore_codebase` | Use AI agent to explore repo: read files, search patterns, trace imports |
 
 Type `/undo` to remove the last exchange.
 

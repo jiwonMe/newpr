@@ -31,6 +31,8 @@ function loadGA(): void {
 	if (gaLoaded) return;
 	gaLoaded = true;
 
+	if (window.dataLayer && window.gtag) return;
+
 	const script = document.createElement("script");
 	script.async = true;
 	script.src = `https://www.googletagmanager.com/gtag/js?id=${GA_ID}`;

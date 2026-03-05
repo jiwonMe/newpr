@@ -306,6 +306,8 @@ const TOOLS = [
 	{ name: "submit_review", desc: "승인, 변경 요청 또는 코멘트", icon: CheckCircle },
 	{ name: "web_search", desc: "에이전트 위임으로 웹 검색", icon: Globe },
 	{ name: "run_react_doctor", desc: "React 코드 품질 분석", icon: Stethoscope },
+	{ name: "read_file", desc: "레포지토리의 전체 파일 내용 읽기", icon: BookOpen },
+	{ name: "explore_codebase", desc: "AI 에이전트로 코드베이스 탐색", icon: Search },
 ];
 
 const STATS = [

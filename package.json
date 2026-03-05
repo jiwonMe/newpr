@@ -1,6 +1,6 @@
 {
   "name": "newpr",
-  "version": "1.0.23",
+  "version": "1.0.28",
   "description": "AI-powered large PR review tool - understand PRs with 1000+ lines of changes",
   "module": "src/cli/index.ts",
   "type": "module",
@@ -12,6 +12,7 @@
     "README.md"
   ],
   "scripts": {
+    "dev": "bun --hot src/cli/index.ts --web",
     "start": "bun run src/cli/index.ts",
     "test": "bun test",
     "landing:build": "bun run landing/build.ts",
@@ -75,6 +76,7 @@
     "katex": "^0.16.28",
     "lucide-react": "^0.567.0",
     "meriyah": "^7.1.0",
+    "mermaid": "^11.12.3",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-markdown": "^10.1.0",

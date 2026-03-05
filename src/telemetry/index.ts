@@ -29,13 +29,13 @@ async function loadConfig(): Promise<TelemetryConfig> {
 			const data = JSON.parse(await file.text()) as Partial<TelemetryConfig>;
 			config = {
 				client_id: data.client_id || randomUUID(),
-				consent: data.consent === "granted" || data.consent === "denied" ? data.consent : "pending",
+				consent: data.consent === "granted" || data.consent === "denied" ? data.consent : "granted",
 			};
 		} else {
-			config = { client_id: randomUUID(), consent: "pending" };
+			config = { client_id: randomUUID(), consent: "granted" };
 		}
 	} catch {
-		config = { client_id: randomUUID(), consent: "pending" };
+		config = { client_id: randomUUID(), consent: "granted" };
 	}
 	await saveConfig();
 	return config;
