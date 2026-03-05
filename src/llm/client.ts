@@ -298,6 +298,19 @@ interface OpenRouterStreamChunkWithTools {
 	usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
 }
 
+// Structured logger for chat pipeline debugging
+function chatLog(level: "info" | "warn" | "error", round: number, event: string, data?: Record<string, unknown>): void {
+	const ts = new Date().toISOString().slice(11, 23);
+	const parts = Object.entries(data ?? {}).map(([k, v]) => {
+		if (typeof v === "string" && v.length > 200) return `${k}=${v.length}chars`;
+		return `${k}=${JSON.stringify(v)}`;
+	}).join(" ");
+	const msg = `[chat R${round}] ${event}${parts ? " " + parts : ""}`;
+	if (level === "error") console.error(`${ts} \x1b[31m${msg}\x1b[0m`);
+	else if (level === "warn") console.error(`${ts} \x1b[33m${msg}\x1b[0m`);
+	else console.error(`${ts} \x1b[2m${msg}\x1b[0m`);
+}
+
 export async function chatWithTools(
 	options: LlmClientOptions,
 	messages: OpenRouterChatMessage[],
@@ -306,17 +319,28 @@ export async function chatWithTools(
 	onEvent: ChatStreamCallback,
 ): Promise<void> {
 	const MAX_TOOL_ROUNDS = 10;
+	const chatStart = Date.now();
+	const msgCount = messages.length;
+	const lastUserMsg = [...messages].reverse().find(m => m.role === "user");
+	const preview = typeof lastUserMsg?.content === "string" ? lastUserMsg.content.slice(0, 80) : "(no user msg)";
+	chatLog("info", 0, "START", { model: options.model, messages: msgCount, timeout: options.timeout, preview });
 
 	let currentMessages = [...messages];
+	let totalToolCalls = 0;
 
-	for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+	for (let round = 1; round <= MAX_TOOL_ROUNDS; round++) {
+		const roundStart = Date.now();
 		const MAX_RETRIES = 2;
 		let response: Response | undefined;
 		let lastError: string | undefined;
 
+		// --- Fetch OpenRouter with retry ---
 		for (let retry = 0; retry <= MAX_RETRIES; retry++) {
 			const controller = new AbortController();
 			const timeoutId = setTimeout(() => controller.abort(), options.timeout * 1000);
+
+			if (retry > 0) chatLog("warn", round, "RETRY", { attempt: retry + 1, lastError });
+			chatLog("info", round, "OPENROUTER_REQ", { msgCount: currentMessages.length, retry });
 
 			try {
 				response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -337,9 +361,11 @@ export async function chatWithTools(
 					}),
 				});
 				clearTimeout(timeoutId);
+				chatLog("info", round, "OPENROUTER_RES", { status: response.status, duration: `${Date.now() - roundStart}ms` });
 			} catch (err) {
 				clearTimeout(timeoutId);
 				lastError = err instanceof Error ? err.message : String(err);
+				chatLog("error", round, "OPENROUTER_FETCH_ERR", { error: lastError, retry, duration: `${Date.now() - roundStart}ms` });
 				if (retry < MAX_RETRIES) {
 					await new Promise((r) => setTimeout(r, 1000 * (retry + 1)));
 					continue;
@@ -351,6 +377,7 @@ export async function chatWithTools(
 			if (!response!.ok) {
 				const body = await response!.text();
 				const status = response!.status;
+				chatLog("error", round, "OPENROUTER_HTTP_ERR", { status, body: body.slice(0, 300), retry });
 				if (status === 429 || status >= 500) {
 					lastError = `HTTP ${status}: ${body}`;
 					if (retry < MAX_RETRIES) {
@@ -365,10 +392,13 @@ export async function chatWithTools(
 			break;
 		}
 
+		// --- Stream reading ---
+		const streamStart = Date.now();
 		const reader = response!.body!.getReader();
 		const decoder = new TextDecoder();
 		let buffer = "";
 		let textContent = "";
+		let textChunks = 0;
 		const toolCalls = new Map<number, { id: string; name: string; arguments: string }>();
 
 		try {
@@ -392,6 +422,7 @@ export async function chatWithTools(
 
 						if (delta.content) {
 							textContent += delta.content;
+							textChunks++;
 							onEvent({ type: "text", content: delta.content });
 						}
 
@@ -411,22 +442,39 @@ export async function chatWithTools(
 				}
 			}
 		} catch (streamErr) {
-			// Mid-stream disconnection — report partial progress if any text was received
+			const errMsg = streamErr instanceof Error ? streamErr.message : String(streamErr);
+			chatLog("error", round, "STREAM_ERR", {
+				error: errMsg,
+				duration: `${Date.now() - streamStart}ms`,
+				textChunks,
+				textLen: textContent.length,
+				toolCallsParsed: toolCalls.size,
+			});
 			if (textContent.trim()) {
-				onEvent({ type: "error", error: `Connection lost after partial response. The response so far has been preserved.` });
+				onEvent({ type: "error", error: `Connection lost after partial response (${textChunks} chunks, ${toolCalls.size} tool calls). The response so far has been preserved.` });
 			} else {
-				onEvent({ type: "error", error: `Stream disconnected: ${streamErr instanceof Error ? streamErr.message : String(streamErr)}` });
+				onEvent({ type: "error", error: `Stream disconnected: ${errMsg}` });
 			}
 			return;
 		} finally {
 			reader.releaseLock();
 		}
 
+		chatLog("info", round, "STREAM_DONE", {
+			duration: `${Date.now() - streamStart}ms`,
+			textChunks,
+			textLen: textContent.length,
+			toolCalls: toolCalls.size,
+			tools: [...toolCalls.values()].map(tc => tc.name).join(",") || "(none)",
+		});
+
 		if (toolCalls.size === 0) {
+			chatLog("info", round, "COMPLETE_NO_TOOLS", { totalDuration: `${Date.now() - chatStart}ms`, totalToolCalls });
 			onEvent({ type: "done" });
 			return;
 		}
 
+		// --- Tool execution ---
 		const assistantMsg: OpenRouterChatMessage = {
 			role: "assistant",
 			content: textContent || null,
@@ -447,12 +495,21 @@ export async function chatWithTools(
 			let args: Record<string, unknown> = {};
 			try { args = JSON.parse(tc.arguments); } catch {}
 
+			const toolStart = Date.now();
+			const argPreview = Object.entries(args).map(([k, v]) => `${k}=${String(v).slice(0, 60)}`).join(" ");
+			chatLog("info", round, "TOOL_EXEC_START", { name: tc.name, id: tc.id.slice(-8), args: argPreview });
+
 			let result: string;
 			try {
 				result = await executeTool(tc.name, args);
+				const dur = Date.now() - toolStart;
+				chatLog("info", round, "TOOL_EXEC_DONE", { name: tc.name, duration: `${dur}ms`, resultLen: result.length });
 			} catch (err) {
+				const dur = Date.now() - toolStart;
 				result = `Error: ${err instanceof Error ? err.message : String(err)}`;
+				chatLog("error", round, "TOOL_EXEC_ERR", { name: tc.name, duration: `${dur}ms`, error: result.slice(0, 200) });
 			}
+			totalToolCalls++;
 
 			onEvent({ type: "tool_result", toolResult: { id: tc.id, result } });
 
@@ -462,7 +519,10 @@ export async function chatWithTools(
 				tool_call_id: tc.id,
 			});
 		}
+
+		chatLog("info", round, "ROUND_DONE", { duration: `${Date.now() - roundStart}ms`, toolsExecuted: toolCalls.size });
 	}
 
+	chatLog("warn", 0, "MAX_ROUNDS_REACHED", { rounds: MAX_TOOL_ROUNDS, totalDuration: `${Date.now() - chatStart}ms`, totalToolCalls });
 	onEvent({ type: "done" });
 }
