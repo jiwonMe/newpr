@@ -17,6 +17,14 @@ function formatStat(n: number): string {
 	return String(n);
 }
 
+function normalizeFilePath(path: string): string {
+	return path
+		.replace(/\\/g, "/")
+		.replace(/^\.\//, "")
+		.replace(/^a\//, "")
+		.replace(/^b\//, "");
+}
+
 export interface DagGroup {
 	id: string;
 	name: string;
@@ -27,6 +35,7 @@ export interface DagGroup {
 	explicit_deps?: string[];
 	order: number;
 	stats?: StackGroupStats;
+	file_stats?: Record<string, { additions: number; deletions: number }>;
 	pr_title?: string;
 }
 
@@ -155,6 +164,17 @@ function DagNodeCard({
 }) {
 	const [expanded, setExpanded] = useState(false);
 	const { group } = node;
+	const resolveFileStats = (file: string): { additions: number; deletions: number } => {
+		const normalizedPath = normalizeFilePath(file);
+		return group.file_stats?.[file]
+			?? group.file_stats?.[normalizedPath]
+			?? { additions: 0, deletions: 0 };
+	};
+
+	const fileRows = group.files.map((file) => ({
+		path: file,
+		stats: resolveFileStats(file),
+	}));
 	const stats = group.stats;
 	const colors = TYPE_COLORS[group.type] ?? TYPE_COLORS.chore!;
 	const leftPad = node.indent * INDENT + DOT_CX * 2 + 4;
@@ -228,14 +248,58 @@ function DagNodeCard({
 						</a>
 					)}
 					<div className="space-y-0 pt-0.5">
-						{group.files.map((file) => (
-							<div key={file} className="text-[9px] font-mono text-muted-foreground/20 py-[1px] truncate">{file}</div>
-						))}
+						{fileRows.map(({ path, stats: fileStats }) => {
+							return (
+								<div key={path} className="flex items-center gap-2 text-[9px] font-mono text-muted-foreground/20 py-[1px]">
+									<span className="truncate flex-1 min-w-0">{path}</span>
+									<span className="tabular-nums text-green-600/60 dark:text-green-400/60 shrink-0">+{fileStats.additions}</span>
+									<span className="tabular-nums text-red-500/60 shrink-0">-{fileStats.deletions}</span>
+								</div>
+							);
+						})}
 					</div>
 				</div>
 			)}
 		</div>
 	);
+}
+
+function filterEmptyGroups(groups: DagGroup[]): DagGroup[] {
+	const emptyIds = new Set(
+		groups.filter((g) => g.stats && g.stats.additions === 0 && g.stats.deletions === 0).map((g) => g.id),
+	);
+	if (emptyIds.size === 0) return groups;
+
+	const byId = new Map(groups.map((g) => [g.id, g]));
+
+	const resolveParents = (id: string, visited = new Set<string>()): string[] => {
+		if (visited.has(id)) return [];
+		visited.add(id);
+		const g = byId.get(id);
+		if (!g) return [];
+		const parents = g.explicit_deps ?? g.deps ?? [];
+		const resolved: string[] = [];
+		for (const p of parents) {
+			if (emptyIds.has(p)) {
+				resolved.push(...resolveParents(p, visited));
+			} else {
+				resolved.push(p);
+			}
+		}
+		return resolved;
+	};
+
+	return groups
+		.filter((g) => !emptyIds.has(g.id))
+		.map((g, i) => {
+			const newDeps = resolveParents(g.id);
+			return {
+				...g,
+				deps: [...new Set(newDeps)],
+				explicit_deps: g.explicit_deps ? [...new Set(newDeps)] : undefined,
+				order: i,
+			};
+		});
 }
 
 export function StackDagView({
@@ -247,7 +311,8 @@ export function StackDagView({
 	groupCommits?: DagCommit[];
 	publishedPrs?: DagPr[];
 }) {
-	const nodes = buildDagNodes(groups);
+	const filteredGroups = filterEmptyGroups(groups);
+	const nodes = buildDagNodes(filteredGroups);
 	const isLinear = nodes.every((n) => n.indent === 0);
 	const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
 	const [rowHeights, setRowHeights] = useState<number[]>([]);
@@ -322,14 +387,14 @@ export function StackDagView({
 					const commit = groupCommits?.find((c) => c.group_id === node.group.id);
 					const pr = publishedPrs?.find((p) => p.group_id === node.group.id);
 					return (
-						<DagNodeCard
-							key={node.group.id}
-							node={node}
-							commit={commit}
-							pr={pr}
-							allGroups={groups}
-							rowRef={(el) => { rowRefs.current[i] = el; }}
-						/>
+					<DagNodeCard
+						key={node.group.id}
+						node={node}
+						commit={commit}
+						pr={pr}
+						allGroups={filteredGroups}
+						rowRef={(el) => { rowRefs.current[i] = el; }}
+					/>
 					);
 				})}
 			</div>

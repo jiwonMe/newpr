@@ -8,18 +8,18 @@ import { saveStackSidecar, loadStackSidecar } from "../../history/store.ts";
 import { parsePrInput } from "../../github/parse-pr.ts";
 import { fetchPrData } from "../../github/fetch-pr.ts";
 import { ensureRepo } from "../../workspace/repo-cache.ts";
-import { extractDeltas, computeGroupStats } from "../../stack/delta.ts";
+import { extractDeltas, computeGroupStatsWithFiles } from "../../stack/delta.ts";
 import { partitionGroups } from "../../stack/partition.ts";
 import { applyCouplingRules } from "../../stack/coupling.ts";
 import { splitOversizedGroups } from "../../stack/split.ts";
 import { rebalanceGroups } from "../../stack/balance.ts";
 import { mergeGroups, mergeEmptyGroups } from "../../stack/merge-groups.ts";
 import { checkFeasibility } from "../../stack/feasibility.ts";
-import { createStackPlan } from "../../stack/plan.ts";
+import { createStackPlan, buildDagParents, buildAncestorSets } from "../../stack/plan.ts";
 import { executeStack } from "../../stack/execute.ts";
 import { verifyStack } from "../../stack/verify.ts";
-import { runStackQualityGate } from "../../stack/quality-gate.ts";
-import { analyzeImportDependencies } from "../../stack/import-deps.ts";
+import { runStackQualityGate, type QualityGateResult } from "../../stack/quality-gate.ts";
+import { analyzeImportDependencies, rebuildGroupDeps, mergeImportCycleGroups } from "../../stack/import-deps.ts";
 import { extractSymbols } from "../../stack/symbol-flow.ts";
 import { buildCoChangePairs, buildHistoricalCoChangePairs } from "../../stack/co-change.ts";
 import { computeConfidenceReassignments, classifyGroupLayer } from "../../stack/confidence-score.ts";
@@ -115,6 +115,7 @@ export interface StackStateSnapshot {
 	plan: StackPlanData | null;
 	execResult: StackExecResult | null;
 	verifyResult: StackVerifyData | null;
+	qualityGateResult: QualityGateResult | null;
 	publishResult: StackPublishData | null;
 	publishPreview: StackPublishPreviewData | null;
 	startedAt: number;
@@ -127,12 +128,14 @@ interface StackSession {
 	phase: StackPhase | null;
 	error: string | null;
 	maxGroups: number | null;
+	customEnv: Record<string, string> | null;
 	context: StackContext | null;
 	partition: StackPartitionData | null;
 	feasibility: FeasibilityResult | null;
 	plan: StackPlanData | null;
 	execResult: StackExecResult | null;
 	verifyResult: StackVerifyData | null;
+	qualityGateResult: QualityGateResult | null;
 	publishResult: StackPublishData | null;
 	publishPreview: StackPublishPreviewData | null;
 	events: StackEvent[];
@@ -171,6 +174,7 @@ function toSnapshot(session: StackSession): StackStateSnapshot {
 		plan: session.plan,
 		execResult: session.execResult,
 		verifyResult: session.verifyResult,
+		qualityGateResult: session.qualityGateResult,
 		publishResult: session.publishResult,
 		publishPreview: session.publishPreview,
 		startedAt: session.startedAt,
@@ -192,11 +196,63 @@ export function getStackState(analysisSessionId: string): StackStateSnapshot | n
 	return toSnapshot(session);
 }
 
+function needsPlanFileStatsRepair(plan: StackPlanData): boolean {
+	for (const group of plan.groups) {
+		const totalChanges = (group.stats?.additions ?? 0) + (group.stats?.deletions ?? 0);
+		if (totalChanges <= 0 || group.files.length === 0) continue;
+
+		if (!group.file_stats) return true;
+
+		const hasNonZeroFile = group.files.some((path) => {
+			const s = group.file_stats?.[path];
+			return Boolean(s && (s.additions > 0 || s.deletions > 0));
+		});
+
+		if (!hasNonZeroFile) return true;
+	}
+
+	return false;
+}
+
+export async function recomputeStackPlanStatsIfNeeded(analysisSessionId: string): Promise<void> {
+	const session = sessions.get(analysisSessionId);
+	if (!session?.plan || !session.context) return;
+	if (!needsPlanFileStatsRepair(session.plan)) return;
+
+	try {
+		const dagParents = new Map(session.plan.groups.map((g) => [g.id, g.deps ?? []]));
+		const expectedTrees = new Map(Object.entries(session.plan.expected_trees));
+		const computed = await computeGroupStatsWithFiles(
+			session.context.repo_path,
+			session.context.base_sha,
+			session.plan.groups.map((g) => g.id),
+			expectedTrees,
+			dagParents,
+		);
+
+		let updated = false;
+		for (const group of session.plan.groups) {
+			const next = computed.get(group.id);
+			if (!next) continue;
+			group.stats = next.stats;
+			group.file_stats = next.file_stats;
+			updated = true;
+		}
+
+		if (updated) {
+			await saveStackSidecar(session.analysisSessionId, toSnapshot(session)).catch(() => {});
+		}
+	} catch {
+		// Keep serving existing snapshot if recomputation fails.
+	}
+}
+
 export function startStack(
 	analysisSessionId: string,
 	maxGroups: number | null,
 	token: string,
 	config: NewprConfig,
+	customEnv?: Record<string, string> | null,
 ): { ok: true } | { error: string; status: number } {
 	const existing = sessions.get(analysisSessionId);
 	if (existing?.status === "running") {
@@ -221,6 +277,8 @@ export function startStack(
 		subscribers: new Set(),
 		startedAt: Date.now(),
 		finishedAt: null,
+		customEnv: customEnv ?? null,
+		qualityGateResult: null,
 		abortController: new AbortController(),
 	};
 	sessions.set(analysisSessionId, session);
@@ -284,6 +342,8 @@ export async function restoreCompletedStacks(sessionIds: string[]): Promise<void
 		verifyResult: snapshot.verifyResult,
 		publishResult: snapshot.publishResult ?? null,
 		publishPreview: snapshot.publishPreview ?? null,
+		customEnv: null,
+		qualityGateResult: snapshot.qualityGateResult ?? null,
 		events: [],
 		subscribers: new Set(),
 		startedAt: snapshot.startedAt,
@@ -291,6 +351,7 @@ export async function restoreCompletedStacks(sessionIds: string[]): Promise<void
 			abortController: new AbortController(),
 		};
 		sessions.set(id, session);
+		await recomputeStackPlanStatsIfNeeded(id);
 	}
 }
 
@@ -569,16 +630,36 @@ async function runStackPipeline(
 			groupLayerOrder.set(g.name, layer === "schema" ? 0 : layer === "refactor" ? 1 : layer === "core" ? 2 : layer === "integration" ? 3 : layer === "ui" ? 4 : layer === "test" ? 5 : 2);
 		}
 
+		let finalGroupDeps = rebuildGroupDeps(importDeps.fileDeps, mergedOwnership);
+
+		const cycleMerge = mergeImportCycleGroups(currentGroups, mergedOwnership, finalGroupDeps);
+		if (cycleMerge.mergedCycles.length > 0) {
+			currentGroups = cycleMerge.groups;
+			for (const [path, gid] of cycleMerge.ownership) mergedOwnership.set(path, gid);
+			finalGroupDeps = rebuildGroupDeps(importDeps.fileDeps, mergedOwnership);
+			const cycleDetails = cycleMerge.mergedCycles.map((c) => c.join(" + "));
+			allWarnings.push(`Merged ${cycleMerge.mergedCycles.length} import dependency cycle(s): ${cycleDetails.join("; ")}`);
+			allStructuredWarnings.push({
+				category: "coupling",
+				severity: "warn",
+				title: `${cycleMerge.mergedCycles.length} group cycle(s) merged`,
+				message: "Groups with circular import dependencies were merged to prevent build failures",
+				details: cycleDetails,
+			});
+			emit(session, "partitioning", `Merged ${cycleMerge.mergedCycles.length} import dependency cycle(s)...`);
+		}
+
 		const importDepEdges = new Set<string>();
-		for (const [group, deps] of importDeps.groupDeps) {
+		for (const [group, deps] of finalGroupDeps) {
 			for (const dep of deps) importDepEdges.add(`${dep}→${group}`);
 		}
 
 		const mergedDeclaredDeps = new Map<string, string[]>();
-		for (const [group, deps] of importDeps.groupDeps) {
+		for (const [group, deps] of finalGroupDeps) {
 			mergedDeclaredDeps.set(group, [...deps]);
 		}
 
+		const layerHints = new Map<string, string[]>();
 		const sortedByLayer = [...currentGroups].sort((a, b) => (groupLayerOrder.get(a.name) ?? 2) - (groupLayerOrder.get(b.name) ?? 2));
 		for (let i = 1; i < sortedByLayer.length; i++) {
 			const prev = sortedByLayer[i - 1]!;
@@ -586,10 +667,10 @@ async function runStackPipeline(
 			if ((groupLayerOrder.get(prev.name) ?? 2) >= (groupLayerOrder.get(curr.name) ?? 2)) continue;
 			const reverseKey = `${curr.name}→${prev.name}`;
 			if (importDepEdges.has(reverseKey)) continue;
-			const existing = mergedDeclaredDeps.get(curr.name) ?? [];
+			const existing = layerHints.get(curr.name) ?? [];
 			if (!existing.includes(prev.name)) {
 				existing.push(prev.name);
-				mergedDeclaredDeps.set(curr.name, existing);
+				layerHints.set(curr.name, existing);
 			}
 		}
 
@@ -598,6 +679,7 @@ async function runStackPipeline(
 			deltas,
 			ownership: mergedOwnership,
 			declared_deps: mergedDeclaredDeps,
+			layer_hints: layerHints,
 		});
 		const ownershipObj = Object.fromEntries(mergedOwnership);
 
@@ -635,7 +717,7 @@ async function runStackPipeline(
 
 		emit(session, "planning", "Computing group stats...");
 		const planDagParents = new Map(plan.groups.map((g) => [g.id, g.deps ?? []]));
-		const groupStats = await computeGroupStats(
+		const groupStats = await computeGroupStatsWithFiles(
 			repoPath,
 			baseSha,
 			feasibility.ordered_group_ids!,
@@ -644,7 +726,9 @@ async function runStackPipeline(
 		);
 		for (const group of plan.groups) {
 			const s = groupStats.get(group.id);
-			if (s) group.stats = s;
+			if (!s) continue;
+			group.stats = s.stats;
+			group.file_stats = s.file_stats;
 		}
 
 		const emptyMerged = mergeEmptyGroups(plan.groups, ownership, plan.expected_trees);
@@ -654,6 +738,14 @@ async function runStackPipeline(
 			for (const [path, groupId] of emptyMerged.ownership) {
 				ownership.set(path, groupId);
 			}
+
+			const postMergeOrder = plan.groups.map((g) => g.id);
+			const postMergeDeps = plan.groups.flatMap((g) => (g.deps ?? []).map((dep) => ({ from: dep, to: g.id })));
+			const postMergeDagParents = buildDagParents(postMergeOrder, postMergeDeps);
+			plan.ancestor_sets = new Map(
+				[...buildAncestorSets(postMergeOrder, postMergeDagParents)].map(([k, v]) => [k, [...v]]),
+			);
+
 			const emptyDetails = emptyMerged.merges.map((m) => `"${m.absorbed}" → "${m.into}"`);
 			allWarnings.push(`Merged ${emptyMerged.merges.length} empty group(s): ${emptyDetails.join(", ")}`);
 			allStructuredWarnings.push({
@@ -667,6 +759,80 @@ async function runStackPipeline(
 
 			session.partition = {
 				...session.partition!,
+				ownership: Object.fromEntries(ownership),
+				warnings: allWarnings,
+				structured_warnings: allStructuredWarnings,
+			};
+		}
+
+		const finalDagParents = new Map(plan.groups.map((g) => [g.id, g.deps ?? []]));
+		const finalGroupStats = await computeGroupStatsWithFiles(
+			repoPath,
+			baseSha,
+			plan.groups.map((g) => g.id),
+			plan.expected_trees,
+			finalDagParents,
+		);
+		for (const group of plan.groups) {
+			const computed = finalGroupStats.get(group.id);
+			if (!computed) continue;
+			group.stats = computed.stats;
+			group.file_stats = computed.file_stats;
+		}
+
+		const MAX_EMPTY_MERGE_ROUNDS = 5;
+		for (let round = 0; round < MAX_EMPTY_MERGE_ROUNDS; round++) {
+			const hasEmpty = plan.groups.some((g) =>
+				g.stats && g.stats.additions === 0 && g.stats.deletions === 0,
+			);
+			if (!hasEmpty || plan.groups.length <= 1) break;
+
+			const postMerge = mergeEmptyGroups(plan.groups, ownership, plan.expected_trees);
+			if (postMerge.merges.length === 0) break;
+
+			plan.groups = postMerge.groups;
+			plan.expected_trees = postMerge.expectedTrees;
+			for (const [path, groupId] of postMerge.ownership) {
+				ownership.set(path, groupId);
+			}
+
+			const loopMergeOrder = plan.groups.map((g) => g.id);
+			const loopMergeDeps = plan.groups.flatMap((g) => (g.deps ?? []).map((dep) => ({ from: dep, to: g.id })));
+			const loopDagParents = buildDagParents(loopMergeOrder, loopMergeDeps);
+			plan.ancestor_sets = new Map(
+				[...buildAncestorSets(loopMergeOrder, loopDagParents)].map(([k, v]) => [k, [...v]]),
+			);
+
+			const mergeDetails = postMerge.merges.map((m) => `"${m.absorbed}" → "${m.into}"`);
+			allWarnings.push(`Merged ${postMerge.merges.length} empty group(s) (post-recompute): ${mergeDetails.join(", ")}`);
+			allStructuredWarnings.push({
+				category: "grouping",
+				severity: "info",
+				title: `${postMerge.merges.length} empty group(s) merged (post-recompute)`,
+				message: "Groups with zero effective changes after final stats recomputation were absorbed into adjacent groups",
+				details: mergeDetails,
+			});
+			emit(session, "planning", `Merged ${postMerge.merges.length} empty group(s) after recomputation...`);
+
+			const reDagParents = new Map(plan.groups.map((g) => [g.id, g.deps ?? []]));
+			const reStats = await computeGroupStatsWithFiles(
+				repoPath,
+				baseSha,
+				plan.groups.map((g) => g.id),
+				plan.expected_trees,
+				reDagParents,
+			);
+			for (const group of plan.groups) {
+				const computed = reStats.get(group.id);
+				if (!computed) continue;
+				group.stats = computed.stats;
+				group.file_stats = computed.file_stats;
+			}
+		}
+
+		if (session.partition) {
+			session.partition = {
+				...session.partition,
 				ownership: Object.fromEntries(ownership),
 				warnings: allWarnings,
 				structured_warnings: allStructuredWarnings,
@@ -708,12 +874,15 @@ async function runStackPipeline(
 		});
 
 		emit(session, "executing", "Verifying tree equivalence...");
+		const groupDepsMap = new Map<string, string[]>();
+		for (const g of plan.groups) groupDepsMap.set(g.id, g.deps ?? []);
 		const verifyResult = await verifyStack({
 			repo_path: repoPath,
 			base_sha: baseSha,
 			head_sha: headSha,
 			exec_result: execResult,
 			ownership,
+			group_deps: groupDepsMap,
 		});
 
 		session.execResult = execResult;
@@ -728,18 +897,25 @@ async function runStackPipeline(
 			throw new Error(`Verification failed: ${verifyResult.errors.join(", ")}`);
 		}
 
-		emit(session, "executing", "Running lint/build quality gate for each stack PR...");
+		emit(session, "executing", "Running quality gate (typecheck, lint, test, build) for each stack PR...");
 		const qualityGateResult = await runStackQualityGate({
 			repo_path: repoPath,
 			exec_result: execResult,
+			custom_env: session.customEnv ?? undefined,
 			onProgress: (message) => emit(session, "executing", message),
 			checkAborted: () => checkAborted(session),
 		});
+		session.qualityGateResult = qualityGateResult;
 
 		if (qualityGateResult.skippedReason) {
 			emit(session, "executing", `Quality gate skipped: ${qualityGateResult.skippedReason}`);
 		} else if (qualityGateResult.ran) {
-			emit(session, "executing", "Quality gate passed for all stack PRs");
+			const failedGroups = qualityGateResult.groupResults.filter((g) => !g.passed && !g.skipped);
+			if (failedGroups.length > 0) {
+				emit(session, "executing", `Quality gate: ${failedGroups.length} group(s) had failures (warning only, not blocking)`);
+			} else {
+				emit(session, "executing", "Quality gate passed for all stack PRs");
+			}
 		}
 
 		// ---- Done ----

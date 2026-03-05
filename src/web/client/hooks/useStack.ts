@@ -43,9 +43,20 @@ interface PlanData {
 		deps: string[];
 		order: number;
 		stats?: StackGroupStats;
+		file_stats?: Record<string, { additions: number; deletions: number }>;
 		pr_title?: string;
 	}>;
 	expected_trees: Record<string, string>;
+}
+
+interface SessionFileStat {
+	path: string;
+	additions: number;
+	deletions: number;
+}
+
+interface SessionDataForStats {
+	files?: SessionFileStat[];
 }
 
 interface ExecResultData {
@@ -94,6 +105,17 @@ interface PublishResultData {
 	};
 }
 
+interface QualityGateResultData {
+	ran: boolean;
+	skippedReason?: string;
+	groupResults: Array<{
+		group_id: string;
+		passed: boolean;
+		skipped: boolean;
+		scripts: Array<{ name: string; passed: boolean; error?: string }>;
+	}>;
+}
+
 interface PublishPreviewData {
 	template_path: string | null;
 	generatedAt?: number;
@@ -119,6 +141,7 @@ interface ServerStackState {
 	plan: PlanData | null;
 	execResult: ExecResultData | null;
 	verifyResult: VerifyResultData | null;
+	qualityGateResult: QualityGateResultData | null;
 	publishResult: PublishResultData | null;
 	publishPreview: PublishPreviewData | null;
 	startedAt: number;
@@ -135,6 +158,7 @@ export interface StackState {
 	plan: PlanData | null;
 	execResult: ExecResultData | null;
 	verifyResult: VerifyResultData | null;
+	qualityGateResult: QualityGateResultData | null;
 	publishResult: PublishResultData | null;
 	publishPreview: PublishPreviewData | null;
 	publishPreviewLoading: boolean;
@@ -142,6 +166,27 @@ export interface StackState {
 	publishCleanupLoading: boolean;
 	publishCleanupError: string | null;
 	progressMessage: string | null;
+	analysisFileStatsByPath: Record<string, { additions: number; deletions: number }>;
+	envVars: Record<string, string>;
+}
+
+function normalizeFilePath(path: string): string {
+	return path
+		.replace(/\\/g, "/")
+		.replace(/^\.\//, "")
+		.replace(/^a\//, "")
+		.replace(/^b\//, "");
+}
+
+function buildAnalysisFileStatsByPath(files: SessionFileStat[] | undefined): Record<string, { additions: number; deletions: number }> {
+	const map: Record<string, { additions: number; deletions: number }> = {};
+	for (const file of files ?? []) {
+		const stats = { additions: file.additions, deletions: file.deletions };
+		map[file.path] = stats;
+		const normalized = normalizeFilePath(file.path);
+		if (!map[normalized]) map[normalized] = stats;
+	}
+	return map;
 }
 
 function serverPhaseToClient(status: string, phase: string | null): StackPhase {
@@ -164,6 +209,7 @@ function applyServerState(server: ServerStackState): Partial<StackState> {
 		plan: server.plan,
 		execResult: server.execResult,
 		verifyResult: server.verifyResult,
+		qualityGateResult: server.qualityGateResult ?? null,
 		publishResult: server.publishResult,
 		publishPreview: server.publishPreview,
 	};
@@ -184,6 +230,7 @@ export function useStack(sessionId: string | null | undefined, options?: UseStac
 		plan: null,
 		execResult: null,
 		verifyResult: null,
+		qualityGateResult: null,
 		publishResult: null,
 		publishPreview: null,
 		publishPreviewLoading: false,
@@ -191,6 +238,8 @@ export function useStack(sessionId: string | null | undefined, options?: UseStac
 		publishCleanupLoading: false,
 		publishCleanupError: null,
 		progressMessage: null,
+		analysisFileStatsByPath: {},
+		envVars: {},
 	});
 
 	const eventSourceRef = useRef<EventSource | null>(null);
@@ -203,6 +252,16 @@ export function useStack(sessionId: string | null | undefined, options?: UseStac
 			.then((data: { state: ServerStackState | null }) => {
 				if (!data.state) return;
 				setState((s) => ({ ...s, ...applyServerState(data.state!) }));
+			})
+			.catch(() => {});
+
+		fetch(`/api/sessions/${sessionId}`)
+			.then((res) => res.json())
+			.then((data: SessionDataForStats) => {
+				setState((s) => ({
+					...s,
+					analysisFileStatsByPath: buildAnalysisFileStatsByPath(data.files),
+				}));
 			})
 			.catch(() => {});
 	}, [sessionId]);
@@ -263,15 +322,20 @@ export function useStack(sessionId: string | null | undefined, options?: UseStac
 		};
 	}, []);
 
+	const setEnvVars = useCallback((envVars: Record<string, string>) => {
+		setState((s) => ({ ...s, envVars }));
+	}, []);
+
 	const runFullPipeline = useCallback(async () => {
 		if (!sessionId) return;
 
 		setState((s) => ({ ...s, phase: "partitioning", error: null, progressMessage: "Starting..." }));
 		try {
+			const envVars = Object.keys(state.envVars).length > 0 ? state.envVars : undefined;
 			const res = await fetch("/api/stack/start", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ sessionId, maxGroups: state.maxGroups }),
+				body: JSON.stringify({ sessionId, maxGroups: state.maxGroups, envVars }),
 			});
 			const data = await res.json();
 			if (!res.ok) throw new Error(data.error ?? "Failed to start stack pipeline");
@@ -285,7 +349,7 @@ export function useStack(sessionId: string | null | undefined, options?: UseStac
 				progressMessage: null,
 			}));
 		}
-	}, [sessionId, state.maxGroups, connectSSE]);
+	}, [sessionId, state.maxGroups, state.envVars, connectSSE]);
 
 	const startPublish = useCallback(async () => {
 		if (!sessionId) return;
@@ -472,6 +536,7 @@ export function useStack(sessionId: string | null | undefined, options?: UseStac
 			plan: null,
 			execResult: null,
 			verifyResult: null,
+			qualityGateResult: null,
 			publishResult: null,
 			publishPreview: null,
 			publishPreviewLoading: false,
@@ -479,6 +544,8 @@ export function useStack(sessionId: string | null | undefined, options?: UseStac
 			publishCleanupLoading: false,
 			publishCleanupError: null,
 			progressMessage: null,
+			analysisFileStatsByPath: s.analysisFileStatsByPath,
+			envVars: s.envVars,
 		}));
 	}, []);
 
@@ -491,6 +558,7 @@ export function useStack(sessionId: string | null | undefined, options?: UseStac
 	return {
 		...state,
 		setMaxGroups,
+		setEnvVars,
 		runFullPipeline,
 		startPublish,
 		loadPublishPreview,
