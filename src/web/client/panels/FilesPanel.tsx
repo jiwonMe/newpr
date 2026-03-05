@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { ChevronRight, Plus, Pencil, Trash2, ArrowRight, FolderTree, Layers, ArrowDownWideNarrow } from "lucide-react";
 import type { FileChange, FileGroup, FileStatus } from "../../../types/output.ts";
+import { useI18n, type TranslationKey } from "../lib/i18n/index.ts";
 
 type ViewMode = "tree" | "group" | "changes";
 
@@ -212,6 +213,7 @@ function GroupView({
 	onFileSelect,
 	expanded,
 	onToggleExpand,
+	ungroupedLabel,
 }: {
 	files: FileChange[];
 	groups: FileGroup[];
@@ -219,6 +221,7 @@ function GroupView({
 	onFileSelect?: (path: string) => void;
 	expanded: Set<string>;
 	onToggleExpand: (e: React.MouseEvent, path: string) => void;
+	ungroupedLabel: string;
 }) {
 	const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set(groups.map((g) => g.name)));
 
@@ -253,7 +256,7 @@ function GroupView({
 			{[...filesByGroup.entries()].map(([groupName, groupFiles]) => {
 				const isOpen = openGroups.has(groupName);
 				const meta = groupMeta.get(groupName);
-				const displayName = groupName === "_ungrouped" ? "Ungrouped" : groupName;
+				const displayName = groupName === "_ungrouped" ? ungroupedLabel : groupName;
 				const totalAdd = groupFiles.reduce((s, f) => s + f.additions, 0);
 				const totalDel = groupFiles.reduce((s, f) => s + f.deletions, 0);
 
@@ -347,10 +350,10 @@ function ChangesView({
 	);
 }
 
-const VIEW_MODES: { value: ViewMode; icon: typeof FolderTree; label: string }[] = [
-	{ value: "tree", icon: FolderTree, label: "Tree" },
-	{ value: "group", icon: Layers, label: "Groups" },
-	{ value: "changes", icon: ArrowDownWideNarrow, label: "Changes" },
+const VIEW_MODE_KEYS: { value: ViewMode; icon: typeof FolderTree; labelKey: TranslationKey }[] = [
+	{ value: "tree", icon: FolderTree, labelKey: "files.tree" },
+	{ value: "group", icon: Layers, labelKey: "files.groups" },
+	{ value: "changes", icon: ArrowDownWideNarrow, labelKey: "files.changes" },
 ];
 
 export function FilesPanel({
@@ -376,6 +379,7 @@ export function FilesPanel({
 		}
 		return dirs;
 	});
+	const { t } = useI18n();
 
 	const tree = useMemo(() => collapseTree(buildTree(files)), [files]);
 
@@ -403,17 +407,17 @@ export function FilesPanel({
 		<div className="pt-5">
 			<div className="flex items-center justify-between mb-3">
 				<div className="flex items-center gap-2">
-				<span className="text-xs font-medium text-muted-foreground/40 uppercase tracking-wider">{files.length} files</span>
+				<span className="text-xs font-medium text-muted-foreground/40 uppercase tracking-wider">{t("files.nFiles", { n: files.length })}</span>
 				<span className="text-xs tabular-nums text-green-600 dark:text-green-400">+{totalAdd}</span>
 				<span className="text-xs tabular-nums text-red-600 dark:text-red-400">-{totalDel}</span>
 				</div>
 				<div className="flex items-center gap-px rounded-md border p-0.5">
-					{VIEW_MODES.map(({ value, icon: ModeIcon, label }) => (
+					{VIEW_MODE_KEYS.map(({ value, icon: ModeIcon, labelKey }) => (
 						<button
 							key={value}
 							type="button"
 							onClick={() => setViewMode(value)}
-							title={label}
+							title={t(labelKey)}
 							className={`inline-flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors ${
 								viewMode === value
 									? "bg-accent text-foreground font-medium"
@@ -421,7 +425,7 @@ export function FilesPanel({
 							}`}
 						>
 							<ModeIcon className="h-3 w-3" />
-							<span className="hidden sm:inline">{label}</span>
+							<span className="hidden sm:inline">{t(labelKey)}</span>
 						</button>
 					))}
 				</div>
@@ -449,6 +453,7 @@ export function FilesPanel({
 					onFileSelect={onFileSelect}
 					expanded={expanded}
 					onToggleExpand={toggleExpand}
+					ungroupedLabel={t("files.ungrouped")}
 				/>
 			)}
 

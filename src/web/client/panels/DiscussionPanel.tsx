@@ -2,21 +2,22 @@ import { useState, useEffect, useCallback } from "react";
 import { Markdown } from "../components/Markdown.tsx";
 import { RefreshCw, ExternalLink, AlertCircle, Loader2 } from "lucide-react";
 import type { PrComment } from "../../../types/github.ts";
+import { useI18n, type TranslationKey } from "../lib/i18n/index.ts";
 
 interface DiscussionData {
 	body: string;
 	comments: PrComment[];
 }
 
-function timeAgo(dateStr: string): string {
+function timeAgo(dateStr: string, t: (key: TranslationKey, params?: Record<string, string | number>) => string): string {
 	const diff = Date.now() - new Date(dateStr).getTime();
 	const mins = Math.floor(diff / 60_000);
-	if (mins < 1) return "just now";
-	if (mins < 60) return `${mins}m ago`;
+	if (mins < 1) return t("time.justNow");
+	if (mins < 60) return t("time.minutesAgo", { n: mins });
 	const hours = Math.floor(mins / 60);
-	if (hours < 24) return `${hours}h ago`;
+	if (hours < 24) return t("time.hoursAgo", { n: hours });
 	const days = Math.floor(hours / 24);
-	if (days < 30) return `${days}d ago`;
+	if (days < 30) return t("time.daysAgo", { n: days });
 	return new Date(dateStr).toLocaleDateString();
 }
 
@@ -24,6 +25,7 @@ export function DiscussionPanel({ sessionId }: { sessionId?: string | null }) {
 	const [data, setData] = useState<DiscussionData | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const { t } = useI18n();
 
 	const fetchDiscussion = useCallback(async () => {
 		if (!sessionId) return;
@@ -53,7 +55,7 @@ export function DiscussionPanel({ sessionId }: { sessionId?: string | null }) {
 	if (!sessionId) {
 		return (
 			<div className="flex flex-col items-center justify-center py-20">
-				<p className="text-sm text-muted-foreground/50">No session available</p>
+				<p className="text-sm text-muted-foreground/50">{t("discussion.noSession")}</p>
 			</div>
 		);
 	}
@@ -62,7 +64,7 @@ export function DiscussionPanel({ sessionId }: { sessionId?: string | null }) {
 		return (
 			<div className="flex items-center justify-center py-20 gap-2">
 				<Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground/40" />
-				<span className="text-sm text-muted-foreground/50">Loading discussion</span>
+				<span className="text-sm text-muted-foreground/50">{t("discussion.loadingDiscussion")}</span>
 			</div>
 		);
 	}
@@ -80,7 +82,7 @@ export function DiscussionPanel({ sessionId }: { sessionId?: string | null }) {
 				className="inline-flex items-center gap-1.5 text-xs text-muted-foreground/50 hover:text-foreground transition-colors"
 				>
 					<RefreshCw className="h-3 w-3" />
-					Retry
+					{t("common.retry")}
 				</button>
 			</div>
 		);
@@ -96,7 +98,7 @@ export function DiscussionPanel({ sessionId }: { sessionId?: string | null }) {
 			{hasBody && (
 				<div>
 				<div className="text-xs font-medium text-muted-foreground/40 uppercase tracking-wider mb-3">
-					Description
+					{t("discussion.description")}
 				</div>
 				<div className="text-sm">
 					<Markdown>{data.body}</Markdown>
@@ -106,14 +108,14 @@ export function DiscussionPanel({ sessionId }: { sessionId?: string | null }) {
 
 			{!hasBody && !hasComments && (
 				<div className="text-center py-12">
-					<p className="text-sm text-muted-foreground/40">No description or comments</p>
+					<p className="text-sm text-muted-foreground/40">{t("discussion.noContent")}</p>
 				</div>
 			)}
 
 			{hasComments && (
 				<div>
 				<div className="text-xs font-medium text-muted-foreground/40 uppercase tracking-wider mb-3">
-					Comments
+					{t("discussion.comments")}
 					<span className="ml-1.5 text-muted-foreground/25">{data.comments.length}</span>
 				</div>
 					<div className="space-y-0">
@@ -134,7 +136,7 @@ export function DiscussionPanel({ sessionId }: { sessionId?: string | null }) {
 									)}
 								<span className="text-sm font-medium">{comment.author}</span>
 								<span className="text-xs text-muted-foreground/40">
-										{timeAgo(comment.created_at)}
+										{timeAgo(comment.created_at, t)}
 									</span>
 									<a
 										href={comment.html_url}

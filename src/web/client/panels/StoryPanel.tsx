@@ -1,6 +1,7 @@
 import type { NewprOutput } from "../../../types/output.ts";
 import { Markdown } from "../components/Markdown.tsx";
 import { ChatMessages } from "../components/ChatSection.tsx";
+import { useI18n } from "../lib/i18n/index.ts";
 
 const TYPE_DOT: Record<string, string> = {
 	feature: "bg-blue-500",
@@ -22,6 +23,7 @@ export function StoryPanel({
 	onAnchorClick: (kind: "group" | "file" | "line", id: string) => void;
 }) {
 	const { summary, groups, narrative } = data;
+	const { t } = useI18n();
 
 	return (
 		<div className="pt-5 space-y-6">
@@ -30,11 +32,11 @@ export function StoryPanel({
 
 			<div className="grid grid-cols-2 gap-x-6 gap-y-3">
 				<div>
-					<div className="text-xs font-medium text-muted-foreground/40 uppercase tracking-wider mb-1">Scope</div>
+					<div className="text-xs font-medium text-muted-foreground/40 uppercase tracking-wider mb-1">{t("story.scope")}</div>
 					<p className="text-sm text-muted-foreground/70 leading-relaxed">{summary.scope}</p>
 				</div>
 				<div>
-					<div className="text-xs font-medium text-muted-foreground/40 uppercase tracking-wider mb-1">Impact</div>
+					<div className="text-xs font-medium text-muted-foreground/40 uppercase tracking-wider mb-1">{t("story.impact")}</div>
 					<p className="text-sm text-muted-foreground/70 leading-relaxed">{summary.impact}</p>
 				</div>
 			</div>
@@ -62,7 +64,7 @@ export function StoryPanel({
 			</div>
 
 			<div className="border-t pt-5">
-				<div className="text-xs font-medium text-muted-foreground/40 uppercase tracking-wider mb-4">Walkthrough</div>
+				<div className="text-xs font-medium text-muted-foreground/40 uppercase tracking-wider mb-4">{t("story.walkthrough")}</div>
 				<Markdown onAnchorClick={onAnchorClick} activeId={activeId}>
 					{narrative}
 				</Markdown>

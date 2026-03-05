@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Loader2, Presentation, RefreshCw, Download, AlertCircle, ChevronLeft, ChevronRight } from "lucide-react";
 import type { NewprOutput, SlideDeck } from "../../../types/output.ts";
 import { sendNotification } from "../lib/notify.ts";
+import { useI18n } from "../lib/i18n/index.ts";
 
 export function SlidesPanel({ data, sessionId }: { data: NewprOutput; sessionId?: string | null }) {
 	const [state, setState] = useState<"idle" | "loading" | "done" | "error">("idle");
@@ -11,6 +12,7 @@ export function SlidesPanel({ data, sessionId }: { data: NewprOutput; sessionId?
 	const [progressDetail, setProgressDetail] = useState<{ current: number; total: number } | null>(null);
 	const [currentSlide, setCurrentSlide] = useState(0);
 	const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+	const { t } = useI18n();
 
 	const stopPolling = useCallback(() => {
 		if (pollRef.current) {
@@ -53,11 +55,11 @@ export function SlidesPanel({ data, sessionId }: { data: NewprOutput; sessionId?
 					if (partial?.slides?.length) {
 						setDeck(partial);
 						setState("done");
-						sendNotification("Slides ready", `${partial.slides.length} slides generated`);
+						sendNotification(t("slides.slidesReady"), t("slides.nSlidesGenerated", { n: partial.slides.length }));
 					}
 				} else if (job.status === "error") {
 					stopPolling();
-					setError(job.message ?? "Generation failed");
+					setError(job.message ?? t("slides.failed"));
 					if (partial?.slides?.length) {
 						setDeck(partial);
 						setState("done");
@@ -67,13 +69,13 @@ export function SlidesPanel({ data, sessionId }: { data: NewprOutput; sessionId?
 				}
 			} catch {}
 		}, 1000);
-	}, [sessionId, stopPolling]);
+	}, [sessionId, stopPolling, t]);
 
 	const generate = useCallback(async (resume = false) => {
 		if (!sessionId) return;
 		setState("loading");
 		setError(null);
-		setProgress(resume ? "Resuming failed slides..." : "Starting...");
+		setProgress(resume ? t("slides.resuming") : t("slides.starting"));
 		setProgressDetail(null);
 
 		try {
@@ -91,7 +93,7 @@ export function SlidesPanel({ data, sessionId }: { data: NewprOutput; sessionId?
 			setError(err instanceof Error ? err.message : String(err));
 			setState("error");
 		}
-	}, [sessionId, startPolling]);
+	}, [sessionId, startPolling, t]);
 
 	useEffect(() => {
 		if (!sessionId || state !== "idle") return;
@@ -122,9 +124,9 @@ export function SlidesPanel({ data, sessionId }: { data: NewprOutput; sessionId?
 			<div className="pt-8 flex flex-col items-center">
 				<div className="w-full max-w-sm space-y-6">
 					<div className="space-y-2">
-						<h3 className="text-xs font-medium">Slide Deck</h3>
+						<h3 className="text-xs font-medium">{t("slides.title")}</h3>
 						<p className="text-[11px] text-muted-foreground/60 leading-relaxed">
-							Generate a presentation that explains this PR to your team. The number of slides is automatically determined based on PR complexity.
+							{t("slides.description")}
 						</p>
 					</div>
 					<button
@@ -133,7 +135,7 @@ export function SlidesPanel({ data, sessionId }: { data: NewprOutput; sessionId?
 						className="w-full flex items-center justify-center gap-2 h-9 rounded-lg bg-foreground text-background text-xs font-medium hover:opacity-90 transition-opacity"
 					>
 						<Presentation className="h-3.5 w-3.5" />
-						Generate Slides
+						{t("slides.generateSlides")}
 					</button>
 				</div>
 			</div>
@@ -183,7 +185,7 @@ export function SlidesPanel({ data, sessionId }: { data: NewprOutput; sessionId?
 					</div>
 				)}
 				{partialSlides.length === 0 && !progressDetail && (
-					<p className="text-[10px] text-muted-foreground/30 text-center">This may take a few minutes</p>
+					<p className="text-[10px] text-muted-foreground/30 text-center">{t("slides.takesMinutes")}</p>
 				)}
 			</div>
 		);
@@ -196,7 +198,7 @@ export function SlidesPanel({ data, sessionId }: { data: NewprOutput; sessionId?
 					<div className="rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 flex items-start gap-2.5">
 						<AlertCircle className="h-3.5 w-3.5 text-destructive shrink-0 mt-0.5" />
 						<div className="space-y-1 min-w-0">
-							<p className="text-xs text-destructive font-medium">Generation failed</p>
+							<p className="text-xs text-destructive font-medium">{t("slides.failed")}</p>
 							<p className="text-[11px] text-destructive/70 break-words">{error}</p>
 						</div>
 					</div>
@@ -206,7 +208,7 @@ export function SlidesPanel({ data, sessionId }: { data: NewprOutput; sessionId?
 						className="w-full flex items-center justify-center gap-2 h-9 rounded-lg border text-xs text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors"
 					>
 						<RefreshCw className="h-3 w-3" />
-						Try again
+						{t("common.tryAgain")}
 					</button>
 				</div>
 			</div>
@@ -225,7 +227,7 @@ export function SlidesPanel({ data, sessionId }: { data: NewprOutput; sessionId?
 				<div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-yellow-500/20 bg-yellow-500/5">
 					<AlertCircle className="h-3.5 w-3.5 text-yellow-600 dark:text-yellow-400 shrink-0" />
 					<span className="text-[11px] text-yellow-700 dark:text-yellow-300 flex-1">
-						{deck.failedIndices!.length} slide{deck.failedIndices!.length > 1 ? "s" : ""} failed to generate
+						{t("slides.slidesFailed", { n: deck.failedIndices!.length })}
 					</span>
 					<button
 						type="button"
@@ -233,7 +235,7 @@ export function SlidesPanel({ data, sessionId }: { data: NewprOutput; sessionId?
 						className="flex items-center gap-1 text-[11px] font-medium text-yellow-700 dark:text-yellow-300 hover:text-yellow-900 dark:hover:text-yellow-100 shrink-0 transition-colors"
 					>
 						<RefreshCw className="h-3 w-3" />
-						Retry failed
+						{t("slides.retryFailed")}
 					</button>
 				</div>
 			)}
@@ -280,7 +282,7 @@ export function SlidesPanel({ data, sessionId }: { data: NewprOutput; sessionId?
 						className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] text-muted-foreground/60 hover:text-foreground hover:bg-accent/50 transition-colors"
 					>
 						<Download className="h-3 w-3" />
-						Download
+						{t("common.download")}
 					</button>
 					<button
 						type="button"
@@ -288,7 +290,7 @@ export function SlidesPanel({ data, sessionId }: { data: NewprOutput; sessionId?
 						className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] text-muted-foreground/60 hover:text-foreground hover:bg-accent/50 transition-colors"
 					>
 						<RefreshCw className="h-3 w-3" />
-						Regenerate
+						{t("common.regenerate")}
 					</button>
 				</div>
 			</div>

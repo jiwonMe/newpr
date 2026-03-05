@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ChevronRight } from "lucide-react";
 import type { FileGroup } from "../../../types/output.ts";
+import { useI18n } from "../lib/i18n/index.ts";
 
 const TYPE_DOT: Record<string, string> = {
 	feature: "bg-blue-500",
@@ -14,6 +15,7 @@ const TYPE_DOT: Record<string, string> = {
 
 export function GroupsPanel({ groups }: { groups: FileGroup[] }) {
 	const [expanded, setExpanded] = useState<Set<number>>(new Set([0]));
+	const { t } = useI18n();
 
 	function toggle(idx: number) {
 		setExpanded((s) => {
@@ -26,7 +28,7 @@ export function GroupsPanel({ groups }: { groups: FileGroup[] }) {
 	return (
 		<div className="pt-5">
 		<div className="text-xs font-medium text-muted-foreground/40 uppercase tracking-wider mb-3">
-			{groups.length} groups
+			{t("groups.nGroups", { n: groups.length })}
 		</div>
 			<div className="space-y-px">
 				{groups.map((group, i) => {
