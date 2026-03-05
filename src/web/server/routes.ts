@@ -15,6 +15,11 @@ import { getPlugin, getAllPlugins } from "../../plugins/registry.ts";
 import { chatWithTools, createLlmClient, type ChatTool, type ChatStreamEvent } from "../../llm/client.ts";
 import { createResilientLlmClient } from "../../llm/resilient-client.ts";
 import { detectAgents, runAgent } from "../../workspace/agent.ts";
+import { ensureRepo } from "../../workspace/repo-cache.ts";
+import { createWorktrees } from "../../workspace/worktree.ts";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { existsSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { publishStack, buildStackPublishPreview } from "../../stack/publish.ts";
 import { startStack, getStackState, cancelStack, subscribeStack, restoreCompletedStacks, setStackPublishResult, setStackPublishPreview, setStackPublishCleanupResult, recomputeStackPlanStatsIfNeeded } from "./stack-manager.ts";
@@ -209,9 +214,14 @@ ALWAYS use the appropriate tool to actually post the comment to GitHub. Do NOT j
 
 Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find the exact line numbers.
 
+## File Exploration
+You can read full file contents and explore the codebase beyond just the diff:
+- **read_file** → Read the complete content of any file in the repository. Use this when you need to see the full file, not just the changed lines. You can also specify a ref (branch) to compare before/after.
+- **explore_codebase** → Use an AI agent to explore the repository. The agent can read multiple files, search patterns, trace imports, find usages, and answer complex questions about the codebase. Use this for questions that require understanding code relationships across files.
+
 ## Instructions
 - Answer questions about this PR thoroughly and precisely.
-- Use your tools to fetch additional context when needed (file diffs, comments, reviews).
+- Use your tools to fetch additional context when needed (file diffs, full file contents, codebase exploration, comments, reviews).
 - When referencing code, include relevant snippets from the diff.
 - Be concise but thorough. Use markdown formatting.
 - If the user asks in Korean, respond in Korean. Match the user's language.`;
@@ -344,6 +354,35 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 							body: { type: "string", description: "Optional review summary message" },
 						},
 						required: ["event"],
+					},
+				},
+			},
+			{
+				type: "function",
+				function: {
+					name: "read_file",
+					description: "Read the full content of a specific file in this PR's repository (not just the diff). Use this to see the complete file, understand context around changes, or inspect files not modified in the PR.",
+					parameters: {
+						type: "object",
+						properties: {
+							path: { type: "string", description: "File path relative to repo root (e.g. 'src/auth/session.ts')" },
+							ref: { type: "string", description: "Git ref to read from. Defaults to the PR's head branch. Use base branch name to see the file before changes." },
+						},
+						required: ["path"],
+					},
+				},
+			},
+			{
+				type: "function",
+				function: {
+					name: "explore_codebase",
+					description: "Use an AI agent (Claude Code, OpenCode, or Codex) to explore the PR's repository. The agent can read files, search for patterns, find usages, trace imports, and answer questions about the codebase. Use this for complex queries that need multiple file reads or code understanding.",
+					parameters: {
+						type: "object",
+						properties: {
+							query: { type: "string", description: "What to explore — can be a file path to read, a question about code, or a search query (e.g. 'read src/auth/session.ts', 'how does the auth middleware work?', 'find all usages of UserSession type', 'what tests cover the payment module?')" },
+						},
+						required: ["query"],
 					},
 				},
 			},
@@ -1038,6 +1077,36 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 									if (name === "list_files") {
 										return sessionData.files.map((f) => `${f.path} (${f.status}): ${f.summary}`).join("\n");
 									}
+									if (name === "read_file") {
+										const filePath = args.path as string;
+										if (!filePath) return "Error: path argument required";
+										try {
+											const pr = parsePrInput(sessionData.meta.pr_url);
+											const ref = (args.ref as string) || sessionData.meta.head_branch;
+											const res = await fetch(
+												`https://api.github.com/repos/${pr.owner}/${pr.repo}/contents/${filePath}?ref=${encodeURIComponent(ref)}`,
+												{ headers: ghHeaders },
+											);
+											if (!res.ok) {
+												if (res.status === 404) return `File not found: ${filePath} (ref: ${ref})`;
+												return `GitHub API error: ${res.status}`;
+											}
+											const data = await res.json() as { type?: string; encoding?: string; content?: string; name?: string }[] | { type?: string; encoding?: string; content?: string; name?: string };
+											if (Array.isArray(data)) {
+												return data.map((d) => `${d.type === "dir" ? "\uD83D\uDCC1" : "\uD83D\uDCC4"} ${d.name}`).join("\n");
+											}
+											if (data.encoding === "base64" && data.content) {
+												const content = Buffer.from(data.content, "base64").toString("utf-8");
+												if (content.length > 50000) {
+													return `${content.slice(0, 50000)}\n\n... (truncated)`;
+												}
+												return content;
+											}
+											return "Could not read file content.";
+										} catch (err) {
+											return `Error: ${err instanceof Error ? err.message : String(err)}`;
+										}
+									}
 									return `Tool ${name} not available in inline mode`;
 								},
 								(event: ChatStreamEvent) => {
@@ -1475,6 +1544,60 @@ Before posting an inline comment, ALWAYS call \`get_file_diff\` first to find th
 							}
 							const data = await res.json() as { html_url?: string; state?: string };
 							return `Review submitted: ${data.state ?? event}. ${data.html_url ?? ""}`;
+						} catch (err) {
+							return `Error: ${err instanceof Error ? err.message : String(err)}`;
+						}
+					}
+					case "read_file": {
+						const filePath = args.path as string;
+						if (!filePath) return "Error: path argument required";
+						try {
+							const pr = parsePrInput(sessionData.meta.pr_url);
+							const ref = (args.ref as string) || sessionData.meta.head_branch;
+							const res = await fetch(
+								`https://api.github.com/repos/${pr.owner}/${pr.repo}/contents/${filePath}?ref=${encodeURIComponent(ref)}`,
+								{ headers: ghHeaders },
+							);
+							if (!res.ok) {
+								if (res.status === 404) return `File not found: ${filePath} (ref: ${ref})`;
+								return `GitHub API error: ${res.status}`;
+							}
+							const data = await res.json() as { type?: string; encoding?: string; content?: string; name?: string }[] | { type?: string; encoding?: string; content?: string; name?: string };
+							if (Array.isArray(data)) {
+								return data.map((d) => `${d.type === "dir" ? "\uD83D\uDCC1" : "\uD83D\uDCC4"} ${d.name}`).join("\n");
+							}
+							if (data.type === "dir") {
+								return "This path is a directory. Try listing its contents with a trailing /.";	
+							}
+							if (data.encoding === "base64" && data.content) {
+								const content = Buffer.from(data.content, "base64").toString("utf-8");
+								if (content.length > 50000) {
+									return `${content.slice(0, 50000)}\n\n... (truncated, file is ${content.length} chars)`;
+								}
+								return content;
+							}
+							if (data.type === "symlink" || data.type === "submodule") {
+								return `Unsupported file type: ${data.type}`;
+							}
+							return "Could not read file content.";
+						} catch (err) {
+							return `Error: ${err instanceof Error ? err.message : String(err)}`;
+						}
+					}
+					case "explore_codebase": {
+						const query = args.query as string;
+						if (!query) return "Error: query argument required";
+						const agents = await detectAgents();
+						if (agents.length === 0) return "Error: No AI agent available for codebase exploration. Install Claude Code, OpenCode, or Codex.";
+						try {
+							const pr = parsePrInput(sessionData.meta.pr_url);
+							const bareRepoPath = await ensureRepo(pr.owner, pr.repo, token);
+							const headPath = join(tmpdir(), "newpr-workspaces", `${pr.owner}-${pr.repo}-pr-${pr.number}`, "head");
+							if (!existsSync(headPath)) {
+								await createWorktrees(bareRepoPath, sessionData.meta.base_branch, pr.number, pr.owner, pr.repo);
+							}
+							const result = await runAgent(agents[0]!, headPath, query, { timeout: 60_000 });
+							return result.answer || "Agent returned empty response.";
 						} catch (err) {
 							return `Error: ${err instanceof Error ? err.message : String(err)}`;
 						}
