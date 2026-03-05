@@ -14,7 +14,7 @@ import { generateSlides } from "../../llm/slides.ts";
 import { getPlugin, getAllPlugins } from "../../plugins/registry.ts";
 import { chatWithTools, createLlmClient, type ChatTool, type ChatStreamEvent } from "../../llm/client.ts";
 import { createResilientLlmClient } from "../../llm/resilient-client.ts";
-import { detectAgents, runAgent } from "../../workspace/agent.ts";
+import { detectAgents, runAgent, runAgentWithFallback } from "../../workspace/agent.ts";
 import { ensureRepo } from "../../workspace/repo-cache.ts";
 import { createWorktrees } from "../../workspace/worktree.ts";
 import { tmpdir } from "node:os";
@@ -1596,10 +1596,13 @@ You can read full file contents and explore the codebase beyond just the diff:
 							if (!existsSync(headPath)) {
 								await createWorktrees(bareRepoPath, sessionData.meta.base_branch, pr.number, pr.owner, pr.repo);
 							}
-							const result = await runAgent(agents[0]!, headPath, query, { timeout: 60_000 });
-							return result.answer || "Agent returned empty response.";
+							const contextPrompt = `You are exploring the repository ${pr.owner}/${pr.repo} (PR #${pr.number}).\n\nUser query: ${query}\n\nExplore the codebase to answer this query. Read files, search for patterns, trace imports as needed. Be thorough but concise in your response.`;
+							const result = await runAgentWithFallback(agents, headPath, contextPrompt, { timeout: 120_000 });
+							return result.answer;
 						} catch (err) {
-							return `Error: ${err instanceof Error ? err.message : String(err)}`;
+							const msg = err instanceof Error ? err.message : String(err);
+							if (msg.includes("All agents failed")) return `Codebase exploration failed — all agents returned empty or errored. Try a more specific query. Details: ${msg}`;
+							return `Error exploring codebase: ${msg}`;
 						}
 					}
 					default:
