@@ -107,6 +107,11 @@ export interface StackGroupStats {
 	files_deleted: number;
 }
 
+export interface StackFileStats {
+	additions: number;
+	deletions: number;
+}
+
 export interface StackGroup {
 	id: string;
 	name: string;
@@ -117,6 +122,7 @@ export interface StackGroup {
 	explicit_deps?: string[];
 	order: number;
 	stats?: StackGroupStats;
+	file_stats?: Record<string, StackFileStats>;
 	pr_title?: string;
 }
 

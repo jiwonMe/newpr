@@ -1,4 +1,4 @@
-import type { DeltaEntry, DeltaFileChange, DeltaStatus, StackGroupStats } from "./types.ts";
+import type { DeltaEntry, DeltaFileChange, DeltaStatus, StackFileStats, StackGroupStats } from "./types.ts";
 
 export class DeltaExtractionError extends Error {
 	constructor(message: string) {
@@ -196,33 +196,55 @@ async function resolveParentTree(
 		return resolveTree(repoPath, baseSha);
 	}
 
-	if (parentIds.length === 1) {
-		return expectedTrees.get(parentIds[0]!) ?? resolveTree(repoPath, baseSha);
-	}
-
-	const parentTrees = parentIds.map((p) => expectedTrees.get(p)).filter((t): t is string => Boolean(t));
-	if (parentTrees.length === 0) return resolveTree(repoPath, baseSha);
-	if (parentTrees.length === 1) return parentTrees[0]!;
-
-	let mergedTree = parentTrees[0]!;
-	for (let i = 1; i < parentTrees.length; i++) {
-		const mergeResult = await Bun.$`git -C ${repoPath} merge-tree --write-tree --allow-unrelated-histories ${mergedTree} ${parentTrees[i]!}`.quiet().nothrow();
-		if (mergeResult.exitCode === 0) {
-			mergedTree = mergeResult.stdout.toString().trim().split("\n")[0]!.trim();
-		}
-	}
-
-	return mergedTree;
+	return expectedTrees.get(parentIds[0]!) ?? resolveTree(repoPath, baseSha);
 }
 
-export async function computeGroupStats(
+export interface StackGroupComputedStats {
+	stats: StackGroupStats;
+	file_stats: Record<string, StackFileStats>;
+}
+
+function materializeRenamedPath(path: string): string {
+	const bracePattern = /(.*)\{([^{}]*) => ([^{}]*)\}(.*)/;
+	const braceMatch = path.match(bracePattern);
+	if (braceMatch) {
+		const [, prefix = "", _from = "", to = "", suffix = ""] = braceMatch;
+		return `${prefix}${to}${suffix}`;
+	}
+
+	if (path.includes(" => ")) {
+		const parts = path.split(" => ");
+		const candidate = parts[parts.length - 1]?.trim();
+		if (candidate) return candidate;
+	}
+
+	return path;
+}
+
+function accumulateFileStats(
+	fileStats: Record<string, StackFileStats>,
+	path: string,
+	additions: number,
+	deletions: number,
+): void {
+	const existing = fileStats[path];
+	if (existing) {
+		existing.additions += additions;
+		existing.deletions += deletions;
+		return;
+	}
+
+	fileStats[path] = { additions, deletions };
+}
+
+export async function computeGroupStatsWithFiles(
 	repoPath: string,
 	baseSha: string,
 	orderedGroupIds: string[],
 	expectedTrees: Map<string, string>,
 	dagParents?: Map<string, string[]>,
-): Promise<Map<string, StackGroupStats>> {
-	const stats = new Map<string, StackGroupStats>();
+): Promise<Map<string, StackGroupComputedStats>> {
+	const stats = new Map<string, StackGroupComputedStats>();
 	const linearParents = new Map<string, string[]>(
 		orderedGroupIds.map((gid, i) => [gid, i === 0 ? [] : [orderedGroupIds[i - 1]!]]),
 	);
@@ -244,16 +266,47 @@ export async function computeGroupStats(
 		let filesAdded = 0;
 		let filesModified = 0;
 		let filesDeleted = 0;
+		const fileStats: Record<string, StackFileStats> = {};
 
 		if (numstatResult.exitCode === 0) {
 			const lines = numstatResult.stdout.toString().trim().split("\n").filter(Boolean);
 			for (const line of lines) {
 				const parts = line.split("\t");
 				if (parts.length < 3) continue;
-				const [addStr, delStr] = parts;
+				const [addStr, delStr, ...pathParts] = parts;
 				if (addStr === "-" || delStr === "-") continue;
-				additions += parseInt(addStr!, 10);
-				deletions += parseInt(delStr!, 10);
+
+				const addCount = parseInt(addStr!, 10);
+				const delCount = parseInt(delStr!, 10);
+				if (Number.isNaN(addCount) || Number.isNaN(delCount)) continue;
+
+				additions += addCount;
+				deletions += delCount;
+
+				const normalizedParts = pathParts.map((p) => p.trim()).filter((p) => p.length > 0);
+				if (normalizedParts.length === 0) continue;
+
+				if (normalizedParts.length === 1) {
+					const rawPath = normalizedParts[0]!;
+					accumulateFileStats(fileStats, rawPath, addCount, delCount);
+					const materialized = materializeRenamedPath(rawPath);
+					if (materialized !== rawPath) {
+						accumulateFileStats(fileStats, materialized, addCount, delCount);
+					}
+					continue;
+				}
+
+				const oldPath = normalizedParts[0]!;
+				const newPath = normalizedParts[normalizedParts.length - 1]!;
+				const candidates = new Set<string>([
+					oldPath,
+					newPath,
+					materializeRenamedPath(oldPath),
+					materializeRenamedPath(newPath),
+				]);
+				for (const candidate of candidates) {
+					accumulateFileStats(fileStats, candidate, addCount, delCount);
+				}
 			}
 		}
 
@@ -270,9 +323,33 @@ export async function computeGroupStats(
 			}
 		}
 
-		stats.set(gid, { additions, deletions, files_added: filesAdded, files_modified: filesModified, files_deleted: filesDeleted });
+		stats.set(gid, {
+			stats: {
+				additions,
+				deletions,
+				files_added: filesAdded,
+				files_modified: filesModified,
+				files_deleted: filesDeleted,
+			},
+			file_stats: fileStats,
+		});
 	}
 
+	return stats;
+}
+
+export async function computeGroupStats(
+	repoPath: string,
+	baseSha: string,
+	orderedGroupIds: string[],
+	expectedTrees: Map<string, string>,
+	dagParents?: Map<string, string[]>,
+): Promise<Map<string, StackGroupStats>> {
+	const detailed = await computeGroupStatsWithFiles(repoPath, baseSha, orderedGroupIds, expectedTrees, dagParents);
+	const stats = new Map<string, StackGroupStats>();
+	for (const [gid, value] of detailed) {
+		stats.set(gid, value.stats);
+	}
 	return stats;
 }
 

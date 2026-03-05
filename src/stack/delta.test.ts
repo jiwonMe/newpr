@@ -2,7 +2,9 @@ import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { extractDeltas, buildRenameMap } from "./delta.ts";
+import { extractDeltas, buildRenameMap, computeGroupStats, computeGroupStatsWithFiles } from "./delta.ts";
+import { createStackPlan } from "./plan.ts";
+import type { FileGroup } from "../types/output.ts";
 
 let testRepoPath: string;
 
@@ -113,6 +115,84 @@ describe("extractDeltas", () => {
 		expect(deltas[0]?.author).toBe("Test User");
 		expect(deltas[0]?.message).toBe("Test commit message");
 		expect(deltas[0]?.date).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+	});
+});
+
+describe("computeGroupStats", () => {
+	test("uses first dependency as baseline (matching publish base branch) for multi-parent DAG groups", async () => {
+		const repoPath = mkdtempSync(join(tmpdir(), "group-stats-dag-test-"));
+		try {
+			await Bun.$`git init ${repoPath}`.quiet();
+			await Bun.$`git -C ${repoPath} config user.name "Test User"`.quiet();
+			await Bun.$`git -C ${repoPath} config user.email "test@example.com"`.quiet();
+
+			await Bun.$`echo "a0" > ${join(repoPath, "a.txt")}`.quiet();
+			await Bun.$`echo "b0" > ${join(repoPath, "b.txt")}`.quiet();
+			await Bun.$`echo "c0" > ${join(repoPath, "c.txt")}`.quiet();
+			await Bun.$`git -C ${repoPath} add -A`.quiet();
+			await Bun.$`git -C ${repoPath} commit -m "base"`.quiet();
+			const baseSha = await getCurrentSha(repoPath);
+
+			await Bun.$`echo "a1" > ${join(repoPath, "a.txt")}`.quiet();
+			await Bun.$`git -C ${repoPath} add a.txt`.quiet();
+			await Bun.$`git -C ${repoPath} commit -m "A change"`.quiet();
+
+			await Bun.$`echo "b1" > ${join(repoPath, "b.txt")}`.quiet();
+			await Bun.$`git -C ${repoPath} add b.txt`.quiet();
+			await Bun.$`git -C ${repoPath} commit -m "B change"`.quiet();
+
+			await Bun.$`echo "c1" > ${join(repoPath, "c.txt")}`.quiet();
+			await Bun.$`git -C ${repoPath} add c.txt`.quiet();
+			await Bun.$`git -C ${repoPath} commit -m "C change"`.quiet();
+			const headSha = await getCurrentSha(repoPath);
+
+			const deltas = await extractDeltas(repoPath, baseSha, headSha);
+			const ownership = new Map([
+				["a.txt", "A"],
+				["b.txt", "B"],
+				["c.txt", "C"],
+			]);
+			const groups: FileGroup[] = [
+				{ name: "A", type: "feature", description: "A", files: ["a.txt"] },
+				{ name: "B", type: "feature", description: "B", files: ["b.txt"] },
+				{ name: "C", type: "feature", description: "C", files: ["c.txt"] },
+			];
+
+			const plan = await createStackPlan({
+				repo_path: repoPath,
+				base_sha: baseSha,
+				head_sha: headSha,
+				deltas,
+				ownership,
+				group_order: ["A", "B", "C"],
+				groups,
+				dependency_edges: [
+					{ from: "A", to: "C" },
+					{ from: "B", to: "C" },
+				],
+			});
+
+			const dagParents = new Map(plan.groups.map((g) => [g.id, g.deps ?? []]));
+			const stats = await computeGroupStats(repoPath, baseSha, ["A", "B", "C"], plan.expected_trees, dagParents);
+			const detailed = await computeGroupStatsWithFiles(repoPath, baseSha, ["A", "B", "C"], plan.expected_trees, dagParents);
+
+			expect(stats.get("A")?.additions).toBe(1);
+			expect(stats.get("A")?.deletions).toBe(1);
+			expect(stats.get("B")?.additions).toBe(1);
+			expect(stats.get("B")?.deletions).toBe(1);
+			expect(stats.get("C")?.additions).toBe(2);
+			expect(stats.get("C")?.deletions).toBe(2);
+			expect(detailed.get("A")?.file_stats["a.txt"]?.additions).toBe(1);
+			expect(detailed.get("A")?.file_stats["a.txt"]?.deletions).toBe(1);
+			expect(detailed.get("B")?.file_stats["b.txt"]?.additions).toBe(1);
+			expect(detailed.get("B")?.file_stats["b.txt"]?.deletions).toBe(1);
+			expect(detailed.get("C")?.file_stats["c.txt"]?.additions).toBe(1);
+			expect(detailed.get("C")?.file_stats["c.txt"]?.deletions).toBe(1);
+			expect(detailed.get("C")?.file_stats["b.txt"]?.additions).toBe(1);
+			expect(detailed.get("C")?.file_stats["b.txt"]?.deletions).toBe(1);
+		} finally {
+			rmSync(repoPath, { recursive: true, force: true });
+		}
 	});
 });
 
