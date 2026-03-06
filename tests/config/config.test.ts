@@ -21,6 +21,10 @@ describe("loadConfig", () => {
 	test("returns empty api key when OPENROUTER_API_KEY is missing", async () => {
 		const config = await loadConfig(undefined, emptyStore);
 		expect(config.openrouter_api_key).toBe("");
+		expect(config.model).toBe("anthropic/claude-sonnet-4.6");
+		expect(config.max_files).toBe(100);
+		expect(config.timeout).toBe(120);
+		expect(config.concurrency).toBe(5);
 	});
 
 	test("returns defaults when only API key is set", async () => {

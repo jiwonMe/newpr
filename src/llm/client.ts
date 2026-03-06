@@ -230,13 +230,101 @@ function createOpenRouterClient(options: LlmClientOptions): LlmClient {
 	};
 }
 
+const NO_BACKEND_ERROR =
+	"No LLM backend available. Set OPENROUTER_API_KEY or install Claude Code or Codex (npm install -g @anthropic-ai/claude-code or @openai/codex).";
+
+function toErrorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
+function isClaudeUnavailableError(error: unknown): boolean {
+	const message = toErrorMessage(error).toLowerCase();
+	return (
+		message.includes("claude code is not installed") ||
+		message.includes("exited with code 127") ||
+		message.includes("command not found") ||
+		message.includes("no such file or directory")
+	);
+}
+
 export function createLlmClient(options: LlmClientOptions): LlmClient {
+	// if the caller provided an API key use OpenRouter for full model choice
 	if (options.api_key) {
 		return createOpenRouterClient(options);
 	}
 
-	const { createClaudeCodeClient: create } = require("./claude-code-client.ts");
-	return create(options.timeout);
+	const requireFn = (globalThis as { require?: (id: string) => unknown }).require;
+	if (!requireFn) {
+		throw new Error(NO_BACKEND_ERROR);
+	}
+
+	let createClaudeCodeClient: ((timeout: number) => LlmClient) | null = null;
+	try {
+		const { createClaudeCodeClient: create } = requireFn("./claude-code-client.ts") as {
+			createClaudeCodeClient: (timeout: number) => LlmClient;
+		};
+		createClaudeCodeClient = create;
+	} catch {
+		// ignore module load failures and try codex instead
+	}
+
+	let createCodexClient: ((timeout: number) => LlmClient) | null = null;
+	try {
+		const { createCodexClient: create } = requireFn("./codex-client.ts") as {
+			createCodexClient: (timeout: number) => LlmClient;
+		};
+		createCodexClient = create;
+	} catch {
+		// ignore module load failures and fall through to error below
+	}
+
+	if (!createClaudeCodeClient && !createCodexClient) {
+		throw new Error(NO_BACKEND_ERROR);
+	}
+
+	let claudeClient: LlmClient | null = null;
+	let codexClient: LlmClient | null = null;
+
+	const getCodexClient = (): LlmClient => {
+		if (!createCodexClient) {
+			throw new Error(NO_BACKEND_ERROR);
+		}
+		if (!codexClient) {
+			codexClient = createCodexClient(options.timeout);
+		}
+		return codexClient;
+	};
+
+	const runWithFallback = async <T>(
+		call: (client: LlmClient) => Promise<T>,
+	): Promise<T> => {
+		if (createClaudeCodeClient) {
+			if (!claudeClient) {
+				claudeClient = createClaudeCodeClient(options.timeout);
+			}
+			try {
+				return await call(claudeClient);
+			} catch (error) {
+				if (!createCodexClient || !isClaudeUnavailableError(error)) {
+					throw error;
+				}
+			}
+		}
+		return call(getCodexClient());
+	};
+
+	return {
+		async complete(systemPrompt: string, userPrompt: string): Promise<LlmResponse> {
+			return runWithFallback((client) => client.complete(systemPrompt, userPrompt));
+		},
+		async completeStream(
+			systemPrompt: string,
+			userPrompt: string,
+			onChunk: StreamChunkCallback,
+		): Promise<LlmResponse> {
+			return runWithFallback((client) => client.completeStream(systemPrompt, userPrompt, onChunk));
+		},
+	};
 }
 
 export function hasApiKey(options: LlmClientOptions): boolean {
